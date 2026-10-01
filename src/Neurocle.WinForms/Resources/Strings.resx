@@ -39,4 +39,6 @@
   <data name="SaveProjectAs" xml:space="preserve"><value>另存新檔</value></data>
   <data name="ProjectFileFilter" xml:space="preserve"><value>Neurocle Project (*.neurocle)|*.neurocle</value></data>
   <data name="ProjectOperationFailed" xml:space="preserve"><value>專案操作失敗。請確認專案位置與檔案狀態後再試一次。</value></data>
+  <data name="ImportImages" xml:space="preserve"><value>匯入圖片</value></data>
+  <data name="ImageFileFilter" xml:space="preserve"><value>圖片 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp</value></data>
 </root>

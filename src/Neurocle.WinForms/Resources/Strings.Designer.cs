@@ -25,5 +25,7 @@ namespace Neurocle.WinForms.Resources
         internal static string SaveProjectAs { get { return ResourceManager.GetString("SaveProjectAs", CultureInfo.CurrentUICulture); } }
         internal static string ProjectFileFilter { get { return ResourceManager.GetString("ProjectFileFilter", CultureInfo.CurrentUICulture); } }
         internal static string ProjectOperationFailed { get { return ResourceManager.GetString("ProjectOperationFailed", CultureInfo.CurrentUICulture); } }
+        internal static string ImportImages { get { return ResourceManager.GetString("ImportImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImageFileFilter { get { return ResourceManager.GetString("ImageFileFilter", CultureInfo.CurrentUICulture); } }
     }
 }

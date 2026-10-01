@@ -28,6 +28,7 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Data" />
+    <Reference Include="System.Drawing" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Neurocle.Application\Neurocle.Application.csproj">
@@ -43,6 +44,7 @@
     <Compile Include="Persistence\ProjectLocationValidator.cs" />
     <Compile Include="Persistence\ProjectStore.cs" />
     <Compile Include="Persistence\ProjectLifecycle.cs" />
+    <Compile Include="Persistence\ProjectImageImporter.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

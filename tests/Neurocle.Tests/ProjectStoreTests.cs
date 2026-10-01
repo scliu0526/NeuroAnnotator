@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Drawing;
 using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.Infrastructure.Persistence;
@@ -115,6 +116,32 @@ namespace Neurocle.Tests
             finally { DeleteTemporaryProject(path); }
         }
 
+        [TestMethod]
+        public void Import_copies_images_with_hash_metadata_and_collision_suffix()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                string first = CreateBitmap(Path.Combine(sourceRoot, "one", "photo.bmp"), Color.Red);
+                string second = CreateBitmap(Path.Combine(sourceRoot, "two", "photo.bmp"), Color.Blue);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    var images = store.ImportFiles(new[] { second, first });
+                    Assert.AreEqual(2, images.Count);
+                    Assert.AreEqual("photo.bmp", images[0].ManagedFileName);
+                    Assert.AreEqual("photo (1).bmp", images[1].ManagedFileName);
+                    Assert.AreEqual(1, images[0].Sequence);
+                    Assert.AreEqual(2, images[1].Sequence);
+                    Assert.AreEqual(3, images[0].Width);
+                    Assert.AreEqual(2, images[0].Height);
+                    Assert.IsTrue(File.Exists(Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
+                    Assert.AreNotEqual(images[0].Sha256, images[1].Sha256);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
         private static string TemporaryProjectPath()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
@@ -125,6 +152,17 @@ namespace Neurocle.Tests
         {
             string directory = Path.GetDirectoryName(path);
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+
+        private static string CreateBitmap(string path, Color color)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            using (var bitmap = new Bitmap(3, 2))
+            {
+                bitmap.SetPixel(0, 0, color);
+                bitmap.Save(path);
+            }
+            return path;
         }
     }
 }

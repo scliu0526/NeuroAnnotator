@@ -27,6 +27,7 @@ namespace Neurocle.WinForms
             projectMenu.DropDownItems.Add(Strings.OpenProject, null, (sender, args) => RunProjectCommand(OpenProject));
             projectMenu.DropDownItems.Add(Strings.SaveProject, null, (sender, args) => RunProjectCommand(SaveProject));
             projectMenu.DropDownItems.Add(Strings.SaveProjectAs, null, (sender, args) => RunProjectCommand(SaveProjectAs));
+            projectMenu.DropDownItems.Add(Strings.ImportImages, null, (sender, args) => RunProjectCommand(ImportImages));
             menu.Items.Add(projectMenu);
 
             status = new Label
@@ -73,6 +74,16 @@ namespace Neurocle.WinForms
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 IProjectSession copy = project.SaveAs(dialog.FileName);
                 ReplaceProject(copy);
+            }
+        }
+
+        private void ImportImages()
+        {
+            if (project == null) return;
+            using (var dialog = new OpenFileDialog { Filter = Strings.ImageFileFilter, Multiselect = true })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                project.ImportFiles(dialog.FileNames);
             }
         }
 
