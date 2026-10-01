@@ -97,7 +97,7 @@ namespace Neurocle.WinForms
             }
             catch (Exception exception)
             {
-                MessageBox.Show(this, exception.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
