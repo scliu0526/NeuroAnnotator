@@ -41,4 +41,8 @@
   <data name="ProjectOperationFailed" xml:space="preserve"><value>專案操作失敗。請確認專案位置與檔案狀態後再試一次。</value></data>
   <data name="ImportImages" xml:space="preserve"><value>匯入圖片</value></data>
   <data name="ImageFileFilter" xml:space="preserve"><value>圖片 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp</value></data>
+  <data name="ImageImportUnsupportedFormat" xml:space="preserve"><value>圖片匯入失敗：僅支援 PNG、JPG、JPEG 與 BMP 格式。</value></data>
+  <data name="ImageImportFileSizeLimit" xml:space="preserve"><value>圖片匯入失敗：單一檔案不可超過 100 MB。</value></data>
+  <data name="ImageImportDimensionLimit" xml:space="preserve"><value>圖片匯入失敗：寬高不可超過 10,000 像素，總像素不可超過 100,000,000。</value></data>
+  <data name="ImageImportProjectLimit" xml:space="preserve"><value>圖片匯入失敗：每個專案最多可包含 10,000 張圖片。</value></data>
 </root>

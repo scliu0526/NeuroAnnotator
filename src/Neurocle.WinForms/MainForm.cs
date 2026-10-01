@@ -108,7 +108,21 @@ namespace Neurocle.WinForms
             }
             catch (Exception exception)
             {
-                MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static string GetErrorMessage(Exception exception)
+        {
+            var imageImportException = exception as ImageImportException;
+            if (imageImportException == null) return Strings.ProjectOperationFailed;
+            switch (imageImportException.Failure)
+            {
+                case ImageImportFailure.UnsupportedFormat: return Strings.ImageImportUnsupportedFormat;
+                case ImageImportFailure.FileSizeLimit: return Strings.ImageImportFileSizeLimit;
+                case ImageImportFailure.DimensionLimit: return Strings.ImageImportDimensionLimit;
+                case ImageImportFailure.ProjectImageLimit: return Strings.ImageImportProjectLimit;
+                default: return Strings.ProjectOperationFailed;
             }
         }
     }

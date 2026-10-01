@@ -8,17 +8,32 @@ namespace Neurocle.Infrastructure.Persistence
 {
     internal static class ProjectImageImporter
     {
+        internal const long MaximumFileSizeBytes = 100L * 1024L * 1024L;
+        internal const int MaximumDimension = 10000;
+        internal const long MaximumPixelCount = 100000000L;
+
         internal static ProjectImage Read(string sourcePath, string managedFileName, int sequence)
         {
             string extension = Path.GetExtension(sourcePath);
-            if (!IsSupported(extension)) throw new NotSupportedException("Unsupported image format.");
+            if (!IsSupported(extension)) throw new ImageImportException(ImageImportFailure.UnsupportedFormat);
             var info = new FileInfo(sourcePath);
-            if (!info.Exists || info.Length > 100L * 1024L * 1024L) throw new InvalidDataException("Image size is invalid.");
+            if (!info.Exists) throw new FileNotFoundException("The image file does not exist.", sourcePath);
+            ValidateFileSize(info.Length);
             using (var image = Image.FromFile(sourcePath, false))
             {
-                if (image.Width > 10000 || image.Height > 10000 || (long)image.Width * image.Height > 100000000L) throw new InvalidDataException("Image dimensions are invalid.");
+                ValidateDimensions(image.Width, image.Height);
                 return new ProjectImage(Guid.NewGuid().ToString("D"), Path.GetFileName(sourcePath), managedFileName, Hash(sourcePath), image.Width, image.Height, sequence);
             }
+        }
+
+        internal static void ValidateFileSize(long length)
+        {
+            if (length > MaximumFileSizeBytes) throw new ImageImportException(ImageImportFailure.FileSizeLimit);
+        }
+
+        internal static void ValidateDimensions(int width, int height)
+        {
+            if (width > MaximumDimension || height > MaximumDimension || (long)width * height > MaximumPixelCount) throw new ImageImportException(ImageImportFailure.DimensionLimit);
         }
 
         private static bool IsSupported(string extension)

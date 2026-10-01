@@ -9,7 +9,7 @@ namespace Neurocle.Infrastructure.Persistence
 {
     public sealed class ProjectStore : IProjectSession
     {
-        private const int CurrentSchemaVersion = 1;
+        private const int CurrentSchemaVersion = 2;
         private readonly FileStream lockStream;
         private readonly SqliteConnection connection;
 
@@ -37,14 +37,14 @@ namespace Neurocle.Infrastructure.Persistence
                     Execute(connection, transaction, "CREATE TABLE SchemaInfo (Version INTEGER NOT NULL);");
                     Execute(connection, transaction, "CREATE TABLE ProjectInfo (ProjectId TEXT NOT NULL, CreatedUtc TEXT NOT NULL);");
                     CreateImageTable(connection, transaction);
-                    Execute(connection, transaction, "INSERT INTO SchemaInfo (Version) VALUES (1);");
+                    Execute(connection, transaction, "INSERT INTO SchemaInfo (Version) VALUES ($version);", new SqliteParameter("$version", CurrentSchemaVersion));
                     Execute(connection, transaction, "INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ($id, $created);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$created", DateTime.UtcNow.ToString("O")));
                     transaction.Commit();
                 }
 
                 var store = new ProjectStore(fullPath, lockHandle, connection);
-                CreateImageTable(connection, null);
                 Directory.CreateDirectory(store.ImagesDirectory);
+                store.RecoverStagedImages();
                 return store;
             }
             catch
@@ -64,14 +64,11 @@ namespace Neurocle.Infrastructure.Persistence
             try
             {
                 connection = OpenConnection(fullPath);
-                object version = ExecuteScalar(connection, "SELECT Version FROM SchemaInfo LIMIT 1;");
-                if (Convert.ToInt32(version) != CurrentSchemaVersion)
-                {
-                    throw new NotSupportedException("The project schema version is not supported.");
-                }
+                EnsureCurrentSchema(connection, fullPath);
 
                 var store = new ProjectStore(fullPath, lockHandle, connection);
                 Directory.CreateDirectory(store.ImagesDirectory);
+                store.RecoverStagedImages();
                 return store;
             }
             catch
@@ -100,10 +97,10 @@ namespace Neurocle.Infrastructure.Persistence
         public IReadOnlyList<ProjectImage> ImportFiles(IEnumerable<string> filePaths)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
-            var sources = filePaths.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).ToList();
+            var sources = filePaths.OrderBy(Path.GetFileName, NaturalFileNameComparer.Instance).ToList();
             if (sources.Count == 0) return new List<ProjectImage>();
             long existing = Convert.ToInt64(ExecuteScalar(connection, "SELECT COUNT(*) FROM ImageRecord;"));
-            if (existing + sources.Count > 10000) throw new InvalidOperationException("The project image limit would be exceeded.");
+            if (existing + sources.Count > 10000) throw new ImageImportException(ImageImportFailure.ProjectImageLimit);
 
             var imported = new List<ProjectImage>();
             foreach (string source in sources)
@@ -126,6 +123,76 @@ namespace Neurocle.Infrastructure.Persistence
                 }
             }
             return imported;
+        }
+
+        public IReadOnlyList<ProjectImage> GetImages()
+        {
+            var images = new List<ProjectImage>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, OriginalFileName, ManagedFileName, Sha256, Width, Height, Sequence FROM ImageRecord ORDER BY Sequence;";
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        images.Add(new ProjectImage(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6)));
+                    }
+                }
+            }
+            return images;
+        }
+
+        public void DeleteImages(IEnumerable<string> imageIds)
+        {
+            if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
+            var ids = new HashSet<string>(imageIds);
+            if (ids.Count == 0) return;
+
+            var images = GetImages();
+            var deleted = images.Where(image => ids.Contains(image.Id)).ToList();
+            if (deleted.Count == 0) return;
+            var remaining = images.Where(image => !ids.Contains(image.Id)).ToList();
+
+            var stagedPaths = new Dictionary<string, string>();
+            try
+            {
+                string operationDirectory = Path.Combine(DeletingImagesDirectory, Guid.NewGuid().ToString("N"));
+                foreach (ProjectImage image in deleted)
+                {
+                    string originalPath = Path.Combine(ImagesDirectory, image.ManagedFileName);
+                    if (!File.Exists(originalPath)) continue;
+                    Directory.CreateDirectory(operationDirectory);
+                    string stagedPath = Path.Combine(operationDirectory, image.ManagedFileName);
+                    File.Move(originalPath, stagedPath);
+                    stagedPaths.Add(originalPath, stagedPath);
+                }
+            }
+            catch
+            {
+                RestoreStagedImages(stagedPaths);
+                throw;
+            }
+
+            try
+            {
+                CompleteOperation((db, transaction) =>
+                {
+                    foreach (ProjectImage image in deleted)
+                    {
+                        Execute(db, transaction, "DELETE FROM ImageRecord WHERE Id = $id;", new SqliteParameter("$id", image.Id));
+                    }
+                    for (int index = 0; index < remaining.Count; index++)
+                    {
+                        Execute(db, transaction, "UPDATE ImageRecord SET Sequence = $sequence WHERE Id = $id;", new SqliteParameter("$sequence", index + 1), new SqliteParameter("$id", remaining[index].Id));
+                    }
+                });
+            }
+            catch
+            {
+                RestoreStagedImages(stagedPaths);
+                throw;
+            }
+            RecoverStagedImages();
         }
 
         public IProjectSession SaveAs(string targetPath)
@@ -206,6 +273,35 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        private static void EnsureCurrentSchema(SqliteConnection db, string projectPath)
+        {
+            int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
+            if (version == CurrentSchemaVersion) return;
+            if (version != 1) throw new NotSupportedException("The project schema version is not supported.");
+
+            CreateMigrationBackup(db, projectPath, version);
+            using (SqliteTransaction transaction = db.BeginTransaction())
+            {
+                CreateImageTable(db, transaction);
+                Execute(db, transaction, "UPDATE SchemaInfo SET Version = $version;", new SqliteParameter("$version", CurrentSchemaVersion));
+                transaction.Commit();
+            }
+        }
+
+        private static void CreateMigrationBackup(SqliteConnection db, string projectPath, int version)
+        {
+            Execute(db, null, "PRAGMA wal_checkpoint(FULL);");
+            string directory = Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".backups");
+            Directory.CreateDirectory(directory);
+            string name = "before-migration-v" + version + ".neurocle";
+            string backupPath = Path.Combine(directory, name);
+            int suffix = 1;
+            while (File.Exists(backupPath)) backupPath = Path.Combine(directory, "before-migration-v" + version + " (" + suffix++ + ").neurocle");
+            File.Copy(projectPath, backupPath);
+            File.SetLastWriteTimeUtc(backupPath, DateTime.UtcNow);
+            foreach (string oldBackup in Directory.GetFiles(directory, "*.neurocle").OrderByDescending(File.GetLastWriteTimeUtc).ThenByDescending(file => file, StringComparer.OrdinalIgnoreCase).Skip(5)) File.Delete(oldBackup);
+        }
+
         private static void CopyDirectory(string source, string target)
         {
             Directory.CreateDirectory(target);
@@ -228,12 +324,119 @@ namespace Neurocle.Infrastructure.Persistence
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ImageRecord (Id TEXT PRIMARY KEY NOT NULL, OriginalFileName TEXT NOT NULL, ManagedFileName TEXT NOT NULL UNIQUE, Sha256 TEXT NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, Sequence INTEGER NOT NULL UNIQUE);");
         }
 
+        private string DeletingImagesDirectory
+        {
+            get { return ImagesDirectory + ".deleting"; }
+        }
+
+        private void RecoverStagedImages()
+        {
+            if (!Directory.Exists(DeletingImagesDirectory)) return;
+            foreach (string path in Directory.GetFiles(DeletingImagesDirectory, "*", SearchOption.AllDirectories))
+            {
+                string managedFileName = Path.GetFileName(path);
+                string destination = Path.Combine(ImagesDirectory, managedFileName);
+                try
+                {
+                    if (ImageRecordExists(managedFileName))
+                    {
+                        if (!File.Exists(destination)) File.Move(path, destination);
+                        else File.Delete(path);
+                    }
+                    else File.Delete(path);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            foreach (string directory in Directory.GetDirectories(DeletingImagesDirectory, "*", SearchOption.AllDirectories).OrderByDescending(directory => directory.Length))
+            {
+                if (!Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory);
+            }
+            if (Directory.Exists(DeletingImagesDirectory) && !Directory.EnumerateFileSystemEntries(DeletingImagesDirectory).Any()) Directory.Delete(DeletingImagesDirectory);
+        }
+
+        private bool ImageRecordExists(string managedFileName)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT COUNT(*) FROM ImageRecord WHERE ManagedFileName = $name;";
+                command.Parameters.AddWithValue("$name", managedFileName);
+                return Convert.ToInt64(command.ExecuteScalar()) != 0;
+            }
+        }
+
+        private static void RestoreStagedImages(IDictionary<string, string> stagedPaths)
+        {
+            foreach (KeyValuePair<string, string> stagedPath in stagedPaths)
+            {
+                if (File.Exists(stagedPath.Value) && !File.Exists(stagedPath.Key)) File.Move(stagedPath.Value, stagedPath.Key);
+            }
+        }
+
         private static void DeleteNewProject(string projectPath)
         {
             string imagesDirectory = Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".images");
             if (Directory.Exists(imagesDirectory)) Directory.Delete(imagesDirectory, true);
             if (File.Exists(projectPath)) File.Delete(projectPath);
             if (File.Exists(projectPath + ".lock")) File.Delete(projectPath + ".lock");
+        }
+
+        private sealed class NaturalFileNameComparer : IComparer<string>
+        {
+            public static readonly NaturalFileNameComparer Instance = new NaturalFileNameComparer();
+
+            public int Compare(string left, string right)
+            {
+                if (ReferenceEquals(left, right)) return 0;
+                if (left == null) return -1;
+                if (right == null) return 1;
+
+                int leftIndex = 0;
+                int rightIndex = 0;
+                while (leftIndex < left.Length && rightIndex < right.Length)
+                {
+                    bool leftDigit = char.IsDigit(left[leftIndex]);
+                    bool rightDigit = char.IsDigit(right[rightIndex]);
+                    if (leftDigit && rightDigit)
+                    {
+                        int leftEnd = FindDigitsEnd(left, leftIndex);
+                        int rightEnd = FindDigitsEnd(right, rightIndex);
+                        int result = CompareDigits(left, leftIndex, leftEnd, right, rightIndex, rightEnd);
+                        if (result != 0) return result;
+                        leftIndex = leftEnd;
+                        rightIndex = rightEnd;
+                        continue;
+                    }
+
+                    int characterResult = char.ToUpperInvariant(left[leftIndex]).CompareTo(char.ToUpperInvariant(right[rightIndex]));
+                    if (characterResult != 0) return characterResult;
+                    leftIndex++;
+                    rightIndex++;
+                }
+                return left.Length.CompareTo(right.Length);
+            }
+
+            private static int FindDigitsEnd(string value, int start)
+            {
+                int index = start;
+                while (index < value.Length && char.IsDigit(value[index])) index++;
+                return index;
+            }
+
+            private static int CompareDigits(string left, int leftStart, int leftEnd, string right, int rightStart, int rightEnd)
+            {
+                while (leftStart < leftEnd && left[leftStart] == '0') leftStart++;
+                while (rightStart < rightEnd && right[rightStart] == '0') rightStart++;
+                int leftLength = leftEnd - leftStart;
+                int rightLength = rightEnd - rightStart;
+                if (leftLength != rightLength) return leftLength.CompareTo(rightLength);
+                for (int index = 0; index < leftLength; index++)
+                {
+                    int result = left[leftStart + index].CompareTo(right[rightStart + index]);
+                    if (result != 0) return result;
+                }
+                return 0;
+            }
         }
     }
 }

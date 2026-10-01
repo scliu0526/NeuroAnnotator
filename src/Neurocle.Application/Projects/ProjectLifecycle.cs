@@ -3,12 +3,32 @@ using System.Collections.Generic;
 
 namespace Neurocle.Application.Projects
 {
+    public enum ImageImportFailure
+    {
+        UnsupportedFormat,
+        FileSizeLimit,
+        DimensionLimit,
+        ProjectImageLimit
+    }
+
+    public sealed class ImageImportException : Exception
+    {
+        public ImageImportException(ImageImportFailure failure) : base(failure.ToString())
+        {
+            Failure = failure;
+        }
+
+        public ImageImportFailure Failure { get; }
+    }
+
     public interface IProjectSession : IDisposable
     {
         string ProjectPath { get; }
         void Save();
         IProjectSession SaveAs(string targetPath);
         IReadOnlyList<ProjectImage> ImportFiles(IEnumerable<string> filePaths);
+        IReadOnlyList<ProjectImage> GetImages();
+        void DeleteImages(IEnumerable<string> imageIds);
     }
 
     public sealed class ProjectImage

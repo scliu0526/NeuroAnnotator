@@ -40,6 +40,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.12" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="InfrastructureAssembly.cs" />
     <Compile Include="Persistence\SqliteRuntimeProbe.cs" />
     <Compile Include="Persistence\ProjectLocationValidator.cs" />
     <Compile Include="Persistence\ProjectStore.cs" />

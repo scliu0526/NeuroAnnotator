@@ -27,5 +27,9 @@ namespace Neurocle.WinForms.Resources
         internal static string ProjectOperationFailed { get { return ResourceManager.GetString("ProjectOperationFailed", CultureInfo.CurrentUICulture); } }
         internal static string ImportImages { get { return ResourceManager.GetString("ImportImages", CultureInfo.CurrentUICulture); } }
         internal static string ImageFileFilter { get { return ResourceManager.GetString("ImageFileFilter", CultureInfo.CurrentUICulture); } }
+        internal static string ImageImportUnsupportedFormat { get { return ResourceManager.GetString("ImageImportUnsupportedFormat", CultureInfo.CurrentUICulture); } }
+        internal static string ImageImportFileSizeLimit { get { return ResourceManager.GetString("ImageImportFileSizeLimit", CultureInfo.CurrentUICulture); } }
+        internal static string ImageImportDimensionLimit { get { return ResourceManager.GetString("ImageImportDimensionLimit", CultureInfo.CurrentUICulture); } }
+        internal static string ImageImportProjectLimit { get { return ResourceManager.GetString("ImageImportProjectLimit", CultureInfo.CurrentUICulture); } }
     }
 }
