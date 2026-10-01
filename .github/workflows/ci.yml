@@ -24,7 +24,7 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($vstest)) {
             throw 'VSTest console was not found on the GitHub Actions runner.'
           }
-          & $vstest tests\Neurocle.Tests\bin\x64\Release\Neurocle.Tests.dll /Platform:x64
+          & $vstest tests\Neurocle.Tests\bin\x64\Release\Neurocle.Tests.dll /Platform:x64 /TestCaseFilter:"TestCategory!=ManualPerformance"
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }

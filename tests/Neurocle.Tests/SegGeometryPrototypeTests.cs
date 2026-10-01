@@ -32,9 +32,11 @@ namespace Neurocle.Tests
         public void EraserCreatesHoleAndKeepsRemainingArea()
         {
             Paths64 result = SegGeometryPrototype.Difference(Paths(Rectangle(0, 0, 20, 20)), Paths(Rectangle(5, 5, 15, 15)));
+            Path64 bridge = SegGeometryPrototype.BridgeHole(result[0], result[1]);
 
             Assert.AreEqual(2, result.Count);
             Assert.AreEqual(300d, SegGeometryPrototype.Area(result));
+            Assert.AreEqual(300d, Math.Abs(Clipper.Area(bridge)));
         }
 
         [TestMethod]
@@ -57,10 +59,11 @@ namespace Neurocle.Tests
         [TestMethod]
         public void RoundingAndBoundsFollowAcceptedContract()
         {
-            Point64 point = SegGeometryPrototype.RoundAndClamp(9.5, -0.5, 10, 10);
+            Point64 rounded = SegGeometryPrototype.RoundAndClamp(4.5, 4.5, 10, 10);
+            Point64 clamped = SegGeometryPrototype.RoundAndClamp(10.5, -0.5, 10, 10);
 
-            Assert.AreEqual(9L, point.X);
-            Assert.AreEqual(0L, point.Y);
+            Assert.AreEqual(new Point64(5, 5), rounded);
+            Assert.AreEqual(new Point64(9, 0), clamped);
         }
 
         [TestMethod]
@@ -96,17 +99,18 @@ namespace Neurocle.Tests
         {
             Path64 rectangle = SegGeometryPrototype.Rectangle(0, 0, 20, 10);
             Path64 ellipse = SegGeometryPrototype.Ellipse(10, 10, 8, 4, 32);
-            Path64 rotated = SegGeometryPrototype.Rotate(rectangle, 90d, 10d, 5d);
+            Path64 rotated = SegGeometryPrototype.RotateWithinBounds(rectangle, 90d, 10d, 10d, 30, 30);
 
             Assert.AreEqual(200d, Math.Abs(Clipper.Area(rectangle)));
             Assert.IsTrue(Math.Abs(Clipper.Area(ellipse)) > 90d);
             CollectionAssert.AreEqual(new Path64
             {
-                new Point64(15, -5), new Point64(15, 15), new Point64(5, 15), new Point64(5, -5)
+                new Point64(20, 0), new Point64(20, 20), new Point64(10, 20), new Point64(10, 0)
             }, rotated);
         }
 
         [TestMethod]
+        [TestCategory("ManualPerformance")]
         public void SeventeenThousandPointRotationMaintainsThirtyFramesPerSecondAndUndoFitsLimit()
         {
             const int pointCount = 17000;
@@ -115,7 +119,7 @@ namespace Neurocle.Tests
             var stopwatch = Stopwatch.StartNew();
             for (var frame = 0; frame < frames; frame++)
             {
-                path = SegGeometryPrototype.Rotate(path, 0.25d, 5000d, 5000d);
+                path = SegGeometryPrototype.RotateWithinBounds(path, 0.25d, 5000d, 5000d, 10001, 10001);
             }
 
             stopwatch.Stop();

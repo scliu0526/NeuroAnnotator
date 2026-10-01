@@ -86,6 +86,43 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
+        public static Path64 RotateWithinBounds(Path64 path, double degrees, double centerX, double centerY, long width, long height)
+        {
+            Path64 rotated = Rotate(path, degrees, centerX, centerY);
+            foreach (Point64 point in rotated)
+            {
+                if (point.X < 0 || point.Y < 0 || point.X >= width || point.Y >= height)
+                {
+                    return new Path64(path);
+                }
+            }
+
+            return rotated;
+        }
+
+        public static Path64 BridgeHole(Path64 outer, Path64 hole)
+        {
+            if (outer.Count < 3 || hole.Count < 3)
+            {
+                throw new ArgumentException("Both contours must be closed regions.");
+            }
+
+            var holePath = new Path64(hole);
+            if (Math.Sign(Clipper.Area(outer)) == Math.Sign(Clipper.Area(holePath)))
+            {
+                holePath.Reverse();
+            }
+
+            var result = new Path64(outer.Count + holePath.Count + 4);
+            result.AddRange(outer);
+            result.Add(outer[0]);
+            result.Add(holePath[0]);
+            result.AddRange(holePath);
+            result.Add(holePath[0]);
+            result.Add(outer[0]);
+            return result;
+        }
+
         public static Point64 RoundAndClamp(double x, double y, long width, long height)
         {
             if (width < 1 || height < 1)
