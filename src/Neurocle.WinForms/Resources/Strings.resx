@@ -45,4 +45,17 @@
   <data name="ImageImportFileSizeLimit" xml:space="preserve"><value>圖片匯入失敗：單一檔案不可超過 100 MB。</value></data>
   <data name="ImageImportDimensionLimit" xml:space="preserve"><value>圖片匯入失敗：寬高不可超過 10,000 像素，總像素不可超過 100,000,000。</value></data>
   <data name="ImageImportProjectLimit" xml:space="preserve"><value>圖片匯入失敗：每個專案最多可包含 10,000 張圖片。</value></data>
+  <data name="ImportFolder" xml:space="preserve"><value>匯入資料夾</value></data>
+  <data name="IncludeSubdirectoriesPrompt" xml:space="preserve"><value>是否包含子資料夾中的檔案？</value></data>
+  <data name="ImportProgressTitle" xml:space="preserve"><value>正在匯入圖片</value></data>
+  <data name="ImportInProgress" xml:space="preserve"><value>正在匯入；可按取消停止後續檔案。</value></data>
+  <data name="Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="ImportReportSummary" xml:space="preserve"><value>已匯入：{0}&#13;&#10;失敗：{1}&#13;&#10;未完成：{2}</value></data>
+  <data name="ImportReportUnknownCount" xml:space="preserve"><value>無法確定</value></data>
+  <data name="ImportScanCancelled" xml:space="preserve"><value>資料夾掃描已取消；尚未掃描的項目數無法確定。</value></data>
+  <data name="ImageImportFileNotFound" xml:space="preserve"><value>找不到檔案。</value></data>
+  <data name="ImageImportInvalidImage" xml:space="preserve"><value>不是可讀取的圖片檔案。</value></data>
+  <data name="ImageImportDirectoryNotFound" xml:space="preserve"><value>找不到選取的資料夾。</value></data>
+  <data name="ImageImportDirectoryAccess" xml:space="preserve"><value>沒有讀取選取資料夾的權限。</value></data>
+  <data name="ImageImportUnknownFailure" xml:space="preserve"><value>匯入失敗，請確認檔案是否可讀取。</value></data>
 </root>

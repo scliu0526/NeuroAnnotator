@@ -435,6 +435,148 @@ namespace Neurocle.Tests
             finally { DeleteTemporaryProject(path); }
         }
 
+        [TestMethod]
+        public void Report_import_keeps_valid_files_and_reports_each_invalid_file()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                string first = CreateBitmap(Path.Combine(sourceRoot, "1.bmp"), Color.Red);
+                string invalid = Path.Combine(sourceRoot, "2.txt");
+                File.WriteAllText(invalid, "not an image");
+                string second = CreateBitmap(Path.Combine(sourceRoot, "3.bmp"), Color.Blue);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ImageImportReport report = store.ImportFilesWithReport(new[] { second, invalid, first }, null);
+                    Assert.AreEqual(2, report.Imported.Count);
+                    Assert.AreEqual(1, report.Failures.Count);
+                    Assert.AreEqual(0, report.UnprocessedCount);
+                    Assert.AreEqual("2.txt", Path.GetFileName(report.Failures[0].FilePath));
+                    Assert.AreEqual(ImageImportFailure.UnsupportedFormat, report.Failures[0].Failure);
+                    Assert.AreEqual(2, store.GetImages().Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Report_import_cancellation_keeps_completed_files_and_counts_unprocessed_files()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                string first = CreateBitmap(Path.Combine(sourceRoot, "1.bmp"), Color.Red);
+                string second = CreateBitmap(Path.Combine(sourceRoot, "2.bmp"), Color.Green);
+                string third = CreateBitmap(Path.Combine(sourceRoot, "3.bmp"), Color.Blue);
+                int checks = 0;
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ImageImportReport report = store.ImportFilesWithReport(new[] { third, second, first }, () => ++checks > 1);
+                    Assert.AreEqual(1, report.Imported.Count);
+                    Assert.AreEqual(0, report.Failures.Count);
+                    Assert.AreEqual(2, report.UnprocessedCount);
+                    Assert.AreEqual(1, store.GetImages().Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Report_import_keeps_valid_files_when_empty_and_corrupt_images_fail()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                string first = CreateBitmap(Path.Combine(sourceRoot, "1.bmp"), Color.Red);
+                string empty = Path.Combine(sourceRoot, "2.bmp");
+                File.WriteAllBytes(empty, new byte[0]);
+                string corrupt = Path.Combine(sourceRoot, "3.bmp");
+                File.WriteAllText(corrupt, "not a bitmap");
+                string second = CreateBitmap(Path.Combine(sourceRoot, "4.bmp"), Color.Blue);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ImageImportReport report = store.ImportFilesWithReport(new[] { second, corrupt, empty, first }, null);
+                    Assert.AreEqual(2, report.Imported.Count);
+                    Assert.AreEqual(2, report.Failures.Count);
+                    CollectionAssert.AreEqual(new[] { ImageImportFailure.InvalidImage, ImageImportFailure.InvalidImage }, report.Failures.Select(failure => failure.Failure).ToArray());
+                    Assert.AreEqual(2, store.GetImages().Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Directory_import_honors_the_subdirectory_choice()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                CreateBitmap(Path.Combine(sourceRoot, "root.bmp"), Color.Red);
+                CreateBitmap(Path.Combine(sourceRoot, "sub", "nested.bmp"), Color.Blue);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ImageImportReport report = store.ImportDirectory(sourceRoot, false, null);
+                    Assert.AreEqual(1, report.Imported.Count);
+                    Assert.AreEqual("root.bmp", report.Imported[0].OriginalFileName);
+                }
+
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(Path.GetDirectoryName(path), "recursive.neurocle")))
+                {
+                    ImageImportReport report = store.ImportDirectory(sourceRoot, true, null);
+                    Assert.AreEqual(2, report.Imported.Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Directory_import_reports_a_removed_folder_without_changing_the_project()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "removed-sources");
+            try
+            {
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ImageImportReport report = store.ImportDirectory(sourceRoot, true, null);
+                    Assert.AreEqual(0, report.Imported.Count);
+                    Assert.AreEqual(1, report.Failures.Count);
+                    Assert.AreEqual(0, report.UnprocessedCount);
+                    Assert.AreEqual(sourceRoot, report.Failures[0].FilePath);
+                    Assert.AreEqual(ImageImportFailure.DirectoryNotFound, report.Failures[0].Failure);
+                    Assert.AreEqual(0, store.GetImages().Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Directory_scan_can_be_cancelled_without_changing_the_project()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                CreateBitmap(Path.Combine(sourceRoot, "1.bmp"), Color.Red);
+                CreateBitmap(Path.Combine(sourceRoot, "2.bmp"), Color.Blue);
+                int checks = 0;
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ImageImportReport report = store.ImportDirectory(sourceRoot, true, () => ++checks > 1);
+                    Assert.AreEqual(0, report.Imported.Count);
+                    Assert.AreEqual(0, report.Failures.Count);
+                    Assert.AreEqual(0, report.UnprocessedCount);
+                    Assert.IsTrue(report.WasCancelledDuringScan);
+                    Assert.AreEqual(0, store.GetImages().Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
         private static string TemporaryProjectPath()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

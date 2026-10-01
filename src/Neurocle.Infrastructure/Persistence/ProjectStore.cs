@@ -97,7 +97,7 @@ namespace Neurocle.Infrastructure.Persistence
         public IReadOnlyList<ProjectImage> ImportFiles(IEnumerable<string> filePaths)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
-            var sources = filePaths.OrderBy(Path.GetFileName, NaturalFileNameComparer.Instance).ToList();
+            var sources = OrderSources(filePaths);
             if (sources.Count == 0) return new List<ProjectImage>();
             long existing = Convert.ToInt64(ExecuteScalar(connection, "SELECT COUNT(*) FROM ImageRecord;"));
             if (existing + sources.Count > 10000) throw new ImageImportException(ImageImportFailure.ProjectImageLimit);
@@ -105,24 +105,43 @@ namespace Neurocle.Infrastructure.Persistence
             var imported = new List<ProjectImage>();
             foreach (string source in sources)
             {
-                string managedName = NextManagedName(Path.GetFileName(source));
-                ProjectImage image = ProjectImageImporter.Read(source, managedName, checked((int)existing + imported.Count + 1));
-                string destination = Path.Combine(ImagesDirectory, managedName);
-                File.Copy(source, destination);
-                try
-                {
-                    CompleteOperation((db, transaction) => Execute(db, transaction,
-                        "INSERT INTO ImageRecord (Id, OriginalFileName, ManagedFileName, Sha256, Width, Height, Sequence) VALUES ($id, $original, $managed, $sha, $width, $height, $sequence);",
-                        new SqliteParameter("$id", image.Id), new SqliteParameter("$original", image.OriginalFileName), new SqliteParameter("$managed", image.ManagedFileName), new SqliteParameter("$sha", image.Sha256), new SqliteParameter("$width", image.Width), new SqliteParameter("$height", image.Height), new SqliteParameter("$sequence", image.Sequence)));
-                    imported.Add(image);
-                }
-                catch
-                {
-                    File.Delete(destination);
-                    throw;
-                }
+                imported.Add(ImportFile(source, checked((int)existing + imported.Count + 1)));
             }
             return imported;
+        }
+
+        public ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested)
+        {
+            if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
+            return ImportSourcesWithReport(OrderSources(filePaths), cancellationRequested);
+        }
+
+        public ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested)
+        {
+            if (directoryPath == null) throw new ArgumentNullException(nameof(directoryPath));
+            var sources = new List<string>();
+            var failures = new List<ImageImportFailureDetail>();
+            try
+            {
+                foreach (string source in Directory.EnumerateFiles(directoryPath, "*", includeSubdirectories ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
+                {
+                    if (cancellationRequested != null && cancellationRequested()) return new ImageImportReport(new List<ProjectImage>(), failures, 0, true);
+                    sources.Add(source);
+                }
+            }
+            catch (DirectoryNotFoundException)
+            {
+                failures.Add(new ImageImportFailureDetail(directoryPath, ImageImportFailure.DirectoryNotFound));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                failures.Add(new ImageImportFailureDetail(directoryPath, ImageImportFailure.DirectoryAccess));
+            }
+            catch (IOException)
+            {
+                failures.Add(new ImageImportFailureDetail(directoryPath, ImageImportFailure.Unknown));
+            }
+            return ImportSourcesWithReport(OrderSources(sources), cancellationRequested, failures);
         }
 
         public IReadOnlyList<ProjectImage> GetImages()
@@ -271,6 +290,56 @@ namespace Neurocle.Infrastructure.Persistence
                 command.CommandText = commandText;
                 return command.ExecuteScalar();
             }
+        }
+
+        private ImageImportReport ImportSourcesWithReport(IReadOnlyList<string> sources, Func<bool> cancellationRequested, IReadOnlyList<ImageImportFailureDetail> initialFailures = null)
+        {
+            var imported = new List<ProjectImage>();
+            var failures = initialFailures == null ? new List<ImageImportFailureDetail>() : new List<ImageImportFailureDetail>(initialFailures);
+            long existing = Convert.ToInt64(ExecuteScalar(connection, "SELECT COUNT(*) FROM ImageRecord;"));
+            for (int index = 0; index < sources.Count; index++)
+            {
+                if (cancellationRequested != null && cancellationRequested()) return new ImageImportReport(imported, failures, sources.Count - index);
+                try
+                {
+                    if (existing + imported.Count >= 10000) throw new ImageImportException(ImageImportFailure.ProjectImageLimit);
+                    imported.Add(ImportFile(sources[index], checked((int)existing + imported.Count + 1)));
+                }
+                catch (ImageImportException exception)
+                {
+                    failures.Add(new ImageImportFailureDetail(sources[index], exception.Failure));
+                }
+                catch (Exception)
+                {
+                    failures.Add(new ImageImportFailureDetail(sources[index], ImageImportFailure.Unknown));
+                }
+            }
+            return new ImageImportReport(imported, failures, 0);
+        }
+
+        private ProjectImage ImportFile(string source, int sequence)
+        {
+            string managedName = NextManagedName(Path.GetFileName(source));
+            ProjectImage image = ProjectImageImporter.Read(source, managedName, sequence);
+            string destination = Path.Combine(ImagesDirectory, managedName);
+            File.Copy(source, destination);
+            try
+            {
+                CompleteOperation((db, transaction) => Execute(db, transaction,
+                    "INSERT INTO ImageRecord (Id, OriginalFileName, ManagedFileName, Sha256, Width, Height, Sequence) VALUES ($id, $original, $managed, $sha, $width, $height, $sequence);",
+                    new SqliteParameter("$id", image.Id), new SqliteParameter("$original", image.OriginalFileName), new SqliteParameter("$managed", image.ManagedFileName), new SqliteParameter("$sha", image.Sha256), new SqliteParameter("$width", image.Width), new SqliteParameter("$height", image.Height), new SqliteParameter("$sequence", image.Sequence)));
+                return image;
+            }
+            catch
+            {
+                File.Delete(destination);
+                throw;
+            }
+        }
+
+        private static List<string> OrderSources(IEnumerable<string> filePaths)
+        {
+            return filePaths.OrderBy(Path.GetFileName, NaturalFileNameComparer.Instance).ToList();
         }
 
         private static void EnsureCurrentSchema(SqliteConnection db, string projectPath)

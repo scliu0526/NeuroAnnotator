@@ -8,7 +8,12 @@ namespace Neurocle.Application.Projects
         UnsupportedFormat,
         FileSizeLimit,
         DimensionLimit,
-        ProjectImageLimit
+        ProjectImageLimit,
+        FileNotFound,
+        InvalidImage,
+        DirectoryNotFound,
+        DirectoryAccess,
+        Unknown
     }
 
     public sealed class ImageImportException : Exception
@@ -21,12 +26,42 @@ namespace Neurocle.Application.Projects
         public ImageImportFailure Failure { get; }
     }
 
+    public sealed class ImageImportFailureDetail
+    {
+        public ImageImportFailureDetail(string filePath, ImageImportFailure failure)
+        {
+            FilePath = filePath;
+            Failure = failure;
+        }
+
+        public string FilePath { get; }
+        public ImageImportFailure Failure { get; }
+    }
+
+    public sealed class ImageImportReport
+    {
+        public ImageImportReport(IReadOnlyList<ProjectImage> imported, IReadOnlyList<ImageImportFailureDetail> failures, int unprocessedCount, bool wasCancelledDuringScan = false)
+        {
+            Imported = imported;
+            Failures = failures;
+            UnprocessedCount = unprocessedCount;
+            WasCancelledDuringScan = wasCancelledDuringScan;
+        }
+
+        public IReadOnlyList<ProjectImage> Imported { get; }
+        public IReadOnlyList<ImageImportFailureDetail> Failures { get; }
+        public int UnprocessedCount { get; }
+        public bool WasCancelledDuringScan { get; }
+    }
+
     public interface IProjectSession : IDisposable
     {
         string ProjectPath { get; }
         void Save();
         IProjectSession SaveAs(string targetPath);
         IReadOnlyList<ProjectImage> ImportFiles(IEnumerable<string> filePaths);
+        ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested);
+        ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested);
         IReadOnlyList<ProjectImage> GetImages();
         void DeleteImages(IEnumerable<string> imageIds);
     }

@@ -17,13 +17,17 @@ namespace Neurocle.Infrastructure.Persistence
             string extension = Path.GetExtension(sourcePath);
             if (!IsSupported(extension)) throw new ImageImportException(ImageImportFailure.UnsupportedFormat);
             var info = new FileInfo(sourcePath);
-            if (!info.Exists) throw new FileNotFoundException("The image file does not exist.", sourcePath);
+            if (!info.Exists) throw new ImageImportException(ImageImportFailure.FileNotFound);
             ValidateFileSize(info.Length);
-            using (var image = Image.FromFile(sourcePath, false))
+            try
             {
-                ValidateDimensions(image.Width, image.Height);
-                return new ProjectImage(Guid.NewGuid().ToString("D"), Path.GetFileName(sourcePath), managedFileName, Hash(sourcePath), image.Width, image.Height, sequence);
+                using (var image = Image.FromFile(sourcePath, false))
+                {
+                    ValidateDimensions(image.Width, image.Height);
+                    return new ProjectImage(Guid.NewGuid().ToString("D"), Path.GetFileName(sourcePath), managedFileName, Hash(sourcePath), image.Width, image.Height, sequence);
+                }
             }
+            catch (OutOfMemoryException) { throw new ImageImportException(ImageImportFailure.InvalidImage); }
         }
 
         internal static void ValidateFileSize(long length)
