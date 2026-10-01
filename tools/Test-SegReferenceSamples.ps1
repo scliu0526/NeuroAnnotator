@@ -97,6 +97,11 @@ foreach ($imageName in '33.png', '55.png') {
     if ($region.type -ne 'PolyLine' -or @($region.points).Count -lt 2) { throw "$imageName rotated line mismatch." }
     if ($region.PSObject.Properties['rotation_angle'] -and [double]$region.rotation_angle -ne 0) { throw "$imageName rotation_angle must be zero." }
 }
+$rotatedPolygon = (Get-ImageRegion $rotated '44.png')[0]
+$originalPolygon = (Get-ImageRegion $base '44.png')[0]
+if ($rotatedPolygon.type -ne 'PolyGon' -or @($rotatedPolygon.points).Count -lt 3) { throw '44.png rotated polygon type mismatch.' }
+if (($rotatedPolygon.points | ConvertTo-Json -Compress) -eq ($originalPolygon.points | ConvertTo-Json -Compress)) { throw '44.png rotated polygon points did not change.' }
+if ($rotatedPolygon.PSObject.Properties['rotation_angle'] -and [double]$rotatedPolygon.rotation_angle -ne 0) { throw '44.png rotation_angle must be zero.' }
 $donut = (Get-ImageRegion $erased '11.png')[0]
 if ($donut.type -ne 'PolyGon') { throw 'Erased donut type mismatch.' }
 $donutPath = ConvertTo-Path64 $donut
