@@ -26,6 +26,24 @@ namespace Neurocle.Application.Projects
         public ImageImportFailure Failure { get; }
     }
 
+    public enum ImageRelinkFailure
+    {
+        ImageNotFound,
+        SourceNotFound,
+        ContentMismatch,
+        ImageIsAvailable
+    }
+
+    public sealed class ImageRelinkException : Exception
+    {
+        public ImageRelinkException(ImageRelinkFailure failure) : base(failure.ToString())
+        {
+            Failure = failure;
+        }
+
+        public ImageRelinkFailure Failure { get; }
+    }
+
     public sealed class ImageImportFailureDetail
     {
         public ImageImportFailureDetail(string filePath, ImageImportFailure failure)
@@ -63,12 +81,14 @@ namespace Neurocle.Application.Projects
         ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested);
         ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested);
         IReadOnlyList<ProjectImage> GetImages();
+        IReadOnlyList<ProjectImage> GetMissingImages();
+        void RelinkImage(string imageId, string sourcePath);
         void DeleteImages(IEnumerable<string> imageIds);
     }
 
     public sealed class ProjectImage
     {
-        public ProjectImage(string id, string originalFileName, string managedFileName, string sha256, int width, int height, int sequence)
+        public ProjectImage(string id, string originalFileName, string managedFileName, string sha256, int width, int height, int sequence, bool isMissing = false)
         {
             Id = id;
             OriginalFileName = originalFileName;
@@ -77,6 +97,7 @@ namespace Neurocle.Application.Projects
             Width = width;
             Height = height;
             Sequence = sequence;
+            IsMissing = isMissing;
         }
 
         public string Id { get; }
@@ -86,6 +107,7 @@ namespace Neurocle.Application.Projects
         public int Width { get; }
         public int Height { get; }
         public int Sequence { get; }
+        public bool IsMissing { get; }
     }
 
     public interface IProjectLifecycle

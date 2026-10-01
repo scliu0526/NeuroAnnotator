@@ -58,4 +58,13 @@
   <data name="ImageImportDirectoryNotFound" xml:space="preserve"><value>找不到選取的資料夾。</value></data>
   <data name="ImageImportDirectoryAccess" xml:space="preserve"><value>沒有讀取選取資料夾的權限。</value></data>
   <data name="ImageImportUnknownFailure" xml:space="preserve"><value>匯入失敗，請確認檔案是否可讀取。</value></data>
+  <data name="ManageMissingImages" xml:space="preserve"><value>管理缺失圖片</value></data>
+  <data name="MissingImagesTitle" xml:space="preserve"><value>管理缺失圖片</value></data>
+  <data name="MissingImagesStatus" xml:space="preserve"><value>缺失圖片：{0}</value></data>
+  <data name="RelinkImage" xml:space="preserve"><value>重新連結...</value></data>
+  <data name="DeleteMissingImage" xml:space="preserve"><value>永久刪除</value></data>
+  <data name="DeleteMissingImagePrompt" xml:space="preserve"><value>要永久刪除「{0}」及其所有標註嗎？此操作無法復原。</value></data>
+  <data name="RelinkSourceNotFound" xml:space="preserve"><value>找不到選取的重新連結檔案。</value></data>
+  <data name="RelinkContentMismatch" xml:space="preserve"><value>選取檔案的 SHA-256 與原始圖片不相同，無法重新連結。</value></data>
+  <data name="Close" xml:space="preserve"><value>關閉</value></data>
 </root>

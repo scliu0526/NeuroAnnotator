@@ -154,11 +154,40 @@ namespace Neurocle.Infrastructure.Persistence
                 {
                     while (reader.Read())
                     {
-                        images.Add(new ProjectImage(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6)));
+                        string managedFileName = reader.GetString(2);
+                        images.Add(new ProjectImage(reader.GetString(0), reader.GetString(1), managedFileName, reader.GetString(3), reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), !CanReadImage(Path.Combine(ImagesDirectory, managedFileName))));
                     }
                 }
             }
             return images;
+        }
+
+        public IReadOnlyList<ProjectImage> GetMissingImages()
+        {
+            return GetImages().Where(image => image.IsMissing).ToList();
+        }
+
+        public void RelinkImage(string imageId, string sourcePath)
+        {
+            if (imageId == null) throw new ArgumentNullException(nameof(imageId));
+            if (sourcePath == null) throw new ArgumentNullException(nameof(sourcePath));
+            ProjectImage image = GetImages().SingleOrDefault(candidate => candidate.Id == imageId);
+            if (image == null) throw new ImageRelinkException(ImageRelinkFailure.ImageNotFound);
+            if (!image.IsMissing) throw new ImageRelinkException(ImageRelinkFailure.ImageIsAvailable);
+            if (!File.Exists(sourcePath)) throw new ImageRelinkException(ImageRelinkFailure.SourceNotFound);
+            if (!string.Equals(image.Sha256, ProjectImageImporter.Hash(sourcePath), StringComparison.OrdinalIgnoreCase)) throw new ImageRelinkException(ImageRelinkFailure.ContentMismatch);
+
+            string destination = Path.Combine(ImagesDirectory, image.ManagedFileName);
+            string temporary = Path.Combine(ImagesDirectory, Guid.NewGuid().ToString("N") + ".relinking");
+            try
+            {
+                File.Copy(sourcePath, temporary);
+                File.Move(temporary, destination);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
         }
 
         public void DeleteImages(IEnumerable<string> imageIds)
@@ -290,6 +319,16 @@ namespace Neurocle.Infrastructure.Persistence
                 command.CommandText = commandText;
                 return command.ExecuteScalar();
             }
+        }
+
+        private static bool CanReadImage(string path)
+        {
+            try
+            {
+                using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read)) return true;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
         }
 
         private ImageImportReport ImportSourcesWithReport(IReadOnlyList<string> sources, Func<bool> cancellationRequested, IReadOnlyList<ImageImportFailureDetail> initialFailures = null)

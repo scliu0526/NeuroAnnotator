@@ -577,6 +577,85 @@ namespace Neurocle.Tests
             finally { DeleteTemporaryProject(path); }
         }
 
+        [TestMethod]
+        public void Missing_image_is_preserved_and_only_an_identical_file_can_relink_it()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                string source = CreateBitmap(Path.Combine(sourceRoot, "source.bmp"), Color.Red);
+                string different = CreateBitmap(Path.Combine(sourceRoot, "different.bmp"), Color.Blue);
+                ProjectImage image;
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    image = store.ImportFiles(new[] { source }).Single();
+                    File.Delete(Path.Combine(store.ImagesDirectory, image.ManagedFileName));
+
+                    Assert.IsTrue(store.GetImages().Single().IsMissing);
+                    Assert.AreEqual(image.Id, store.GetMissingImages().Single().Id);
+                    ImageRelinkException mismatch = Assert.ThrowsException<ImageRelinkException>(() => store.RelinkImage(image.Id, different));
+                    Assert.AreEqual(ImageRelinkFailure.ContentMismatch, mismatch.Failure);
+                    Assert.IsTrue(store.GetMissingImages().Single().IsMissing);
+
+                    store.RelinkImage(image.Id, source);
+                    Assert.AreEqual(0, store.GetMissingImages().Count);
+                    Assert.IsTrue(File.Exists(Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                }
+
+                using (ProjectStore reopened = ProjectStore.Open(path))
+                {
+                    Assert.AreEqual(1, reopened.GetImages().Count);
+                    Assert.AreEqual(0, reopened.GetMissingImages().Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Permanently_deleting_a_missing_image_removes_its_record()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.bmp");
+            try
+            {
+                CreateBitmap(source, Color.Red);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    File.Delete(Path.Combine(store.ImagesDirectory, image.ManagedFileName));
+
+                    store.DeleteImages(new[] { image.Id });
+                    Assert.AreEqual(0, store.GetImages().Count);
+                    Assert.AreEqual(0, store.GetMissingImages().Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Locked_managed_image_is_treated_as_missing_until_it_is_readable()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.bmp");
+            try
+            {
+                CreateBitmap(source, Color.Red);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    string managedPath = Path.Combine(store.ImagesDirectory, image.ManagedFileName);
+                    using (File.Open(managedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    {
+                        Assert.IsTrue(store.GetImages().Single().IsMissing);
+                        Assert.AreEqual(image.Id, store.GetMissingImages().Single().Id);
+                    }
+                    Assert.IsFalse(store.GetImages().Single().IsMissing);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
         private static string TemporaryProjectPath()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

@@ -33,6 +33,7 @@ namespace Neurocle.WinForms
             projectMenu.DropDownItems.Add(Strings.SaveProjectAs, null, (sender, args) => RunProjectCommand(SaveProjectAs));
             projectMenu.DropDownItems.Add(Strings.ImportImages, null, async (sender, args) => await ImportFilesAsync());
             projectMenu.DropDownItems.Add(Strings.ImportFolder, null, async (sender, args) => await ImportFolderAsync());
+            projectMenu.DropDownItems.Add(Strings.ManageMissingImages, null, (sender, args) => ManageMissingImages());
             menu.Items.Add(projectMenu);
 
             status = new Label
@@ -84,6 +85,13 @@ namespace Neurocle.WinForms
                 IProjectSession copy = project.SaveAs(dialog.FileName);
                 ReplaceProject(copy);
             }
+        }
+
+        private void ManageMissingImages()
+        {
+            if (project == null) return;
+            using (var dialog = new MissingImagesForm(project)) dialog.ShowDialog(this);
+            UpdateProjectStatus();
         }
 
         private async Task ImportFilesAsync()
@@ -147,7 +155,14 @@ namespace Neurocle.WinForms
             IProjectSession previous = project;
             project = replacement;
             previous?.Dispose();
-            status.Text = Path.GetFileName(project.ProjectPath);
+            UpdateProjectStatus();
+        }
+
+        private void UpdateProjectStatus()
+        {
+            string projectName = Path.GetFileName(project.ProjectPath);
+            int missingCount = project.GetMissingImages().Count;
+            status.Text = missingCount == 0 ? projectName : projectName + " - " + string.Format(Strings.MissingImagesStatus, missingCount);
         }
 
         private void RunProjectCommand(Action command)

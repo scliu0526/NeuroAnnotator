@@ -45,7 +45,7 @@ namespace Neurocle.Infrastructure.Persistence
             return string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase) || string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) || string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase) || string.Equals(extension, ".bmp", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string Hash(string path)
+        internal static string Hash(string path)
         {
             using (var stream = File.OpenRead(path))
             using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);

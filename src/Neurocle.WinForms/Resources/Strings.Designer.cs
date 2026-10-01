@@ -44,5 +44,14 @@ namespace Neurocle.WinForms.Resources
         internal static string ImageImportDirectoryNotFound { get { return ResourceManager.GetString("ImageImportDirectoryNotFound", CultureInfo.CurrentUICulture); } }
         internal static string ImageImportDirectoryAccess { get { return ResourceManager.GetString("ImageImportDirectoryAccess", CultureInfo.CurrentUICulture); } }
         internal static string ImageImportUnknownFailure { get { return ResourceManager.GetString("ImageImportUnknownFailure", CultureInfo.CurrentUICulture); } }
+        internal static string ManageMissingImages { get { return ResourceManager.GetString("ManageMissingImages", CultureInfo.CurrentUICulture); } }
+        internal static string MissingImagesTitle { get { return ResourceManager.GetString("MissingImagesTitle", CultureInfo.CurrentUICulture); } }
+        internal static string MissingImagesStatus { get { return ResourceManager.GetString("MissingImagesStatus", CultureInfo.CurrentUICulture); } }
+        internal static string RelinkImage { get { return ResourceManager.GetString("RelinkImage", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteMissingImage { get { return ResourceManager.GetString("DeleteMissingImage", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteMissingImagePrompt { get { return ResourceManager.GetString("DeleteMissingImagePrompt", CultureInfo.CurrentUICulture); } }
+        internal static string RelinkSourceNotFound { get { return ResourceManager.GetString("RelinkSourceNotFound", CultureInfo.CurrentUICulture); } }
+        internal static string RelinkContentMismatch { get { return ResourceManager.GetString("RelinkContentMismatch", CultureInfo.CurrentUICulture); } }
+        internal static string Close { get { return ResourceManager.GetString("Close", CultureInfo.CurrentUICulture); } }
     }
 }
