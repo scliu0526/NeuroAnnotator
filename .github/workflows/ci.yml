@@ -17,7 +17,17 @@ jobs:
       - name: Build
         run: msbuild Neurocle.sln -m -p:Configuration=Release -p:Platform=x64
       - name: Test
-        run: vstest.console tests\Neurocle.Tests\bin\x64\Release\Neurocle.Tests.dll /Platform:x64
+        shell: pwsh
+        run: |
+          $vsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vstest = & $vsWhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe' | Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($vstest)) {
+            throw 'VSTest console was not found on the GitHub Actions runner.'
+          }
+          & $vstest tests\Neurocle.Tests\bin\x64\Release\Neurocle.Tests.dll /Platform:x64
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
       - name: Package
         shell: pwsh
         run: |
