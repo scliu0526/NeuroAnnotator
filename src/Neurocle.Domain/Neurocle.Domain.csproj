@@ -28,7 +28,11 @@
     <Reference Include="System" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Clipper2" Version="1.5.4" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="DomainAssembly.cs" />
+    <Compile Include="Segmentation\SegGeometryPrototype.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -26,6 +26,10 @@
     <DefineConstants>TRACE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Neurocle.Domain\Neurocle.Domain.csproj">
+      <Project>{7D5F7D26-66AA-4F22-9E1D-92AE3D7F6B7C}</Project>
+      <Name>Neurocle.Domain</Name>
+    </ProjectReference>
     <Reference Include="System" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
@@ -47,6 +51,7 @@
   <ItemGroup>
     <Compile Include="SqliteRuntimeProbeTests.cs" />
     <Compile Include="MainFormLayoutTests.cs" />
+    <Compile Include="SegGeometryPrototypeTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -6,5 +6,6 @@ This portable distribution contains the following runtime dependency:
 |---|---:|---|
 | Microsoft.Data.Sqlite | 8.0.12 | MIT |
 | SQLitePCLRaw.bundle_e_sqlite3, SQLitePCLRaw.core, SQLitePCLRaw.provider.dynamic_cdecl, and bundled SQLite native library | Transitive dependency | Apache-2.0 and SQLite public domain |
+| Clipper2 | 1.5.4 | Boost Software License 1.0 |
 
 The complete license texts supplied by restored packages must remain in the distribution archive. Test-only packages, including MSTest/TestFX, are not shipped with the application.
