@@ -44,6 +44,24 @@ function Assert-PositiveArea {
     }
 }
 
+function Get-WindingNumber {
+    param([Clipper2Lib.Path64]$Path, [double]$X, [double]$Y)
+    $winding = 0
+    for ($index = 0; $index -lt $Path.Count; $index++) {
+        $first = $Path[$index]
+        $second = $Path[($index + 1) % $Path.Count]
+        $cross = ($second.X - $first.X) * ($Y - $first.Y) - ($X - $first.X) * ($second.Y - $first.Y)
+        if ($first.Y -le $Y) {
+            if ($second.Y -gt $Y -and $cross -gt 0) { $winding++ }
+        }
+        elseif ($second.Y -le $Y -and $cross -lt 0) {
+            $winding--
+        }
+    }
+
+    return $winding
+}
+
 Add-Type -Path (Join-Path $BuildDirectory 'Clipper2Lib.dll')
 Add-Type -Path (Join-Path $BuildDirectory 'Neurocle.Domain.dll')
 
@@ -69,14 +87,23 @@ foreach ($imageName in '33.png', '55.png') {
     $line = (Get-ImageRegion $base $imageName)[0]
     if ([Neurocle.Domain.Segmentation.SegGeometryPrototype]::Area([Neurocle.Domain.Segmentation.SegGeometryPrototype]::Stroke((ConvertTo-Path64 $line), $line.strokeWidth)) -le 0) { throw "$imageName stroke mismatch." }
 }
-foreach ($imageName in '11.png', '22.png', '33.png', '44.png', '55.png') {
+foreach ($imageName in '11.png', '22.png') {
     $region = (Get-ImageRegion $rotated $imageName)[0]
-    if ($region.type -ne 'PolyGon' -and $region.type -ne 'PolyLine') { throw "$imageName rotation type mismatch." }
-    if (@($region.points).Count -lt 2) { throw "$imageName rotation points mismatch." }
+    if ($region.type -ne 'PolyGon' -or @($region.points).Count -lt 3) { throw "$imageName rotation type mismatch." }
+    if ($region.PSObject.Properties['rotation_angle'] -and [double]$region.rotation_angle -ne 0) { throw "$imageName rotation_angle must be zero." }
+}
+foreach ($imageName in '33.png', '55.png') {
+    $region = (Get-ImageRegion $rotated $imageName)[0]
+    if ($region.type -ne 'PolyLine' -or @($region.points).Count -lt 2) { throw "$imageName rotated line mismatch." }
+    if ($region.PSObject.Properties['rotation_angle'] -and [double]$region.rotation_angle -ne 0) { throw "$imageName rotation_angle must be zero." }
 }
 $donut = (Get-ImageRegion $erased '11.png')[0]
 if ($donut.type -ne 'PolyGon') { throw 'Erased donut type mismatch.' }
-Assert-PositiveArea (ConvertTo-Path64 $donut) 'Erased donut'
+$donutPath = ConvertTo-Path64 $donut
+Assert-PositiveArea $donutPath 'Erased donut'
+$bridgeVertices = @($donut.points | Group-Object { "$($_[0]),$($_[1])" } | Where-Object Count -gt 1)
+if ($bridgeVertices.Count -lt 2) { throw 'Erased donut does not contain a bridge.' }
+if ((Get-WindingNumber $donutPath 2300 1200) -ne 0) { throw 'Erased donut central void is not empty under Non-Zero winding.' }
 Assert-PositiveArea (ConvertTo-Path64 ((Get-ImageRegion $crossing '66.png')[0])) 'Self-crossing path'
 foreach ($region in @(Get-ImageRegion $loops '77.png')) { Assert-PositiveArea (ConvertTo-Path64 $region) 'Multiple-loop path' }
 foreach ($region in @(Get-ImageRegion $rotatedLoops '77.png')) { Assert-PositiveArea (ConvertTo-Path64 $region) 'Rotated multiple-loop path' }
