@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{E0C920B7-29B5-4E77-8930-1F1A908D3A29}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>Neurocle.WinForms</RootNamespace>
+    <AssemblyName>Neurocle.WinForms</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Neurocle.Application\Neurocle.Application.csproj">
+      <Project>{2DF8F0C8-C2D7-4106-A20B-1355E83AD2C5}</Project>
+      <Name>Neurocle.Application</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Neurocle.Infrastructure\Neurocle.Infrastructure.csproj">
+      <Project>{4F70F454-9A0A-4A95-B32E-19F56B9357A7}</Project>
+      <Name>Neurocle.Infrastructure</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="MainForm.cs" />
+    <Compile Include="Resources\Strings.Designer.cs" />
+    <EmbeddedResource Include="Resources\Strings.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Strings.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <None Include="app.manifest" />
+  </ItemGroup>
+  <Target Name="CopyThirdPartyNotices" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\..\licenses\THIRD-PARTY-NOTICES.md" DestinationFolder="$(OutputPath)" />
+  </Target>
+  <Target Name="KeepOnlyX64SqliteNativeLibrary" AfterTargets="Build" DependsOnTargets="CopyThirdPartyNotices">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\Neurocle.Infrastructure\bin\x64\$(Configuration)\SQLitePCLRaw.batteries_v2.dll" DestinationFolder="$(OutDir)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\Neurocle.Infrastructure\bin\x64\$(Configuration)\SQLitePCLRaw.provider.dynamic_cdecl.dll" DestinationFolder="$(OutDir)" />
+    <Copy SourceFiles="$(OutDir)runtimes\win-x64\native\e_sqlite3.dll" DestinationFiles="$(OutDir)e_sqlite3.dll" />
+    <RemoveDir Directories="$(OutDir)runtimes" />
+  </Target>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

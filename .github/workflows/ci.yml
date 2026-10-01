@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test-package:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Restore
+        run: msbuild Neurocle.sln -t:Restore -p:Configuration=Release -p:Platform=x64
+      - name: Build
+        run: msbuild Neurocle.sln -m -p:Configuration=Release -p:Platform=x64
+      - name: Test
+        run: vstest.console tests\Neurocle.Tests\bin\x64\Release\Neurocle.Tests.dll /Platform:x64
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Compress-Archive -Path src\Neurocle.WinForms\bin\x64\Release\* -DestinationPath artifacts\Neurocle-win-x64.zip -Force
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          $packageDirectory = Join-Path $env:RUNNER_TEMP 'neurocle-package'
+          Expand-Archive -Path artifacts\Neurocle-win-x64.zip -DestinationPath $packageDirectory -Force
+          @(
+            'Neurocle.WinForms.exe',
+            'Microsoft.Data.Sqlite.dll',
+            'SQLitePCLRaw.batteries_v2.dll',
+            'SQLitePCLRaw.core.dll',
+            'SQLitePCLRaw.provider.dynamic_cdecl.dll',
+            'e_sqlite3.dll',
+            'THIRD-PARTY-NOTICES.md'
+          ) | ForEach-Object {
+            if (-not (Test-Path (Join-Path $packageDirectory $_))) {
+              throw "Missing packaged runtime dependency: $_"
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Neurocle-win-x64
+          path: artifacts\Neurocle-win-x64.zip
