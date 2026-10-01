@@ -192,7 +192,7 @@ namespace Neurocle.Tests
 
                 string backupDirectory = Path.Combine(Path.GetDirectoryName(path), "project.backups");
                 string[] backups = Directory.GetFiles(backupDirectory, "*.neurocle");
-                Assert.AreEqual(1, backups.Length);
+                Assert.AreEqual(2, backups.Length);
 
                 using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
                 {
@@ -204,7 +204,8 @@ namespace Neurocle.Tests
                     }
                 }
 
-                using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = backups[0], Pooling = false }.ToString()))
+                string migrationBackup = backups.Single(backup => Path.GetFileName(backup).StartsWith("before-migration-v1", StringComparison.Ordinal));
+                using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = migrationBackup, Pooling = false }.ToString()))
                 {
                     connection.Open();
                     using (var command = connection.CreateCommand())
@@ -651,6 +652,195 @@ namespace Neurocle.Tests
                         Assert.AreEqual(image.Id, store.GetMissingImages().Single().Id);
                     }
                     Assert.IsFalse(store.GetImages().Single().IsMissing);
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Daily_backup_is_created_once_per_day_and_keeps_only_database_files()
+        {
+            string path = TemporaryProjectPath();
+            Func<DateTime> originalClock = ProjectStore.UtcNow;
+            try
+            {
+                ProjectStore.UtcNow = () => new DateTime(2026, 10, 1, 8, 0, 0, DateTimeKind.Utc);
+                using (ProjectStore created = ProjectStore.Create(path)) { }
+                using (ProjectStore opened = ProjectStore.Open(path)) { }
+
+                ProjectStore.UtcNow = () => new DateTime(2026, 10, 2, 8, 0, 0, DateTimeKind.Utc);
+                using (ProjectStore opened = ProjectStore.Open(path))
+                {
+                    CollectionAssert.AreEqual(new[] { "daily-2026-10-02.neurocle", "daily-2026-10-01.neurocle" }, opened.GetBackups().Select(backup => Path.GetFileName(backup.Path)).ToArray());
+                }
+            }
+            finally
+            {
+                ProjectStore.UtcNow = originalClock;
+                DeleteTemporaryProject(path);
+            }
+        }
+
+        [TestMethod]
+        public void Restore_creates_a_current_backup_and_reopens_the_project()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.bmp");
+            Func<DateTime> originalClock = ProjectStore.UtcNow;
+            try
+            {
+                CreateBitmap(source, Color.Red);
+                ProjectStore.UtcNow = () => new DateTime(2026, 10, 1, 8, 0, 0, DateTimeKind.Utc);
+                using (ProjectStore created = ProjectStore.Create(path)) created.ImportFiles(new[] { source });
+                ProjectStore.UtcNow = () => new DateTime(2026, 10, 2, 8, 0, 0, DateTimeKind.Utc);
+                using (ProjectStore store = ProjectStore.Open(path))
+                {
+                    ProjectBackup backup = store.GetBackups().Single(item => Path.GetFileName(item.Path) == "daily-2026-10-02.neurocle");
+                    store.DeleteImages(store.GetImages().Select(image => image.Id));
+
+                    using (IProjectSession restored = store.RestoreBackup(backup.Path))
+                    {
+                        Assert.AreEqual(1, restored.GetImages().Count);
+                        Assert.AreEqual(1, restored.GetMissingImages().Count);
+                        Assert.IsTrue(restored.GetBackups().Any(item => Path.GetFileName(item.Path).StartsWith("before-restore-", StringComparison.Ordinal)));
+                    }
+                }
+            }
+            finally
+            {
+                ProjectStore.UtcNow = originalClock;
+                DeleteTemporaryProject(path);
+            }
+        }
+
+        [TestMethod]
+        public void Corrupt_project_reports_available_backups()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                using (ProjectStore created = ProjectStore.Create(path)) { }
+                File.WriteAllText(path, "not a sqlite database");
+
+                ProjectOpenException exception = Assert.ThrowsException<ProjectOpenException>(() => ProjectStore.Open(path));
+                Assert.AreEqual(path, exception.ProjectPath);
+                Assert.IsTrue(exception.Backups.Any());
+                using (ProjectStore restored = ProjectStore.Restore(path, exception.Backups[0].Path))
+                {
+                    Assert.IsTrue(restored.GetBackups().Any(backup => Path.GetFileName(backup.Path).StartsWith("before-restore-", StringComparison.Ordinal)));
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Failed_restore_reopens_the_original_project_session()
+        {
+            string path = TemporaryProjectPath();
+            Action<string, string> originalReplace = ProjectStore.ReplaceFile;
+            try
+            {
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ProjectBackup backup = store.GetBackups().Single();
+                    ProjectStore.ReplaceFile = (source, destination) => { throw new IOException("Simulated replace failure"); };
+
+                    ProjectRestoreException exception = Assert.ThrowsException<ProjectRestoreException>(() => store.RestoreBackup(backup.Path));
+                    using (IProjectSession recovered = exception.RecoveredSession)
+                    {
+                        Assert.AreEqual(path, recovered.ProjectPath);
+                        recovered.Save();
+                    }
+                }
+            }
+            finally
+            {
+                ProjectStore.ReplaceFile = originalReplace;
+                DeleteTemporaryProject(path);
+            }
+        }
+
+        [TestMethod]
+        public void Restoring_the_oldest_of_five_backups_keeps_the_selected_backup_available_for_restore()
+        {
+            string path = TemporaryProjectPath();
+            Func<DateTime> originalClock = ProjectStore.UtcNow;
+            try
+            {
+                ProjectStore.UtcNow = () => new DateTime(2026, 10, 1, 8, 0, 0, DateTimeKind.Utc);
+                using (ProjectStore created = ProjectStore.Create(path)) { }
+                for (int day = 2; day <= 5; day++)
+                {
+                    int capturedDay = day;
+                    ProjectStore.UtcNow = () => new DateTime(2026, 10, capturedDay, 8, 0, 0, DateTimeKind.Utc);
+                    using (ProjectStore opened = ProjectStore.Open(path)) { }
+                }
+
+                ProjectStore.UtcNow = () => new DateTime(2026, 10, 6, 8, 0, 0, DateTimeKind.Utc);
+                using (ProjectStore store = ProjectStore.Open(path))
+                {
+                    ProjectBackup oldest = store.GetBackups().Last();
+                    using (IProjectSession restored = store.RestoreBackup(oldest.Path))
+                    {
+                        Assert.IsNotNull(restored);
+                        Assert.IsTrue(restored.GetBackups().Any(backup => Path.GetFileName(backup.Path).StartsWith("before-restore-", StringComparison.Ordinal)));
+                    }
+                }
+            }
+            finally
+            {
+                ProjectStore.UtcNow = originalClock;
+                DeleteTemporaryProject(path);
+            }
+        }
+
+        [TestMethod]
+        public void Restore_rejects_a_backup_without_the_required_schema_before_replacing_the_project()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    string invalidBackup = Path.Combine(Path.GetDirectoryName(path), "project.backups", "invalid.neurocle");
+                    using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = invalidBackup, Pooling = false }.ToString()))
+                    {
+                        connection.Open();
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = "CREATE TABLE SchemaInfo (Version INTEGER NOT NULL); INSERT INTO SchemaInfo (Version) VALUES (2);";
+                            command.ExecuteNonQuery();
+                        }
+                    }
+
+                    Assert.ThrowsException<InvalidDataException>(() => store.RestoreBackup(invalidBackup));
+                    store.Save();
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Restore_rejects_a_backup_with_an_incomplete_image_record_schema_before_replacing_the_project()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    string invalidBackup = Path.Combine(Path.GetDirectoryName(path), "project.backups", "invalid-image-record.neurocle");
+                    using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = invalidBackup, Pooling = false }.ToString()))
+                    {
+                        connection.Open();
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = "CREATE TABLE SchemaInfo (Version INTEGER NOT NULL); CREATE TABLE ProjectInfo (ProjectId TEXT NOT NULL, CreatedUtc TEXT NOT NULL); CREATE TABLE ImageRecord (Id TEXT PRIMARY KEY NOT NULL); INSERT INTO SchemaInfo (Version) VALUES (2); INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ('id', 'time');";
+                            command.ExecuteNonQuery();
+                        }
+                    }
+
+                    Assert.ThrowsException<InvalidDataException>(() => store.RestoreBackup(invalidBackup));
+                    store.Save();
                 }
             }
             finally { DeleteTemporaryProject(path); }

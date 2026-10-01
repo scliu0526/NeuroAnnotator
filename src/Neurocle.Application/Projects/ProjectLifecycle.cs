@@ -44,6 +44,42 @@ namespace Neurocle.Application.Projects
         public ImageRelinkFailure Failure { get; }
     }
 
+    public sealed class ProjectBackup
+    {
+        public ProjectBackup(string path, DateTime createdUtc)
+        {
+            Path = path;
+            CreatedUtc = createdUtc;
+        }
+
+        public string Path { get; }
+        public DateTime CreatedUtc { get; }
+    }
+
+    public sealed class ProjectOpenException : Exception
+    {
+        public ProjectOpenException(string projectPath, IReadOnlyList<ProjectBackup> backups, Exception innerException)
+            : base("The project database could not be opened.", innerException)
+        {
+            ProjectPath = projectPath;
+            Backups = backups;
+        }
+
+        public string ProjectPath { get; }
+        public IReadOnlyList<ProjectBackup> Backups { get; }
+    }
+
+    public sealed class ProjectRestoreException : Exception
+    {
+        public ProjectRestoreException(IProjectSession recoveredSession, Exception innerException)
+            : base("The project could not be restored, but the original project was reopened.", innerException)
+        {
+            RecoveredSession = recoveredSession;
+        }
+
+        public IProjectSession RecoveredSession { get; }
+    }
+
     public sealed class ImageImportFailureDetail
     {
         public ImageImportFailureDetail(string filePath, ImageImportFailure failure)
@@ -84,6 +120,8 @@ namespace Neurocle.Application.Projects
         IReadOnlyList<ProjectImage> GetMissingImages();
         void RelinkImage(string imageId, string sourcePath);
         void DeleteImages(IEnumerable<string> imageIds);
+        IReadOnlyList<ProjectBackup> GetBackups();
+        IProjectSession RestoreBackup(string backupPath);
     }
 
     public sealed class ProjectImage
@@ -114,5 +152,6 @@ namespace Neurocle.Application.Projects
     {
         IProjectSession Create(string projectPath);
         IProjectSession Open(string projectPath);
+        IProjectSession Restore(string projectPath, string backupPath);
     }
 }

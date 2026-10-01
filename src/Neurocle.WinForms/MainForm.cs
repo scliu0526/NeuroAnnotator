@@ -34,6 +34,7 @@ namespace Neurocle.WinForms
             projectMenu.DropDownItems.Add(Strings.ImportImages, null, async (sender, args) => await ImportFilesAsync());
             projectMenu.DropDownItems.Add(Strings.ImportFolder, null, async (sender, args) => await ImportFolderAsync());
             projectMenu.DropDownItems.Add(Strings.ManageMissingImages, null, (sender, args) => ManageMissingImages());
+            projectMenu.DropDownItems.Add(Strings.ManageBackups, null, (sender, args) => ManageBackups());
             menu.Items.Add(projectMenu);
 
             status = new Label
@@ -67,7 +68,14 @@ namespace Neurocle.WinForms
             using (var dialog = new OpenFileDialog { Filter = Strings.ProjectFileFilter })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                ReplaceProject(projectLifecycle.Open(dialog.FileName));
+                try
+                {
+                    ReplaceProject(projectLifecycle.Open(dialog.FileName));
+                }
+                catch (ProjectOpenException exception)
+                {
+                    RestoreCorruptProject(exception);
+                }
             }
         }
 
@@ -92,6 +100,33 @@ namespace Neurocle.WinForms
             if (project == null) return;
             using (var dialog = new MissingImagesForm(project)) dialog.ShowDialog(this);
             UpdateProjectStatus();
+        }
+
+        private void ManageBackups()
+        {
+            if (project == null) return;
+            using (var dialog = new BackupManagementForm(project))
+            {
+                if (dialog.ShowDialog(this) == DialogResult.OK && dialog.RestoredProject != null) ReplaceProject(dialog.RestoredProject);
+            }
+        }
+
+        private void RestoreCorruptProject(ProjectOpenException exception)
+        {
+            if (exception.Backups.Count == 0)
+            {
+                MessageBox.Show(this, Strings.CorruptProjectNoBackup, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (MessageBox.Show(this, Strings.CorruptProjectRestorePrompt, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Error) != DialogResult.Yes) return;
+            try
+            {
+                ReplaceProject(projectLifecycle.Restore(exception.ProjectPath, exception.Backups[0].Path));
+            }
+            catch (Exception)
+            {
+                MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private async Task ImportFilesAsync()

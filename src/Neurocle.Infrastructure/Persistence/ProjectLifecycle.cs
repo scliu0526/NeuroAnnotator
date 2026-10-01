@@ -6,5 +6,6 @@ namespace Neurocle.Infrastructure.Persistence
     {
         public IProjectSession Create(string projectPath) { return ProjectStore.Create(projectPath); }
         public IProjectSession Open(string projectPath) { return ProjectStore.Open(projectPath); }
+        public IProjectSession Restore(string projectPath, string backupPath) { return ProjectStore.Restore(projectPath, backupPath); }
     }
 }

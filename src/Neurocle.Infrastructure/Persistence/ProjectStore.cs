@@ -10,8 +10,12 @@ namespace Neurocle.Infrastructure.Persistence
     public sealed class ProjectStore : IProjectSession
     {
         private const int CurrentSchemaVersion = 2;
+        private const int MaximumBackupCount = 5;
         private readonly FileStream lockStream;
         private readonly SqliteConnection connection;
+
+        internal static Func<DateTime> UtcNow = () => DateTime.UtcNow;
+        internal static Action<string, string> ReplaceFile = (source, destination) => File.Replace(source, destination, null);
 
         private ProjectStore(string path, FileStream lockStream, SqliteConnection connection)
         {
@@ -38,13 +42,14 @@ namespace Neurocle.Infrastructure.Persistence
                     Execute(connection, transaction, "CREATE TABLE ProjectInfo (ProjectId TEXT NOT NULL, CreatedUtc TEXT NOT NULL);");
                     CreateImageTable(connection, transaction);
                     Execute(connection, transaction, "INSERT INTO SchemaInfo (Version) VALUES ($version);", new SqliteParameter("$version", CurrentSchemaVersion));
-                    Execute(connection, transaction, "INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ($id, $created);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$created", DateTime.UtcNow.ToString("O")));
+                    Execute(connection, transaction, "INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ($id, $created);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$created", UtcNow().ToString("O")));
                     transaction.Commit();
                 }
 
                 var store = new ProjectStore(fullPath, lockHandle, connection);
                 Directory.CreateDirectory(store.ImagesDirectory);
                 store.RecoverStagedImages();
+                store.CreateDailyBackup();
                 return store;
             }
             catch
@@ -63,12 +68,23 @@ namespace Neurocle.Infrastructure.Persistence
             SqliteConnection connection = null;
             try
             {
-                connection = OpenConnection(fullPath);
-                EnsureCurrentSchema(connection, fullPath);
+                try
+                {
+                    connection = OpenConnection(fullPath);
+                    EnsureCurrentSchema(connection, fullPath);
+                }
+                catch (SqliteException exception)
+                {
+                    connection?.Dispose();
+                    connection = null;
+                    lockHandle.Dispose();
+                    throw new ProjectOpenException(fullPath, GetBackups(fullPath), exception);
+                }
 
                 var store = new ProjectStore(fullPath, lockHandle, connection);
                 Directory.CreateDirectory(store.ImagesDirectory);
                 store.RecoverStagedImages();
+                store.CreateDailyBackup();
                 return store;
             }
             catch
@@ -76,6 +92,49 @@ namespace Neurocle.Infrastructure.Persistence
                 connection?.Dispose();
                 lockHandle.Dispose();
                 throw;
+            }
+        }
+
+        public static ProjectStore Restore(string projectPath, string backupPath)
+        {
+            string fullProjectPath = PreparePath(projectPath, true);
+            string fullBackupPath = Path.GetFullPath(backupPath ?? throw new ArgumentNullException(nameof(backupPath)));
+            string backupDirectory = GetBackupDirectory(fullProjectPath) + Path.DirectorySeparatorChar;
+            if (!fullBackupPath.StartsWith(backupDirectory, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("The backup does not belong to this project.", nameof(backupPath));
+            FileStream lockHandle = AcquireLock(fullProjectPath);
+            SqliteConnection connection = null;
+            string temporary = fullProjectPath + ".restore";
+            try
+            {
+                if (!File.Exists(fullBackupPath)) throw new FileNotFoundException("The backup file does not exist.", fullBackupPath);
+                File.Copy(fullBackupPath, temporary, true);
+                ValidateDatabase(temporary);
+                CreateBackupFile(fullProjectPath, "before-restore-" + UtcNow().ToString("yyyyMMdd-HHmmssfff"));
+                try
+                {
+                    ReplaceFile(temporary, fullProjectPath);
+                }
+                finally
+                {
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                }
+                connection = OpenConnection(fullProjectPath);
+                EnsureCurrentSchema(connection, fullProjectPath);
+                var store = new ProjectStore(fullProjectPath, lockHandle, connection);
+                Directory.CreateDirectory(store.ImagesDirectory);
+                store.RecoverStagedImages();
+                store.CreateDailyBackup();
+                return store;
+            }
+            catch
+            {
+                connection?.Dispose();
+                lockHandle.Dispose();
+                throw;
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
             }
         }
 
@@ -243,6 +302,46 @@ namespace Neurocle.Infrastructure.Persistence
             RecoverStagedImages();
         }
 
+        public IReadOnlyList<ProjectBackup> GetBackups()
+        {
+            return GetBackups(ProjectPath);
+        }
+
+        public IProjectSession RestoreBackup(string backupPath)
+        {
+            if (backupPath == null) throw new ArgumentNullException(nameof(backupPath));
+            string fullBackupPath = Path.GetFullPath(backupPath);
+            if (!fullBackupPath.StartsWith(BackupDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("The backup does not belong to this project.", nameof(backupPath));
+            string temporary = ProjectPath + ".restore";
+            if (!File.Exists(fullBackupPath)) throw new FileNotFoundException("The backup file does not exist.", fullBackupPath);
+            File.Copy(fullBackupPath, temporary, true);
+            try
+            {
+                ValidateDatabase(temporary);
+            }
+            catch
+            {
+                File.Delete(temporary);
+                throw;
+            }
+            CreateBackup("before-restore-" + UtcNow().ToString("yyyyMMdd-HHmmssfff"));
+            connection.Dispose();
+            lockStream.Dispose();
+            try
+            {
+                ReplaceFile(temporary, ProjectPath);
+            }
+            catch (Exception exception)
+            {
+                throw new ProjectRestoreException(Open(ProjectPath), exception);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
+            return Open(ProjectPath);
+        }
+
         public IProjectSession SaveAs(string targetPath)
         {
             string fullTargetPath = PreparePath(targetPath, false);
@@ -406,8 +505,114 @@ namespace Neurocle.Infrastructure.Persistence
             int suffix = 1;
             while (File.Exists(backupPath)) backupPath = Path.Combine(directory, "before-migration-v" + version + " (" + suffix++ + ").neurocle");
             File.Copy(projectPath, backupPath);
-            File.SetLastWriteTimeUtc(backupPath, DateTime.UtcNow);
-            foreach (string oldBackup in Directory.GetFiles(directory, "*.neurocle").OrderByDescending(File.GetLastWriteTimeUtc).ThenByDescending(file => file, StringComparer.OrdinalIgnoreCase).Skip(5)) File.Delete(oldBackup);
+            File.SetLastWriteTimeUtc(backupPath, UtcNow());
+            TrimBackups(directory);
+        }
+
+        private string BackupDirectory
+        {
+            get { return GetBackupDirectory(ProjectPath); }
+        }
+
+        private void CreateDailyBackup()
+        {
+            string name = "daily-" + UtcNow().ToString("yyyy-MM-dd") + ".neurocle";
+            if (File.Exists(Path.Combine(BackupDirectory, name))) return;
+            Save();
+            Directory.CreateDirectory(BackupDirectory);
+            File.Copy(ProjectPath, Path.Combine(BackupDirectory, name));
+            File.SetLastWriteTimeUtc(Path.Combine(BackupDirectory, name), UtcNow());
+            TrimBackups(BackupDirectory);
+        }
+
+        private void CreateBackup(string name)
+        {
+            Save();
+            CreateBackupFile(ProjectPath, name);
+        }
+
+        private static void CreateBackupFile(string projectPath, string name)
+        {
+            string directory = GetBackupDirectory(projectPath);
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, name + ".neurocle");
+            int suffix = 1;
+            while (File.Exists(path)) path = Path.Combine(directory, name + " (" + suffix++ + ").neurocle");
+            File.Copy(projectPath, path);
+            File.SetLastWriteTimeUtc(path, UtcNow());
+            TrimBackups(directory);
+        }
+
+        private static IReadOnlyList<ProjectBackup> GetBackups(string projectPath)
+        {
+            string directory = GetBackupDirectory(projectPath);
+            if (!Directory.Exists(directory)) return new List<ProjectBackup>();
+            return Directory.GetFiles(directory, "*.neurocle")
+                .Select(path => new ProjectBackup(path, File.GetLastWriteTimeUtc(path)))
+                .OrderByDescending(backup => backup.CreatedUtc).ThenByDescending(backup => backup.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static string GetBackupDirectory(string projectPath)
+        {
+            return Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".backups");
+        }
+
+        private static void TrimBackups(string directory)
+        {
+            foreach (string oldBackup in Directory.GetFiles(directory, "*.neurocle").OrderByDescending(File.GetLastWriteTimeUtc).ThenByDescending(file => file, StringComparer.OrdinalIgnoreCase).Skip(MaximumBackupCount)) File.Delete(oldBackup);
+        }
+
+        private static void ValidateDatabase(string path)
+        {
+            using (SqliteConnection db = OpenConnection(path))
+            {
+                int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
+                if (version != 1 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
+                ValidateTableColumns(db, "SchemaInfo", new[] { "Version" }, null, null);
+                ValidateTableColumns(db, "ProjectInfo", new[] { "ProjectId", "CreatedUtc" }, null, null);
+                if (version == CurrentSchemaVersion) ValidateTableColumns(db, "ImageRecord", new[] { "Id", "OriginalFileName", "ManagedFileName", "Sha256", "Width", "Height", "Sequence" }, "Id", new[] { "ManagedFileName", "Sequence" });
+            }
+        }
+
+        private static void ValidateTableColumns(SqliteConnection db, string table, IReadOnlyList<string> requiredColumns, string primaryKeyColumn, IReadOnlyList<string> uniqueColumns)
+        {
+            var columns = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            using (var command = db.CreateCommand())
+            {
+                command.CommandText = "PRAGMA table_info('" + table + "');";
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read()) columns.Add(reader.GetString(1), reader.GetInt32(5));
+                }
+            }
+            if (requiredColumns.Any(column => !columns.ContainsKey(column))) throw new InvalidDataException("The backup database schema is incomplete.");
+            if (primaryKeyColumn != null && columns[primaryKeyColumn] == 0) throw new InvalidDataException("The backup database schema is incomplete.");
+            if (uniqueColumns != null && uniqueColumns.Any(column => !HasUniqueIndex(db, table, column))) throw new InvalidDataException("The backup database schema is incomplete.");
+        }
+
+        private static bool HasUniqueIndex(SqliteConnection db, string table, string requiredColumn)
+        {
+            using (var indexList = db.CreateCommand())
+            {
+                indexList.CommandText = "PRAGMA index_list('" + table + "');";
+                using (SqliteDataReader indices = indexList.ExecuteReader())
+                {
+                    while (indices.Read())
+                    {
+                        if (indices.GetInt32(2) == 0) continue;
+                        string indexName = indices.GetString(1);
+                        using (var indexInfo = db.CreateCommand())
+                        {
+                            indexInfo.CommandText = "PRAGMA index_info('" + indexName + "');";
+                            using (SqliteDataReader columns = indexInfo.ExecuteReader())
+                            {
+                                if (columns.Read() && string.Equals(columns.GetString(2), requiredColumn, StringComparison.OrdinalIgnoreCase) && !columns.Read()) return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
         }
 
         private static void CopyDirectory(string source, string target)

@@ -46,6 +46,7 @@
     <Compile Include="MainForm.cs" />
     <Compile Include="ImportProgressForm.cs" />
     <Compile Include="MissingImagesForm.cs" />
+    <Compile Include="BackupManagementForm.cs" />
     <Compile Include="Resources\Strings.Designer.cs" />
     <EmbeddedResource Include="Resources\Strings.resx">
       <Generator>ResXFileCodeGenerator</Generator>
