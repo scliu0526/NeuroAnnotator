@@ -98,6 +98,23 @@ namespace Neurocle.Tests
             Assert.ThrowsException<NotSupportedException>(() => ProjectStore.Create(path));
         }
 
+        [TestMethod]
+        public void Existing_managed_images_directory_is_never_deleted_on_create_failure()
+        {
+            string path = TemporaryProjectPath();
+            string imagesDirectory = Path.Combine(Path.GetDirectoryName(path), "project.images");
+            string sentinel = Path.Combine(imagesDirectory, "keep.txt");
+            try
+            {
+                Directory.CreateDirectory(imagesDirectory);
+                File.WriteAllText(sentinel, "user data");
+
+                Assert.ThrowsException<IOException>(() => ProjectStore.Create(path));
+                Assert.IsTrue(File.Exists(sentinel));
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
         private static string TemporaryProjectPath()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

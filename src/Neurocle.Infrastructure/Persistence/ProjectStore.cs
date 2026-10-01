@@ -126,6 +126,8 @@ namespace Neurocle.Infrastructure.Persistence
             string fullPath = Path.GetFullPath(projectPath);
             if (mustExist && !File.Exists(fullPath)) throw new FileNotFoundException("The project file does not exist.", fullPath);
             if (!mustExist && File.Exists(fullPath)) throw new IOException("The project file already exists.");
+            string imagesDirectory = Path.Combine(Path.GetDirectoryName(fullPath), Path.GetFileNameWithoutExtension(fullPath) + ".images");
+            if (!mustExist && Directory.Exists(imagesDirectory)) throw new IOException("The managed images directory already exists.");
             Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
             return fullPath;
         }
