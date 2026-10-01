@@ -6,11 +6,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-function Get-ImageRegion {
+function Get-Image {
     param($Document, [string]$ImageName)
     $image = @($Document.data | Where-Object { $_.fileName -eq $ImageName })
     if ($image.Count -ne 1) { throw "Expected one '$ImageName' entry." }
-    return @($image[0].regionLabel)
+    return $image[0]
+}
+
+function Get-ImageRegion {
+    param($Document, [string]$ImageName)
+    return @((Get-Image $Document $ImageName).regionLabel)
 }
 
 function Read-Sample {
@@ -90,18 +95,21 @@ foreach ($imageName in '33.png', '55.png') {
 foreach ($imageName in '11.png', '22.png') {
     $region = (Get-ImageRegion $rotated $imageName)[0]
     if ($region.type -ne 'PolyGon' -or @($region.points).Count -lt 3) { throw "$imageName rotation type mismatch." }
-    if ($region.PSObject.Properties['rotation_angle'] -and [double]$region.rotation_angle -ne 0) { throw "$imageName rotation_angle must be zero." }
+    $image = Get-Image $rotated $imageName
+    if (-not $image.PSObject.Properties['rotation_angle'] -or [double]$image.rotation_angle -ne 0) { throw "$imageName rotation_angle must be zero." }
 }
 foreach ($imageName in '33.png', '55.png') {
     $region = (Get-ImageRegion $rotated $imageName)[0]
     if ($region.type -ne 'PolyLine' -or @($region.points).Count -lt 2) { throw "$imageName rotated line mismatch." }
-    if ($region.PSObject.Properties['rotation_angle'] -and [double]$region.rotation_angle -ne 0) { throw "$imageName rotation_angle must be zero." }
+    $image = Get-Image $rotated $imageName
+    if (-not $image.PSObject.Properties['rotation_angle'] -or [double]$image.rotation_angle -ne 0) { throw "$imageName rotation_angle must be zero." }
 }
 $rotatedPolygon = (Get-ImageRegion $rotated '44.png')[0]
 $originalPolygon = (Get-ImageRegion $base '44.png')[0]
 if ($rotatedPolygon.type -ne 'PolyGon' -or @($rotatedPolygon.points).Count -lt 3) { throw '44.png rotated polygon type mismatch.' }
 if (($rotatedPolygon.points | ConvertTo-Json -Compress) -eq ($originalPolygon.points | ConvertTo-Json -Compress)) { throw '44.png rotated polygon points did not change.' }
-if ($rotatedPolygon.PSObject.Properties['rotation_angle'] -and [double]$rotatedPolygon.rotation_angle -ne 0) { throw '44.png rotation_angle must be zero.' }
+$rotatedPolygonImage = Get-Image $rotated '44.png'
+if (-not $rotatedPolygonImage.PSObject.Properties['rotation_angle'] -or [double]$rotatedPolygonImage.rotation_angle -ne 0) { throw '44.png rotation_angle must be zero.' }
 $donut = (Get-ImageRegion $erased '11.png')[0]
 if ($donut.type -ne 'PolyGon') { throw 'Erased donut type mismatch.' }
 $donutPath = ConvertTo-Path64 $donut
