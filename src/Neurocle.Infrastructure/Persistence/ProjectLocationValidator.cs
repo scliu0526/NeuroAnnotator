@@ -24,6 +24,14 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 throw new NotSupportedException("Projects cannot be stored in a cloud-synchronised directory.");
             }
+
+            foreach (string synchronizedName in new[] { "OneDrive", "Dropbox", "Google Drive", "iCloud Drive" })
+            {
+                if (fullPath.IndexOf(Path.DirectorySeparatorChar + synchronizedName + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    throw new NotSupportedException("Projects cannot be stored in a cloud-synchronised directory.");
+                }
+            }
         }
 
         private static bool IsUnder(string path, string parent)

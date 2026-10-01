@@ -1,10 +1,11 @@
 using System;
 using System.IO;
 using Microsoft.Data.Sqlite;
+using Neurocle.Application.Projects;
 
 namespace Neurocle.Infrastructure.Persistence
 {
-    public sealed class ProjectStore : IDisposable
+    public sealed class ProjectStore : IProjectSession
     {
         private const int CurrentSchemaVersion = 1;
         private readonly FileStream lockStream;
@@ -25,9 +26,10 @@ namespace Neurocle.Infrastructure.Persistence
         {
             string fullPath = PreparePath(projectPath, false);
             FileStream lockHandle = AcquireLock(fullPath);
+            SqliteConnection connection = null;
             try
             {
-                var connection = OpenConnection(fullPath);
+                connection = OpenConnection(fullPath);
                 using (var transaction = connection.BeginTransaction())
                 {
                     Execute(connection, transaction, "CREATE TABLE SchemaInfo (Version INTEGER NOT NULL);");
@@ -43,7 +45,9 @@ namespace Neurocle.Infrastructure.Persistence
             }
             catch
             {
+                connection?.Dispose();
                 lockHandle.Dispose();
+                DeleteNewProject(fullPath);
                 throw;
             }
         }
@@ -52,9 +56,10 @@ namespace Neurocle.Infrastructure.Persistence
         {
             string fullPath = PreparePath(projectPath, true);
             FileStream lockHandle = AcquireLock(fullPath);
+            SqliteConnection connection = null;
             try
             {
-                SqliteConnection connection = OpenConnection(fullPath);
+                connection = OpenConnection(fullPath);
                 object version = ExecuteScalar(connection, "SELECT Version FROM SchemaInfo LIMIT 1;");
                 if (Convert.ToInt32(version) != CurrentSchemaVersion)
                 {
@@ -67,6 +72,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
             catch
             {
+                connection?.Dispose();
                 lockHandle.Dispose();
                 throw;
             }
@@ -87,17 +93,25 @@ namespace Neurocle.Infrastructure.Persistence
             Execute(connection, null, "PRAGMA wal_checkpoint(FULL);");
         }
 
-        public ProjectStore SaveAs(string targetPath)
+        public IProjectSession SaveAs(string targetPath)
         {
             string fullTargetPath = PreparePath(targetPath, false);
-            Save();
-            File.Copy(ProjectPath, fullTargetPath);
-            if (Directory.Exists(ImagesDirectory))
+            try
             {
-                CopyDirectory(ImagesDirectory, Path.Combine(Path.GetDirectoryName(fullTargetPath), Path.GetFileNameWithoutExtension(fullTargetPath) + ".images"));
-            }
+                Save();
+                File.Copy(ProjectPath, fullTargetPath);
+                if (Directory.Exists(ImagesDirectory))
+                {
+                    CopyDirectory(ImagesDirectory, Path.Combine(Path.GetDirectoryName(fullTargetPath), Path.GetFileNameWithoutExtension(fullTargetPath) + ".images"));
+                }
 
-            return Open(fullTargetPath);
+                return Open(fullTargetPath);
+            }
+            catch
+            {
+                DeleteNewProject(fullTargetPath);
+                throw;
+            }
         }
 
         public void Dispose()
@@ -160,6 +174,14 @@ namespace Neurocle.Infrastructure.Persistence
             Directory.CreateDirectory(target);
             foreach (string file in Directory.GetFiles(source)) File.Copy(file, Path.Combine(target, Path.GetFileName(file)));
             foreach (string directory in Directory.GetDirectories(source)) CopyDirectory(directory, Path.Combine(target, Path.GetFileName(directory)));
+        }
+
+        private static void DeleteNewProject(string projectPath)
+        {
+            string imagesDirectory = Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".images");
+            if (Directory.Exists(imagesDirectory)) Directory.Delete(imagesDirectory, true);
+            if (File.Exists(projectPath)) File.Delete(projectPath);
+            if (File.Exists(projectPath + ".lock")) File.Delete(projectPath + ".lock");
         }
     }
 }

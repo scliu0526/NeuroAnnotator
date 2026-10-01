@@ -90,6 +90,14 @@ namespace Neurocle.Tests
             finally { DeleteTemporaryProject(path); }
         }
 
+        [TestMethod]
+        public void Known_cloud_sync_directory_is_rejected()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "Dropbox", Guid.NewGuid().ToString("N"), "project.neurocle");
+
+            Assert.ThrowsException<NotSupportedException>(() => ProjectStore.Create(path));
+        }
+
         private static string TemporaryProjectPath()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

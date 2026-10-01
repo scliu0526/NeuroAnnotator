@@ -32,4 +32,10 @@
   </resheader>
   <data name="ApplicationTitle" xml:space="preserve"><value>Neurocle AI 標記工具</value></data>
   <data name="OfflineStatus" xml:space="preserve"><value>Neurocle 已準備就緒，可完全離線執行。</value></data>
+  <data name="ProjectMenu" xml:space="preserve"><value>專案</value></data>
+  <data name="NewProject" xml:space="preserve"><value>新增</value></data>
+  <data name="OpenProject" xml:space="preserve"><value>開啟</value></data>
+  <data name="SaveProject" xml:space="preserve"><value>儲存</value></data>
+  <data name="SaveProjectAs" xml:space="preserve"><value>另存新檔</value></data>
+  <data name="ProjectFileFilter" xml:space="preserve"><value>Neurocle Project (*.neurocle)|*.neurocle</value></data>
 </root>

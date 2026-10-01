@@ -17,5 +17,12 @@ namespace Neurocle.WinForms.Resources
         {
             get { return ResourceManager.GetString("OfflineStatus", CultureInfo.CurrentUICulture); }
         }
+
+        internal static string ProjectMenu { get { return ResourceManager.GetString("ProjectMenu", CultureInfo.CurrentUICulture); } }
+        internal static string NewProject { get { return ResourceManager.GetString("NewProject", CultureInfo.CurrentUICulture); } }
+        internal static string OpenProject { get { return ResourceManager.GetString("OpenProject", CultureInfo.CurrentUICulture); } }
+        internal static string SaveProject { get { return ResourceManager.GetString("SaveProject", CultureInfo.CurrentUICulture); } }
+        internal static string SaveProjectAs { get { return ResourceManager.GetString("SaveProjectAs", CultureInfo.CurrentUICulture); } }
+        internal static string ProjectFileFilter { get { return ResourceManager.GetString("ProjectFileFilter", CultureInfo.CurrentUICulture); } }
     }
 }

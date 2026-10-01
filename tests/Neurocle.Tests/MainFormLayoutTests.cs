@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.WinForms;
+using Neurocle.Infrastructure.Persistence;
 
 namespace Neurocle.Tests
 {
@@ -11,7 +12,7 @@ namespace Neurocle.Tests
         [TestMethod]
         public void MinimumSize_fits_the_smallest_supported_viewport_at_each_supported_dpi_scale()
         {
-            using (var form = new MainForm())
+            using (var form = new MainForm(new ProjectLifecycle()))
             {
                 foreach (var scale in new[] { 1f, 1.25f, 1.5f, 1.75f, 2f })
                 {
@@ -26,7 +27,7 @@ namespace Neurocle.Tests
         {
             foreach (var scale in new[] { 1f, 1.25f, 1.5f, 1.75f, 2f })
             {
-                using (var form = new MainForm())
+                using (var form = new MainForm(new ProjectLifecycle()))
                 {
                     form.CreateControl();
                     form.Scale(new SizeF(scale, scale));

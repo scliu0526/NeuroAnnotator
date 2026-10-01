@@ -36,6 +36,10 @@
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Neurocle.Application\Neurocle.Application.csproj">
+      <Project>{2DF8F0C8-C2D7-4106-A20B-1355E83AD2C5}</Project>
+      <Name>Neurocle.Application</Name>
+    </ProjectReference>
     <ProjectReference Include="..\..\src\Neurocle.Infrastructure\Neurocle.Infrastructure.csproj">
       <Project>{4F70F454-9A0A-4A95-B32E-19F56B9357A7}</Project>
       <Name>Neurocle.Infrastructure</Name>
