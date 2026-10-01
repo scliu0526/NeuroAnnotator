@@ -40,6 +40,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Persistence\SqliteRuntimeProbe.cs" />
+    <Compile Include="Persistence\ProjectLocationValidator.cs" />
+    <Compile Include="Persistence\ProjectStore.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

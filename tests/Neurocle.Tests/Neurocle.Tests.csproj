@@ -31,6 +31,7 @@
       <Name>Neurocle.Domain</Name>
     </ProjectReference>
     <Reference Include="System" />
+    <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
@@ -50,6 +51,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="SqliteRuntimeProbeTests.cs" />
+    <Compile Include="ProjectStoreTests.cs" />
     <Compile Include="MainFormLayoutTests.cs" />
     <Compile Include="SegGeometryPrototypeTests.cs" />
   </ItemGroup>
