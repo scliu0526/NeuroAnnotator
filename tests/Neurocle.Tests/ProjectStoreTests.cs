@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -844,6 +845,22 @@ namespace Neurocle.Tests
                 }
             }
             finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Image_list_projection_searches_and_sorts_ten_thousand_text_rows_without_creating_images()
+        {
+            ProjectImage[] images = Enumerable.Range(1, 10000)
+                .Select(index => new ProjectImage(index.ToString(), "image" + index + ".png", "managed" + index + ".png", "hash", 1, 1, index))
+                .Reverse().ToArray();
+
+            IReadOnlyList<ProjectImage> byName = ImageListProjection.FilterAndSort(images, null, ImageListSortColumn.FileName, ImageListSortDirection.Ascending);
+            Assert.AreEqual(10000, byName.Count);
+            Assert.AreEqual("image1.png", byName[0].OriginalFileName);
+            Assert.AreEqual("image10000.png", byName[9999].OriginalFileName);
+
+            IReadOnlyList<ProjectImage> filtered = ImageListProjection.FilterAndSort(images, "IMAGE999", ImageListSortColumn.Sequence, ImageListSortDirection.Descending);
+            CollectionAssert.AreEqual(new[] { "image9999.png", "image9998.png", "image9997.png", "image9996.png", "image9995.png", "image9994.png", "image9993.png", "image9992.png", "image9991.png", "image9990.png", "image999.png" }, filtered.Select(image => image.OriginalFileName).ToArray());
         }
 
         private static string TemporaryProjectPath()

@@ -15,6 +15,7 @@ namespace Neurocle.WinForms
         private IProjectSession project;
         private readonly Label status;
         private readonly ToolStripMenuItem projectMenu;
+        private readonly ImageBrowserControl imageBrowser;
         private bool importInProgress;
 
         public MainForm(IProjectLifecycle projectLifecycle)
@@ -43,10 +44,12 @@ namespace Neurocle.WinForms
                 Location = new Point(24, 56),
                 Text = Strings.OfflineStatus
             };
+            imageBrowser = new ImageBrowserControl { Dock = DockStyle.Bottom, Height = 272 };
 
             MainMenuStrip = menu;
             Controls.Add(menu);
             Controls.Add(status);
+            Controls.Add(imageBrowser);
             FormClosing += (sender, args) =>
             {
                 if (importInProgress) args.Cancel = true;
@@ -100,6 +103,7 @@ namespace Neurocle.WinForms
             if (project == null) return;
             using (var dialog = new MissingImagesForm(project)) dialog.ShowDialog(this);
             UpdateProjectStatus();
+            imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
         }
 
         private void ManageBackups()
@@ -176,6 +180,7 @@ namespace Neurocle.WinForms
                     progress.Close();
                     projectMenu.Enabled = true;
                     importInProgress = false;
+                    if (project != null) imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
                 }
             }
         }
@@ -191,6 +196,7 @@ namespace Neurocle.WinForms
             project = replacement;
             previous?.Dispose();
             UpdateProjectStatus();
+            imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
         }
 
         private void UpdateProjectStatus()
@@ -198,6 +204,11 @@ namespace Neurocle.WinForms
             string projectName = Path.GetFileName(project.ProjectPath);
             int missingCount = project.GetMissingImages().Count;
             status.Text = missingCount == 0 ? projectName : projectName + " - " + string.Format(Strings.MissingImagesStatus, missingCount);
+        }
+
+        private static string GetImagesDirectory(string projectPath)
+        {
+            return Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".images");
         }
 
         private void RunProjectCommand(Action command)

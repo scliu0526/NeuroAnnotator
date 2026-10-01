@@ -59,5 +59,12 @@ namespace Neurocle.WinForms.Resources
         internal static string RestoreBackupPrompt { get { return ResourceManager.GetString("RestoreBackupPrompt", CultureInfo.CurrentUICulture); } }
         internal static string CorruptProjectNoBackup { get { return ResourceManager.GetString("CorruptProjectNoBackup", CultureInfo.CurrentUICulture); } }
         internal static string CorruptProjectRestorePrompt { get { return ResourceManager.GetString("CorruptProjectRestorePrompt", CultureInfo.CurrentUICulture); } }
+        internal static string ImageSearchPlaceholder { get { return ResourceManager.GetString("ImageSearchPlaceholder", CultureInfo.CurrentUICulture); } }
+        internal static string ImageSequenceColumn { get { return ResourceManager.GetString("ImageSequenceColumn", CultureInfo.CurrentUICulture); } }
+        internal static string ImageFileNameColumn { get { return ResourceManager.GetString("ImageFileNameColumn", CultureInfo.CurrentUICulture); } }
+        internal static string ImagePreviewEmpty { get { return ResourceManager.GetString("ImagePreviewEmpty", CultureInfo.CurrentUICulture); } }
+        internal static string ImagePreviewLoading { get { return ResourceManager.GetString("ImagePreviewLoading", CultureInfo.CurrentUICulture); } }
+        internal static string ImagePreviewMissing { get { return ResourceManager.GetString("ImagePreviewMissing", CultureInfo.CurrentUICulture); } }
+        internal static string ImagePreviewUnavailable { get { return ResourceManager.GetString("ImagePreviewUnavailable", CultureInfo.CurrentUICulture); } }
     }
 }

@@ -73,4 +73,11 @@
   <data name="RestoreBackupPrompt" xml:space="preserve"><value>還原前會先備份目前資料庫；備份不包含圖片。要繼續嗎？</value></data>
   <data name="CorruptProjectNoBackup" xml:space="preserve"><value>專案資料庫已損毀，且找不到可用備份。</value></data>
   <data name="CorruptProjectRestorePrompt" xml:space="preserve"><value>專案資料庫已損毀。要使用最新資料庫備份還原嗎？備份不包含圖片。</value></data>
+  <data name="ImageSearchPlaceholder" xml:space="preserve"><value>搜尋檔名</value></data>
+  <data name="ImageSequenceColumn" xml:space="preserve"><value>序號</value></data>
+  <data name="ImageFileNameColumn" xml:space="preserve"><value>檔名</value></data>
+  <data name="ImagePreviewEmpty" xml:space="preserve"><value>請從圖片清單選取圖片。</value></data>
+  <data name="ImagePreviewLoading" xml:space="preserve"><value>正在載入預覽。</value></data>
+  <data name="ImagePreviewMissing" xml:space="preserve"><value>這張圖片缺失或無法讀取。</value></data>
+  <data name="ImagePreviewUnavailable" xml:space="preserve"><value>無法預覽這張圖片。</value></data>
 </root>

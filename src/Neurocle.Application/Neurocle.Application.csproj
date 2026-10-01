@@ -36,6 +36,7 @@
   <ItemGroup>
     <Compile Include="ApplicationAssembly.cs" />
     <Compile Include="Projects\ProjectLifecycle.cs" />
+    <Compile Include="Projects\ImageListProjection.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
