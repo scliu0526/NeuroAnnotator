@@ -1160,6 +1160,48 @@ namespace Neurocle.Tests
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
         }
 
+        [TestMethod]
+        public void Group_obd_update_and_delete_are_undoable_and_preserve_relative_layer_order()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 30, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    AnnotationClass firstClass = store.GetClasses(set.Id).Single();
+                    AnnotationClass secondClass = store.AddClass(set.Id, "other", "#123456");
+                    ObdAnnotation first = store.AddObdAnnotation(set.Id, image.Id, firstClass.Id, 1, 1, 4, 4);
+                    ObdAnnotation second = store.AddObdAnnotation(set.Id, image.Id, firstClass.Id, 10, 1, 4, 4);
+                    ObdAnnotation third = store.AddObdAnnotation(set.Id, image.Id, firstClass.Id, 20, 1, 4, 4);
+
+                    store.UpdateObdAnnotations(new[]
+                    {
+                        new ObdAnnotation(first.Id, set.Id, image.Id, secondClass.Id, 2, 3, 4, 4, first.ZOrder),
+                        new ObdAnnotation(second.Id, set.Id, image.Id, secondClass.Id, 11, 3, 4, 4, second.ZOrder)
+                    });
+                    ObdAnnotation[] updated = store.GetObdAnnotations(set.Id, image.Id).ToArray();
+                    Assert.AreEqual(third.Id, updated[0].Id);
+                    Assert.AreEqual(first.Id, updated[1].Id);
+                    Assert.AreEqual(second.Id, updated[2].Id);
+                    Assert.AreEqual(secondClass.Id, updated[1].ClassId);
+                    Assert.AreEqual(2, updated[1].X);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(firstClass.Id, store.GetObdAnnotations(set.Id, image.Id).Single(item => item.Id == first.Id).ClassId);
+                    Assert.IsTrue(store.Redo(set.Id));
+
+                    store.DeleteObdAnnotations(new[] { first.Id, second.Id });
+                    Assert.AreEqual(third.Id, store.GetObdAnnotations(set.Id, image.Id).Single().Id);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(3, store.GetObdAnnotations(set.Id, image.Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
         private static string TemporaryProjectPath()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

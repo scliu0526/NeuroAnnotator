@@ -20,21 +20,34 @@ namespace Neurocle.WinForms
         private Point previousPoint;
         private PointF obdStart;
         private RectangleF? obdPreview;
+        private IReadOnlyDictionary<string, RectangleF> obdPreviews = new Dictionary<string, RectangleF>();
         private IReadOnlyList<ObdAnnotation> obdAnnotations = new List<ObdAnnotation>();
         private IReadOnlyDictionary<string, AnnotationClass> obdClasses = new Dictionary<string, AnnotationClass>();
         private ObdAnnotation activeObd;
         private ObdDragKind obdDrag;
         private RectangleF obdOriginal;
         private PointF obdDragStart;
+        private readonly HashSet<string> selectedObdIds = new HashSet<string>(StringComparer.Ordinal);
         private string selectedObdId;
 
         public bool ObdEnabled { get; set; }
         public string SelectedObdId { get { return selectedObdId; } }
-        public IReadOnlyList<ObdAnnotation> ObdAnnotations { get { return obdAnnotations; } set { obdAnnotations = value ?? new List<ObdAnnotation>(); Invalidate(); } }
+        public IReadOnlyCollection<string> SelectedObdIds { get { return selectedObdIds; } }
+        public IReadOnlyList<ObdAnnotation> ObdAnnotations
+        {
+            get { return obdAnnotations; }
+            set
+            {
+                obdAnnotations = value ?? new List<ObdAnnotation>();
+                selectedObdIds.RemoveWhere(id => !obdAnnotations.Any(annotation => annotation.Id == id));
+                if (!selectedObdIds.Contains(selectedObdId)) selectedObdId = selectedObdIds.FirstOrDefault();
+                Invalidate();
+            }
+        }
         public IReadOnlyDictionary<string, AnnotationClass> ObdClasses { get { return obdClasses; } set { obdClasses = value ?? new Dictionary<string, AnnotationClass>(); Invalidate(); } }
         public event Action<Rectangle> ObdRectangleCreated;
-        public event Action<string, Rectangle> ObdRectangleChanged;
-        public event Action<string> ObdAnnotationDeleteRequested;
+        public event Action<IReadOnlyDictionary<string, Rectangle>> ObdRectanglesChanged;
+        public event Action<IReadOnlyCollection<string>> ObdAnnotationsDeleteRequested;
 
         public ImageCanvasControl()
         {
@@ -117,6 +130,7 @@ namespace Neurocle.WinForms
         public void DiscardUnfinishedShape()
         {
             obdPreview = null;
+            obdPreviews = new Dictionary<string, RectangleF>();
             activeObd = null;
             obdDrag = ObdDragKind.None;
             Capture = false;
@@ -129,14 +143,16 @@ namespace Neurocle.WinForms
             if (image == null) return;
             PointF origin = viewport.Origin;
             args.Graphics.DrawImage(image, new RectangleF(origin.X, origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom)));
-            foreach (ObdAnnotation annotation in obdAnnotations.Where(item => item.Id != selectedObdId).Concat(obdAnnotations.Where(item => item.Id == selectedObdId)))
+            foreach (ObdAnnotation annotation in obdAnnotations.Where(item => !selectedObdIds.Contains(item.Id)).Concat(obdAnnotations.Where(item => selectedObdIds.Contains(item.Id))))
             {
-                RectangleF rectangle = ToScreenRectangle(annotation.X, annotation.Y, annotation.Width, annotation.Height);
+                RectangleF imageRectangle;
+                if (!obdPreviews.TryGetValue(annotation.Id, out imageRectangle)) imageRectangle = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
+                RectangleF rectangle = ToScreenRectangle(imageRectangle.X, imageRectangle.Y, imageRectangle.Width, imageRectangle.Height);
                 AnnotationClass annotationClass;
                 obdClasses.TryGetValue(annotation.ClassId, out annotationClass);
                 Color color = annotationClass == null ? Color.Red : ColorTranslator.FromHtml(annotationClass.Color);
                 using (var fill = new SolidBrush(Color.FromArgb(102, color))) args.Graphics.FillRectangle(fill, rectangle);
-                using (var pen = new Pen(color, annotation.Id == selectedObdId ? 3f : 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                using (var pen = new Pen(color, selectedObdIds.Contains(annotation.Id) ? 3f : 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
                 if (annotationClass != null) using (var text = new SolidBrush(color)) args.Graphics.DrawString(annotationClass.Name, Font, text, rectangle.Left + 2f, rectangle.Top + 2f);
                 if (annotation.Id == selectedObdId) DrawHandles(args.Graphics, rectangle);
             }
@@ -184,14 +200,31 @@ namespace Neurocle.WinForms
                     ObdAnnotation hit = TopmostObdAt(point);
                     if (hit == null)
                     {
-                        selectedObdId = null;
+                        ClearObdSelection();
                         obdStart = ClampPoint(point);
                         obdPreview = new RectangleF(obdStart, SizeF.Empty);
                         obdDrag = ObdDragKind.Create;
                     }
+                    else if ((ModifierKeys & Keys.Control) == Keys.Control)
+                    {
+                        if (!selectedObdIds.Add(hit.Id))
+                        {
+                            selectedObdIds.Remove(hit.Id);
+                            if (selectedObdId == hit.Id) selectedObdId = selectedObdIds.FirstOrDefault();
+                        }
+                        else selectedObdId = hit.Id;
+                        Invalidate();
+                        base.OnMouseDown(args);
+                        return;
+                    }
                     else
                     {
-                        selectedObdId = hit.Id;
+                        if (!selectedObdIds.Contains(hit.Id))
+                        {
+                            ClearObdSelection();
+                            selectedObdIds.Add(hit.Id);
+                            selectedObdId = hit.Id;
+                        }
                         BeginObdDrag(ObdDragKind.Move, point, hit);
                     }
                 }
@@ -209,6 +242,7 @@ namespace Neurocle.WinForms
             obdOriginal = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
             obdDragStart = point;
             obdPreview = null;
+            obdPreviews = new Dictionary<string, RectangleF>();
         }
 
         protected override void OnMouseMove(MouseEventArgs args)
@@ -223,8 +257,11 @@ namespace Neurocle.WinForms
             {
                 PointF point = ClampPoint(viewport.ScreenToImage(args.Location));
                 if (obdDrag == ObdDragKind.Create) obdPreview = Normalize(obdStart, point);
-                else if (obdDrag == ObdDragKind.Move) obdPreview = MoveRectangle(point);
-                else obdPreview = ResizeRectangle(point);
+                else if (obdDrag == ObdDragKind.Move) obdPreviews = MoveRectangles(point);
+                else
+                {
+                    obdPreviews = new Dictionary<string, RectangleF> { { activeObd.Id, ResizeRectangle(point) } };
+                }
                 Invalidate();
             }
             base.OnMouseMove(args);
@@ -234,19 +271,29 @@ namespace Neurocle.WinForms
         {
             if (args.Button == MouseButtons.Left && obdDrag != ObdDragKind.None)
             {
-                RectangleF preview = obdPreview ?? obdOriginal;
                 ObdDragKind completed = obdDrag;
-                ObdAnnotation completedAnnotation = activeObd;
+                var previews = obdPreviews.ToDictionary(item => item.Key, item => item.Value);
+                if (completed == ObdDragKind.Create && obdPreview.HasValue) previews.Add(string.Empty, obdPreview.Value);
                 obdPreview = null;
+                obdPreviews = new Dictionary<string, RectangleF>();
                 activeObd = null;
                 obdDrag = ObdDragKind.None;
                 Capture = false;
-                Rectangle rectangle = ToIntegerRectangle(preview);
                 if (completed == ObdDragKind.Create)
                 {
+                    Rectangle rectangle = ToIntegerRectangle(previews[string.Empty]);
                     if (rectangle.Width >= 1 && rectangle.Height >= 1) ObdRectangleCreated?.Invoke(rectangle);
                 }
-                else if (completedAnnotation != null && rectangle != ToIntegerRectangle(obdOriginal)) ObdRectangleChanged?.Invoke(completedAnnotation.Id, rectangle);
+                else if (previews.Count > 0)
+                {
+                    var changed = new Dictionary<string, Rectangle>();
+                    foreach (var preview in previews)
+                    {
+                        ObdAnnotation original = obdAnnotations.FirstOrDefault(item => item.Id == preview.Key);
+                        if (original != null && ToIntegerRectangle(preview.Value) != new Rectangle(original.X, original.Y, original.Width, original.Height)) changed.Add(preview.Key, ToIntegerRectangle(preview.Value));
+                    }
+                    if (changed.Count > 0) ObdRectanglesChanged?.Invoke(changed);
+                }
                 Invalidate();
             }
             panning = false;
@@ -256,22 +303,23 @@ namespace Neurocle.WinForms
         protected override void OnKeyDown(KeyEventArgs args)
         {
             if (args.KeyCode == Keys.Escape) { DiscardUnfinishedShape(); args.Handled = true; }
-            else if (args.KeyCode == Keys.Delete && ObdEnabled && selectedObdId != null)
+            else if (args.KeyCode == Keys.Delete && ObdEnabled && selectedObdIds.Count > 0)
             {
-                ObdAnnotationDeleteRequested?.Invoke(selectedObdId);
+                ObdAnnotationsDeleteRequested?.Invoke(selectedObdIds.ToArray());
                 args.Handled = true;
                 args.SuppressKeyPress = true;
             }
             base.OnKeyDown(args);
         }
 
-        private RectangleF MoveRectangle(PointF point)
+        private IReadOnlyDictionary<string, RectangleF> MoveRectangles(PointF point)
         {
-            float x = obdOriginal.X + point.X - obdDragStart.X;
-            float y = obdOriginal.Y + point.Y - obdDragStart.Y;
-            x = Math.Max(0f, Math.Min(x, viewport.ImageSize.Width - obdOriginal.Width));
-            y = Math.Max(0f, Math.Min(y, viewport.ImageSize.Height - obdOriginal.Height));
-            return new RectangleF(x, y, obdOriginal.Width, obdOriginal.Height);
+            ObdAnnotation[] selected = obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).ToArray();
+            float xOffset = point.X - obdDragStart.X;
+            float yOffset = point.Y - obdDragStart.Y;
+            xOffset = Math.Max(selected.Max(item => -item.X), Math.Min(xOffset, selected.Min(item => viewport.ImageSize.Width - item.X - item.Width)));
+            yOffset = Math.Max(selected.Max(item => -item.Y), Math.Min(yOffset, selected.Min(item => viewport.ImageSize.Height - item.Y - item.Height)));
+            return selected.ToDictionary(item => item.Id, item => new RectangleF(item.X + xOffset, item.Y + yOffset, item.Width, item.Height));
         }
 
         private RectangleF ResizeRectangle(PointF point)
@@ -297,9 +345,15 @@ namespace Neurocle.WinForms
 
         private ObdAnnotation TopmostObdAt(PointF point)
         {
-            ObdAnnotation selected = obdAnnotations.FirstOrDefault(item => item.Id == selectedObdId);
-            if (selected != null && new RectangleF(selected.X, selected.Y, selected.Width, selected.Height).Contains(point)) return selected;
-            return obdAnnotations.Reverse().FirstOrDefault(item => item.Id != selectedObdId && new RectangleF(item.X, item.Y, item.Width, item.Height).Contains(point));
+            ObdAnnotation selected = obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).Reverse().FirstOrDefault(item => new RectangleF(item.X, item.Y, item.Width, item.Height).Contains(point));
+            if (selected != null) return selected;
+            return obdAnnotations.Reverse().FirstOrDefault(item => !selectedObdIds.Contains(item.Id) && new RectangleF(item.X, item.Y, item.Width, item.Height).Contains(point));
+        }
+
+        private void ClearObdSelection()
+        {
+            selectedObdIds.Clear();
+            selectedObdId = null;
         }
 
         private static PointF[] GetHandlePoints(RectangleF rectangle)

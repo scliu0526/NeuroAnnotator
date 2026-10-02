@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -53,8 +54,8 @@ namespace Neurocle.WinForms
             imageBrowser = new ImageBrowserControl { Dock = DockStyle.Bottom, Height = 272 };
             canvas = new ImageCanvasControl { Dock = DockStyle.Fill };
             canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
-            canvas.ObdRectangleChanged += (id, rectangle) => RunAnnotationCommand(() => UpdateObdRectangle(id, rectangle));
-            canvas.ObdAnnotationDeleteRequested += id => RunAnnotationCommand(() => DeleteObdRectangle(id));
+            canvas.ObdRectanglesChanged += rectangles => RunAnnotationCommand(() => UpdateObdRectangles(rectangles));
+            canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
             imageBrowser.ImageSelected += (sender, args) =>
             {
                 selectedImagePath = args.Image.IsMissing ? null : args.Path;
@@ -247,32 +248,37 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
-        private void UpdateObdRectangle(string annotationId, Rectangle rectangle)
+        private void UpdateObdRectangles(IReadOnlyDictionary<string, Rectangle> rectangles)
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null || selected.Type != AnnotationSetType.Obd || selectedImageId == null) return;
-            ObdAnnotation annotation = project.GetObdAnnotations(selected.Id, selectedImageId).FirstOrDefault(item => item.Id == annotationId);
-            if (annotation == null) return;
-            project.UpdateObdAnnotation(annotation.Id, annotation.ClassId, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            ObdAnnotation[] originals = project.GetObdAnnotations(selected.Id, selectedImageId).Where(item => rectangles.ContainsKey(item.Id)).ToArray();
+            if (originals.Length != rectangles.Count) return;
+            project.UpdateObdAnnotations(originals.Select(annotation =>
+            {
+                Rectangle rectangle = rectangles[annotation.Id];
+                return new ObdAnnotation(annotation.Id, annotation.AnnotationSetId, annotation.ImageId, annotation.ClassId, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height, annotation.ZOrder);
+            }));
             RefreshAnnotationClasses();
         }
 
-        private void DeleteObdRectangle(string annotationId)
+        private void DeleteObdRectangles(IReadOnlyCollection<string> annotationIds)
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null || selected.Type != AnnotationSetType.Obd || selectedImageId == null) return;
-            if (!project.GetObdAnnotations(selected.Id, selectedImageId).Any(item => item.Id == annotationId)) return;
-            project.DeleteObdAnnotation(annotationId);
+            if (project.GetObdAnnotations(selected.Id, selectedImageId).Count(item => annotationIds.Contains(item.Id)) != annotationIds.Count) return;
+            project.DeleteObdAnnotations(annotationIds);
             RefreshAnnotationClasses();
         }
 
         private void ChangeSelectedObdClass(string classId)
         {
             AnnotationSet selected = SelectedAnnotationSet;
-            if (project == null || selected == null || selectedImageId == null || canvas.SelectedObdId == null) return;
-            ObdAnnotation annotation = project.GetObdAnnotations(selected.Id, selectedImageId).FirstOrDefault(item => item.Id == canvas.SelectedObdId);
-            if (annotation == null) return;
-            project.UpdateObdAnnotation(annotation.Id, classId, annotation.X, annotation.Y, annotation.Width, annotation.Height);
+            if (project == null || selected == null || selectedImageId == null || canvas.SelectedObdIds.Count == 0) return;
+            ObdAnnotation[] annotations = project.GetObdAnnotations(selected.Id, selectedImageId).Where(item => canvas.SelectedObdIds.Contains(item.Id)).ToArray();
+            if (annotations.Length != canvas.SelectedObdIds.Count) return;
+            if (annotations.All(annotation => annotation.ClassId == classId)) return;
+            project.UpdateObdAnnotations(annotations.Select(annotation => new ObdAnnotation(annotation.Id, annotation.AnnotationSetId, annotation.ImageId, classId, annotation.X, annotation.Y, annotation.Width, annotation.Height, annotation.ZOrder)));
             RefreshAnnotationClasses();
         }
 

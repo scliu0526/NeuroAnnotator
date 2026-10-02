@@ -175,7 +175,9 @@ namespace Neurocle.Application.Projects
         IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId, string imageId);
         ObdAnnotation AddObdAnnotation(string annotationSetId, string imageId, string classId, int x, int y, int width, int height);
         void UpdateObdAnnotation(string annotationId, string classId, int x, int y, int width, int height);
+        void UpdateObdAnnotations(IEnumerable<ObdAnnotation> annotations);
         void DeleteObdAnnotation(string annotationId);
+        void DeleteObdAnnotations(IEnumerable<string> annotationIds);
         bool Undo(string annotationSetId);
         bool Redo(string annotationSetId);
         bool CanUndo(string annotationSetId);

@@ -485,7 +485,11 @@ namespace Neurocle.Infrastructure.Persistence
             object type = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
             if (type == null || Convert.ToInt32(type) != (int)AnnotationSetType.Obd) throw new ArgumentException("The annotation set is not OBD.", nameof(annotationSetId));
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
-            Size imageSize = GetImageSize(imageId);
+            ValidateObdGeometry(GetImageSize(imageId), x, y, width, height);
+        }
+
+        private static void ValidateObdGeometry(Size imageSize, int x, int y, int width, int height)
+        {
             int imageWidth = imageSize.Width; int imageHeight = imageSize.Height;
             if (width < 1 || height < 1 || x < 0 || y < 0 || (long)x + width > imageWidth || (long)y + height > imageHeight) throw new ArgumentOutOfRangeException(nameof(width));
         }
@@ -511,7 +515,17 @@ namespace Neurocle.Infrastructure.Persistence
 
         private void UpdateObdRaw(ObdAnnotation value)
         {
-            Execute(connection, historyTransaction, "UPDATE ObdAnnotation SET ClassId = $class, X = $x, Y = $y, Width = $width, Height = $height, ZOrder = $order WHERE Id = $id;", new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$id", value.Id));
+            UpdateObdRaw(value, historyTransaction);
+        }
+
+        private static void UpdateObdRaw(SqliteConnection db, SqliteTransaction transaction, ObdAnnotation value)
+        {
+            Execute(db, transaction, "UPDATE ObdAnnotation SET ClassId = $class, X = $x, Y = $y, Width = $width, Height = $height, ZOrder = $order WHERE Id = $id;", new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$id", value.Id));
+        }
+
+        private void UpdateObdRaw(ObdAnnotation value, SqliteTransaction transaction)
+        {
+            UpdateObdRaw(connection, transaction, value);
         }
 
         private void DeleteObdRaw(string annotationId)
@@ -558,11 +572,68 @@ namespace Neurocle.Infrastructure.Persistence
             Record(previous.AnnotationSetId, () => UpdateObdRaw(previous), () => UpdateObdRaw(next), EstimateHistoryBytes(previous.Id, previous.ClassId, next.ClassId));
         }
 
+        public void UpdateObdAnnotations(IEnumerable<ObdAnnotation> annotations)
+        {
+            if (annotations == null) throw new ArgumentNullException(nameof(annotations));
+            ObdAnnotation[] requested = annotations.ToArray();
+            if (requested.Length == 0) return;
+            if (requested.Select(value => value.Id).Distinct(StringComparer.Ordinal).Count() != requested.Length) throw new ArgumentException("An OBD annotation can only be updated once.", nameof(annotations));
+
+            ObdAnnotation first = GetObdAnnotation(requested[0].Id);
+            string annotationSetId = first.AnnotationSetId;
+            string imageId = first.ImageId;
+            var allAnnotations = GetObdAnnotations(annotationSetId, imageId).ToDictionary(value => value.Id, StringComparer.Ordinal);
+            ObdAnnotation[] previous = requested.Select(value =>
+            {
+                ObdAnnotation existing;
+                if (!allAnnotations.TryGetValue(value.Id, out existing)) throw new ArgumentException("OBD annotations must belong to the same image and annotation set.", nameof(annotations));
+                return existing;
+            }).ToArray();
+            object type = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
+            if (type == null || Convert.ToInt32(type) != (int)AnnotationSetType.Obd) throw new ArgumentException("The annotation set is not OBD.", nameof(annotations));
+            var classIds = new HashSet<string>(GetClasses(annotationSetId).Select(value => value.Id), StringComparer.Ordinal);
+            Size imageSize = GetImageSize(imageId);
+            foreach (ObdAnnotation value in requested)
+            {
+                if (!classIds.Contains(value.ClassId)) throw new ArgumentException("The class does not belong to the annotation set.", nameof(annotations));
+                ValidateObdGeometry(imageSize, value.X, value.Y, value.Width, value.Height);
+            }
+            var requestedById = requested.ToDictionary(value => value.Id, StringComparer.Ordinal);
+            if (previous.All(value =>
+            {
+                ObdAnnotation requestedValue = requestedById[value.Id];
+                return value.ClassId == requestedValue.ClassId && value.X == requestedValue.X && value.Y == requestedValue.Y && value.Width == requestedValue.Width && value.Height == requestedValue.Height;
+            })) return;
+
+            int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
+            ObdAnnotation[] next = previous.OrderBy(value => value.ZOrder).Select((value, index) =>
+            {
+                ObdAnnotation requestedValue = requestedById[value.Id];
+                return new ObdAnnotation(value.Id, annotationSetId, imageId, requestedValue.ClassId, requestedValue.X, requestedValue.Y, requestedValue.Width, requestedValue.Height, firstZOrder + index);
+            }).ToArray();
+            CompleteOperation((db, transaction) => { foreach (ObdAnnotation value in next) UpdateObdRaw(db, transaction, value); });
+            Record(annotationSetId, () => { foreach (ObdAnnotation value in previous) UpdateObdRaw(value); }, () => { foreach (ObdAnnotation value in next) UpdateObdRaw(value); }, EstimateHistoryBytes(previous) + EstimateHistoryBytes(next));
+        }
+
         public void DeleteObdAnnotation(string annotationId)
         {
             ObdAnnotation previous = GetObdAnnotation(annotationId);
             DeleteObdRaw(annotationId);
             Record(previous.AnnotationSetId, () => InsertObdRaw(previous), () => DeleteObdRaw(annotationId), EstimateHistoryBytes(previous.Id, previous.AnnotationSetId, previous.ImageId, previous.ClassId));
+        }
+
+        public void DeleteObdAnnotations(IEnumerable<string> annotationIds)
+        {
+            if (annotationIds == null) throw new ArgumentNullException(nameof(annotationIds));
+            string[] ids = annotationIds.ToArray();
+            if (ids.Length == 0) return;
+            if (ids.Distinct(StringComparer.Ordinal).Count() != ids.Length) throw new ArgumentException("An OBD annotation can only be deleted once.", nameof(annotationIds));
+            ObdAnnotation[] previous = ids.Select(GetObdAnnotation).OrderBy(value => value.ZOrder).ToArray();
+            string annotationSetId = previous[0].AnnotationSetId;
+            string imageId = previous[0].ImageId;
+            if (previous.Any(value => value.AnnotationSetId != annotationSetId || value.ImageId != imageId)) throw new ArgumentException("OBD annotations must belong to the same image and annotation set.", nameof(annotationIds));
+            CompleteOperation((db, transaction) => { foreach (string id in ids) Execute(db, transaction, "DELETE FROM ObdAnnotation WHERE Id = $id;", new SqliteParameter("$id", id)); });
+            Record(annotationSetId, () => { foreach (ObdAnnotation value in previous) InsertObdRaw(value); }, () => { foreach (string id in ids) DeleteObdRaw(id); }, EstimateHistoryBytes(previous));
         }
 
         public IReadOnlyList<ProjectImage> GetMissingImages()
