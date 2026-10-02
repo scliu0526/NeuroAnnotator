@@ -201,7 +201,7 @@ namespace Neurocle.Tests
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = "SELECT Version FROM SchemaInfo;";
-                        Assert.AreEqual(2L, (long)command.ExecuteScalar());
+                        Assert.AreEqual(3L, (long)command.ExecuteScalar());
                     }
                 }
 
@@ -901,6 +901,46 @@ namespace Neurocle.Tests
             Assert.IsFalse(viewport.IsFitted);
             viewport.SetViewportSize(new Size(1000, 1000));
             Assert.AreEqual(0.5d, viewport.Zoom, 0.0001d);
+        }
+
+        [TestMethod]
+        public void Annotation_sets_classes_and_cla_assignments_are_isolated_and_persist_after_reopen()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png);
+                string setId;
+                string classId;
+                string imageId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    imageId = store.ImportFiles(new[] { source })[0].Id;
+                    AnnotationSet first = store.CreateAnnotationSet("same", AnnotationSetType.Cla);
+                    AnnotationSet second = store.CreateAnnotationSet("same", AnnotationSetType.Cla);
+                    Assert.AreNotEqual(first.Id, second.Id);
+                    Assert.AreEqual("class1", store.GetClasses(first.Id).Single().Name);
+                    classId = store.AddClass(first.Id, "  cat  ", "#123456").Id;
+                    Assert.ThrowsException<ArgumentException>(() => store.SetClaClass(first.Id, imageId, store.GetClasses(second.Id).Single().Id));
+                    store.SetClaClass(first.Id, imageId, classId);
+                    Assert.AreEqual(classId, store.GetClaClassId(first.Id, imageId));
+                    Assert.IsNull(store.GetClaClassId(second.Id, imageId));
+                    Assert.ThrowsException<InvalidOperationException>(() => store.DeleteClass(store.GetClasses(second.Id).Single().Id));
+                    store.Save();
+                    setId = first.Id;
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    Assert.AreEqual(classId, reopened.GetClaClassId(setId, imageId));
+                    Assert.AreEqual("cat", reopened.GetClasses(setId).Single(value => value.Id == classId).Name);
+                    Assert.IsFalse(reopened.DeleteAnnotationSet(setId, "SAME"));
+                    Assert.IsTrue(reopened.DeleteAnnotationSet(setId, "same"));
+                    Assert.AreEqual(0, reopened.GetClasses(setId).Count);
+                    Assert.IsNull(reopened.GetClaClassId(setId, imageId));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
         }
 
         private static string TemporaryProjectPath()

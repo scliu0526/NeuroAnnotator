@@ -71,5 +71,20 @@ namespace Neurocle.WinForms.Resources
         internal static string DatasetPage { get { return ResourceManager.GetString("DatasetPage", CultureInfo.CurrentUICulture); } }
         internal static string ExportPage { get { return ResourceManager.GetString("ExportPage", CultureInfo.CurrentUICulture); } }
         internal static string FitToWindow { get { return ResourceManager.GetString("FitToWindow", CultureInfo.CurrentUICulture); } }
+        internal static string NewClaSet { get { return ResourceManager.GetString("NewClaSet", CultureInfo.CurrentUICulture); } }
+        internal static string NewObdSet { get { return ResourceManager.GetString("NewObdSet", CultureInfo.CurrentUICulture); } }
+        internal static string NewSegSet { get { return ResourceManager.GetString("NewSegSet", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetNamePrompt { get { return ResourceManager.GetString("AnnotationSetNamePrompt", CultureInfo.CurrentUICulture); } }
+        internal static string RenameAnnotationSet { get { return ResourceManager.GetString("RenameAnnotationSet", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAnnotationSet { get { return ResourceManager.GetString("DeleteAnnotationSet", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAnnotationSetPrompt { get { return ResourceManager.GetString("DeleteAnnotationSetPrompt", CultureInfo.CurrentUICulture); } }
+        internal static string AddAnnotationClass { get { return ResourceManager.GetString("AddAnnotationClass", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationClassNamePrompt { get { return ResourceManager.GetString("AnnotationClassNamePrompt", CultureInfo.CurrentUICulture); } }
+        internal static string RenameAnnotationClass { get { return ResourceManager.GetString("RenameAnnotationClass", CultureInfo.CurrentUICulture); } }
+        internal static string ChangeAnnotationClassColor { get { return ResourceManager.GetString("ChangeAnnotationClassColor", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAnnotationClass { get { return ResourceManager.GetString("DeleteAnnotationClass", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAnnotationClassPrompt { get { return ResourceManager.GetString("DeleteAnnotationClassPrompt", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationValidationFailed { get { return ResourceManager.GetString("AnnotationValidationFailed", CultureInfo.CurrentUICulture); } }
+        internal static string Ok { get { return ResourceManager.GetString("Ok", CultureInfo.CurrentUICulture); } }
     }
 }

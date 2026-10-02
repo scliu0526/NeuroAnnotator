@@ -85,4 +85,19 @@
   <data name="DatasetPage" xml:space="preserve"><value>資料集分配</value></data>
   <data name="ExportPage" xml:space="preserve"><value>完成與匯出</value></data>
   <data name="FitToWindow" xml:space="preserve"><value>適合視窗</value></data>
+  <data name="NewClaSet" xml:space="preserve"><value>新增 CLA</value></data>
+  <data name="NewObdSet" xml:space="preserve"><value>新增 OBD</value></data>
+  <data name="NewSegSet" xml:space="preserve"><value>新增 SEG</value></data>
+  <data name="AnnotationSetNamePrompt" xml:space="preserve"><value>標註集名稱</value></data>
+  <data name="RenameAnnotationSet" xml:space="preserve"><value>重新命名標註集</value></data>
+  <data name="DeleteAnnotationSet" xml:space="preserve"><value>刪除標註集</value></data>
+  <data name="DeleteAnnotationSetPrompt" xml:space="preserve"><value>輸入完整標註集名稱以確認刪除</value></data>
+  <data name="AddAnnotationClass" xml:space="preserve"><value>新增類別</value></data>
+  <data name="AnnotationClassNamePrompt" xml:space="preserve"><value>類別名稱</value></data>
+  <data name="RenameAnnotationClass" xml:space="preserve"><value>重新命名類別</value></data>
+  <data name="ChangeAnnotationClassColor" xml:space="preserve"><value>修改類別顏色</value></data>
+  <data name="DeleteAnnotationClass" xml:space="preserve"><value>刪除類別</value></data>
+  <data name="DeleteAnnotationClassPrompt" xml:space="preserve"><value>要刪除這個類別及其所有標註嗎？</value></data>
+  <data name="AnnotationValidationFailed" xml:space="preserve"><value>名稱無效、重複，或標註集至少需保留一個類別。</value></data>
+  <data name="Ok" xml:space="preserve"><value>確定</value></data>
 </root>

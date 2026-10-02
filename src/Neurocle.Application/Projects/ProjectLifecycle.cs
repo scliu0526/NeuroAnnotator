@@ -16,6 +16,26 @@ namespace Neurocle.Application.Projects
         Unknown
     }
 
+    public enum AnnotationSetType { Cla, Obd, Seg }
+
+    public sealed class AnnotationSet
+    {
+        public AnnotationSet(string id, string name, AnnotationSetType type) { Id = id; Name = name; Type = type; }
+        public string Id { get; }
+        public string Name { get; }
+        public AnnotationSetType Type { get; }
+        public string DisplayName { get { return Type.ToString().ToUpperInvariant() + " " + Name; } }
+    }
+
+    public sealed class AnnotationClass
+    {
+        public AnnotationClass(string id, string annotationSetId, string name, string color) { Id = id; AnnotationSetId = annotationSetId; Name = name; Color = color; }
+        public string Id { get; }
+        public string AnnotationSetId { get; }
+        public string Name { get; }
+        public string Color { get; }
+    }
+
     public sealed class ImageImportException : Exception
     {
         public ImageImportException(ImageImportFailure failure) : base(failure.ToString())
@@ -122,6 +142,17 @@ namespace Neurocle.Application.Projects
         void DeleteImages(IEnumerable<string> imageIds);
         IReadOnlyList<ProjectBackup> GetBackups();
         IProjectSession RestoreBackup(string backupPath);
+        AnnotationSet CreateAnnotationSet(string name, AnnotationSetType type);
+        IReadOnlyList<AnnotationSet> GetAnnotationSets();
+        void RenameAnnotationSet(string annotationSetId, string name);
+        bool DeleteAnnotationSet(string annotationSetId, string confirmationName);
+        IReadOnlyList<AnnotationClass> GetClasses(string annotationSetId);
+        AnnotationClass AddClass(string annotationSetId, string name, string color);
+        void RenameClass(string classId, string name);
+        void ChangeClassColor(string classId, string color);
+        void DeleteClass(string classId);
+        void SetClaClass(string annotationSetId, string imageId, string classId);
+        string GetClaClassId(string annotationSetId, string imageId);
     }
 
     public sealed class ProjectImage

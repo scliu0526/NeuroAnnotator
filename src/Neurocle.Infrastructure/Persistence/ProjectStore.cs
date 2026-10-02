@@ -9,7 +9,7 @@ namespace Neurocle.Infrastructure.Persistence
 {
     public sealed class ProjectStore : IProjectSession
     {
-        private const int CurrentSchemaVersion = 2;
+        private const int CurrentSchemaVersion = 3;
         private const int MaximumBackupCount = 5;
         private readonly FileStream lockStream;
         private readonly SqliteConnection connection;
@@ -41,6 +41,7 @@ namespace Neurocle.Infrastructure.Persistence
                     Execute(connection, transaction, "CREATE TABLE SchemaInfo (Version INTEGER NOT NULL);");
                     Execute(connection, transaction, "CREATE TABLE ProjectInfo (ProjectId TEXT NOT NULL, CreatedUtc TEXT NOT NULL);");
                     CreateImageTable(connection, transaction);
+                    CreateAnnotationTables(connection, transaction);
                     Execute(connection, transaction, "INSERT INTO SchemaInfo (Version) VALUES ($version);", new SqliteParameter("$version", CurrentSchemaVersion));
                     Execute(connection, transaction, "INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ($id, $created);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$created", UtcNow().ToString("O")));
                     transaction.Commit();
@@ -221,6 +222,86 @@ namespace Neurocle.Infrastructure.Persistence
             return images;
         }
 
+        public AnnotationSet CreateAnnotationSet(string name, AnnotationSetType type)
+        {
+            string normalized = NormalizeName(name);
+            var set = new AnnotationSet(Guid.NewGuid().ToString("D"), normalized, type);
+            CompleteOperation((db, transaction) =>
+            {
+                Execute(db, transaction, "INSERT INTO AnnotationSet (Id, Name, Type) VALUES ($id, $name, $type);", new SqliteParameter("$id", set.Id), new SqliteParameter("$name", set.Name), new SqliteParameter("$type", (int)set.Type));
+                Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, 'class1', '#FF0000');", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", set.Id));
+            });
+            return set;
+        }
+
+        public IReadOnlyList<AnnotationSet> GetAnnotationSets()
+        {
+            var result = new List<AnnotationSet>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, Name, Type FROM AnnotationSet ORDER BY rowid;";
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(new AnnotationSet(reader.GetString(0), reader.GetString(1), (AnnotationSetType)reader.GetInt32(2)));
+            }
+            return result;
+        }
+
+        public void RenameAnnotationSet(string annotationSetId, string name)
+        {
+            Execute(connection, null, "UPDATE AnnotationSet SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", NormalizeName(name)), new SqliteParameter("$id", annotationSetId));
+        }
+
+        public bool DeleteAnnotationSet(string annotationSetId, string confirmationName)
+        {
+            AnnotationSet set = GetAnnotationSets().SingleOrDefault(item => item.Id == annotationSetId);
+            if (set == null || !string.Equals(set.Name, confirmationName, StringComparison.Ordinal)) return false;
+            CompleteOperation((db, transaction) => Execute(db, transaction, "DELETE FROM AnnotationSet WHERE Id = $id;", new SqliteParameter("$id", annotationSetId)));
+            return true;
+        }
+
+        public IReadOnlyList<AnnotationClass> GetClasses(string annotationSetId)
+        {
+            var result = new List<AnnotationClass>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, AnnotationSetId, Name, Color FROM AnnotationClass WHERE AnnotationSetId = $set ORDER BY rowid;";
+                command.Parameters.AddWithValue("$set", annotationSetId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(new AnnotationClass(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3)));
+            }
+            return result;
+        }
+
+        public AnnotationClass AddClass(string annotationSetId, string name, string color)
+        {
+            var value = new AnnotationClass(Guid.NewGuid().ToString("D"), annotationSetId, NormalizeName(name), color ?? throw new ArgumentNullException(nameof(color)));
+            Execute(connection, null, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
+            return value;
+        }
+
+        public void RenameClass(string classId, string name) { Execute(connection, null, "UPDATE AnnotationClass SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", NormalizeName(name)), new SqliteParameter("$id", classId)); }
+        public void ChangeClassColor(string classId, string color) { Execute(connection, null, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", color ?? throw new ArgumentNullException(nameof(color))), new SqliteParameter("$id", classId)); }
+        public void DeleteClass(string classId)
+        {
+            string setId = Convert.ToString(ExecuteScalar(connection, "SELECT AnnotationSetId FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId)));
+            if (setId == null) return;
+            if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE AnnotationSetId = $set;", new SqliteParameter("$set", setId))) <= 1) throw new InvalidOperationException("An annotation set must retain one class.");
+            Execute(connection, null, "DELETE FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
+        }
+
+        public void SetClaClass(string annotationSetId, string imageId, string classId)
+        {
+            object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
+            if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Cla) throw new ArgumentException("The annotation set is not CLA.", nameof(annotationSetId));
+            if (classId != null && Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
+            if (classId == null) Execute(connection, null, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
+            else Execute(connection, null, "INSERT OR REPLACE INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
+        }
+
+        public string GetClaClassId(string annotationSetId, string imageId)
+        {
+            object value = ExecuteScalar(connection, "SELECT ClassId FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
+            return value == null || value == DBNull.Value ? null : Convert.ToString(value);
+        }
+
         public IReadOnlyList<ProjectImage> GetMissingImages()
         {
             return GetImages().Where(image => image.IsMissing).ToList();
@@ -397,6 +478,7 @@ namespace Neurocle.Infrastructure.Persistence
         {
             var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString());
             connection.Open();
+            Execute(connection, null, "PRAGMA foreign_keys = ON;");
             return connection;
         }
 
@@ -416,6 +498,16 @@ namespace Neurocle.Infrastructure.Persistence
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = commandText;
+                return command.ExecuteScalar();
+            }
+        }
+
+        private static object ExecuteScalar(SqliteConnection connection, string commandText, params SqliteParameter[] parameters)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = commandText;
+                command.Parameters.AddRange(parameters);
                 return command.ExecuteScalar();
             }
         }
@@ -484,12 +576,13 @@ namespace Neurocle.Infrastructure.Persistence
         {
             int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
             if (version == CurrentSchemaVersion) return;
-            if (version != 1) throw new NotSupportedException("The project schema version is not supported.");
+            if (version != 1 && version != 2) throw new NotSupportedException("The project schema version is not supported.");
 
             CreateMigrationBackup(db, projectPath, version);
             using (SqliteTransaction transaction = db.BeginTransaction())
             {
                 CreateImageTable(db, transaction);
+                CreateAnnotationTables(db, transaction);
                 Execute(db, transaction, "UPDATE SchemaInfo SET Version = $version;", new SqliteParameter("$version", CurrentSchemaVersion));
                 transaction.Commit();
             }
@@ -567,10 +660,16 @@ namespace Neurocle.Infrastructure.Persistence
             using (SqliteConnection db = OpenConnection(path))
             {
                 int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
-                if (version != 1 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
+                if (version != 1 && version != 2 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
                 ValidateTableColumns(db, "SchemaInfo", new[] { "Version" }, null, null);
                 ValidateTableColumns(db, "ProjectInfo", new[] { "ProjectId", "CreatedUtc" }, null, null);
-                if (version == CurrentSchemaVersion) ValidateTableColumns(db, "ImageRecord", new[] { "Id", "OriginalFileName", "ManagedFileName", "Sha256", "Width", "Height", "Sequence" }, "Id", new[] { "ManagedFileName", "Sequence" });
+                if (version >= 2) ValidateTableColumns(db, "ImageRecord", new[] { "Id", "OriginalFileName", "ManagedFileName", "Sha256", "Width", "Height", "Sequence" }, "Id", new[] { "ManagedFileName", "Sequence" });
+                if (version == CurrentSchemaVersion)
+                {
+                    ValidateTableColumns(db, "AnnotationSet", new[] { "Id", "Name", "Type" }, "Id", null);
+                    ValidateTableColumns(db, "AnnotationClass", new[] { "Id", "AnnotationSetId", "Name", "Color" }, "Id", null);
+                    ValidateTableColumns(db, "ClaAnnotation", new[] { "AnnotationSetId", "ImageId", "ClassId" }, null, null);
+                }
             }
         }
 
@@ -635,6 +734,20 @@ namespace Neurocle.Infrastructure.Persistence
         private static void CreateImageTable(SqliteConnection db, SqliteTransaction transaction)
         {
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ImageRecord (Id TEXT PRIMARY KEY NOT NULL, OriginalFileName TEXT NOT NULL, ManagedFileName TEXT NOT NULL UNIQUE, Sha256 TEXT NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, Sequence INTEGER NOT NULL UNIQUE);");
+        }
+
+        private static void CreateAnnotationTables(SqliteConnection db, SqliteTransaction transaction)
+        {
+            Execute(db, transaction, "CREATE TABLE IF NOT EXISTS AnnotationSet (Id TEXT PRIMARY KEY NOT NULL, Name TEXT NOT NULL, Type INTEGER NOT NULL);");
+            Execute(db, transaction, "CREATE TABLE IF NOT EXISTS AnnotationClass (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, Name TEXT NOT NULL, Color TEXT NOT NULL, UNIQUE (AnnotationSetId, Name));");
+            Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ClaAnnotation (AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, PRIMARY KEY (AnnotationSetId, ImageId));");
+        }
+
+        private static string NormalizeName(string name)
+        {
+            string normalized = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
+            if (normalized.Length == 0) throw new ArgumentException("The name cannot be empty.", nameof(name));
+            return normalized;
         }
 
         private string DeletingImagesDirectory

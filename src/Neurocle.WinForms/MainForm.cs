@@ -17,7 +17,10 @@ namespace Neurocle.WinForms
         private readonly ToolStripMenuItem projectMenu;
         private readonly ImageBrowserControl imageBrowser;
         private readonly ImageCanvasControl canvas;
+        private readonly ComboBox annotationSets;
+        private readonly FlowLayoutPanel annotationClasses;
         private string selectedImagePath;
+        private string selectedImageId;
         private bool importInProgress;
 
         public MainForm(IProjectLifecycle projectLifecycle)
@@ -51,12 +54,28 @@ namespace Neurocle.WinForms
             imageBrowser.ImageSelected += (sender, args) =>
             {
                 selectedImagePath = args.Image.IsMissing ? null : args.Path;
+                selectedImageId = args.Image.Id;
                 if (selectedImagePath == null) canvas.LoadImage(null);
             };
             var pages = new TabControl { Dock = DockStyle.Fill };
             var imagesPage = new TabPage(Strings.ImagesPage);
             imagesPage.Controls.Add(imageBrowser);
             var annotationPage = new TabPage(Strings.AnnotationPage);
+            annotationSets = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
+            annotationSets.SelectedIndexChanged += (sender, args) => RefreshAnnotationClasses();
+            annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 180, AutoScroll = true };
+            var newCla = new Button { Dock = DockStyle.Top, Text = Strings.NewClaSet };
+            newCla.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Cla));
+            var newObd = new Button { Dock = DockStyle.Top, Text = Strings.NewObdSet };
+            newObd.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Obd));
+            var newSeg = new Button { Dock = DockStyle.Top, Text = Strings.NewSegSet };
+            newSeg.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Seg));
+            var renameSet = new Button { Dock = DockStyle.Top, Text = Strings.RenameAnnotationSet };
+            renameSet.Click += (sender, args) => RunAnnotationCommand(RenameSelectedAnnotationSet);
+            var deleteSet = new Button { Dock = DockStyle.Top, Text = Strings.DeleteAnnotationSet };
+            deleteSet.Click += (sender, args) => RunAnnotationCommand(DeleteSelectedAnnotationSet);
+            var addClass = new Button { Dock = DockStyle.Top, Text = Strings.AddAnnotationClass };
+            addClass.Click += (sender, args) => RunAnnotationCommand(AddAnnotationClass);
             var fit = new Button { Dock = DockStyle.Top, Text = Strings.FitToWindow };
             fit.Click += (sender, args) => canvas.FitToWindow();
             var zoom = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
@@ -69,6 +88,14 @@ namespace Neurocle.WinForms
                 else canvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
             };
             annotationPage.Controls.Add(canvas);
+            annotationPage.Controls.Add(annotationClasses);
+            annotationPage.Controls.Add(addClass);
+            annotationPage.Controls.Add(deleteSet);
+            annotationPage.Controls.Add(renameSet);
+            annotationPage.Controls.Add(newSeg);
+            annotationPage.Controls.Add(newObd);
+            annotationPage.Controls.Add(newCla);
+            annotationPage.Controls.Add(annotationSets);
             annotationPage.Controls.Add(zoom);
             annotationPage.Controls.Add(fit);
             pages.TabPages.Add(imagesPage);
@@ -143,8 +170,129 @@ namespace Neurocle.WinForms
             using (var dialog = new MissingImagesForm(project)) dialog.ShowDialog(this);
             UpdateProjectStatus();
             imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
+            RefreshAnnotationSets();
         }
 
+        private void CreateAnnotationSet(AnnotationSetType type)
+        {
+            if (project == null) return;
+            string name = Prompt(Strings.AnnotationSetNamePrompt);
+            if (name == null) return;
+            project.CreateAnnotationSet(name, type);
+            RefreshAnnotationSets();
+        }
+
+        private void RefreshAnnotationSets()
+        {
+            if (annotationSets == null) return;
+            string selectedId = (annotationSets.SelectedItem as AnnotationSet)?.Id;
+            annotationSets.Items.Clear();
+            if (project != null) annotationSets.Items.AddRange(project.GetAnnotationSets().ToArray());
+            annotationSets.DisplayMember = "DisplayName";
+            AnnotationSet selected = annotationSets.Items.Cast<AnnotationSet>().FirstOrDefault(item => item.Id == selectedId) ?? annotationSets.Items.Cast<AnnotationSet>().FirstOrDefault();
+            annotationSets.SelectedItem = selected;
+            RefreshAnnotationClasses();
+        }
+
+        private void RefreshAnnotationClasses()
+        {
+            if (annotationClasses == null) return;
+            annotationClasses.Controls.Clear();
+            AnnotationSet selected = annotationSets.SelectedItem as AnnotationSet;
+            if (project == null || selected == null) return;
+            foreach (AnnotationClass value in project.GetClasses(selected.Id))
+            {
+                var button = new Button { Text = value.Name, AutoSize = true, BackColor = ColorTranslator.FromHtml(value.Color) };
+                button.Click += (sender, args) =>
+                {
+                    if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() => project.SetClaClass(selected.Id, selectedImageId, value.Id));
+                };
+                var menu = new ContextMenuStrip();
+                menu.Items.Add(Strings.RenameAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => RenameAnnotationClass(value)));
+                menu.Items.Add(Strings.ChangeAnnotationClassColor, null, (sender, args) => RunAnnotationCommand(() => ChangeAnnotationClassColor(value)));
+                menu.Items.Add(Strings.DeleteAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => DeleteAnnotationClass(value)));
+                button.ContextMenuStrip = menu;
+                annotationClasses.Controls.Add(button);
+            }
+        }
+
+        private AnnotationSet SelectedAnnotationSet { get { return annotationSets.SelectedItem as AnnotationSet; } }
+
+        private void RenameSelectedAnnotationSet()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null) return;
+            string name = Prompt(Strings.AnnotationSetNamePrompt);
+            if (name == null) return;
+            project.RenameAnnotationSet(selected.Id, name);
+            RefreshAnnotationSets();
+        }
+
+        private void DeleteSelectedAnnotationSet()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null) return;
+            string name = Prompt(Strings.DeleteAnnotationSetPrompt);
+            if (name == null) return;
+            project.DeleteAnnotationSet(selected.Id, name);
+            RefreshAnnotationSets();
+        }
+
+        private void AddAnnotationClass()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null) return;
+            string name = Prompt(Strings.AnnotationClassNamePrompt);
+            if (name == null) return;
+            project.AddClass(selected.Id, name, "#FF0000");
+            RefreshAnnotationClasses();
+        }
+
+        private void RenameAnnotationClass(AnnotationClass value)
+        {
+            string name = Prompt(Strings.AnnotationClassNamePrompt);
+            if (name == null) return;
+            project.RenameClass(value.Id, name);
+            RefreshAnnotationClasses();
+        }
+
+        private void ChangeAnnotationClassColor(AnnotationClass value)
+        {
+            using (var dialog = new ColorDialog { Color = ColorTranslator.FromHtml(value.Color) })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                project.ChangeClassColor(value.Id, ColorTranslator.ToHtml(dialog.Color));
+                RefreshAnnotationClasses();
+            }
+        }
+
+        private void DeleteAnnotationClass(AnnotationClass value)
+        {
+            if (MessageBox.Show(this, Strings.DeleteAnnotationClassPrompt, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            project.DeleteClass(value.Id);
+            RefreshAnnotationClasses();
+        }
+
+        private void RunAnnotationCommand(Action command)
+        {
+            try { command(); }
+            catch (ArgumentException) { MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (InvalidOperationException) { MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception) { MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        private static string Prompt(string prompt)
+        {
+            using (var dialog = new Form { Text = prompt, Width = 320, Height = 125, StartPosition = FormStartPosition.CenterParent })
+            using (var input = new TextBox { Dock = DockStyle.Top })
+            using (var ok = new Button { Text = Strings.Ok, Dock = DockStyle.Bottom, DialogResult = DialogResult.OK })
+            {
+                dialog.Controls.Add(input);
+                dialog.Controls.Add(ok);
+                dialog.AcceptButton = ok;
+                return dialog.ShowDialog() == DialogResult.OK ? input.Text : null;
+            }
+        }
         private void ManageBackups()
         {
             if (project == null) return;
@@ -236,6 +384,7 @@ namespace Neurocle.WinForms
             previous?.Dispose();
             UpdateProjectStatus();
             imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
+            RefreshAnnotationSets();
         }
 
         private void UpdateProjectStatus()
