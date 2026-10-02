@@ -74,6 +74,8 @@ namespace Neurocle.WinForms.Resources
         internal static string NewClaSet { get { return ResourceManager.GetString("NewClaSet", CultureInfo.CurrentUICulture); } }
         internal static string NewObdSet { get { return ResourceManager.GetString("NewObdSet", CultureInfo.CurrentUICulture); } }
         internal static string NewSegSet { get { return ResourceManager.GetString("NewSegSet", CultureInfo.CurrentUICulture); } }
+        internal static string SegRectangleTool { get { return ResourceManager.GetString("SegRectangleTool", CultureInfo.CurrentUICulture); } }
+        internal static string SegEllipseTool { get { return ResourceManager.GetString("SegEllipseTool", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationSetNamePrompt { get { return ResourceManager.GetString("AnnotationSetNamePrompt", CultureInfo.CurrentUICulture); } }
         internal static string RenameAnnotationSet { get { return ResourceManager.GetString("RenameAnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string DeleteAnnotationSet { get { return ResourceManager.GetString("DeleteAnnotationSet", CultureInfo.CurrentUICulture); } }

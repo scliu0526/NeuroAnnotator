@@ -55,6 +55,29 @@ namespace Neurocle.Application.Projects
         public int ZOrder { get; }
     }
 
+    public enum SegRegionType { Rect, Ellipse }
+
+    public sealed class SegRegion
+    {
+        // Rect uses X/Y as top-left and Width/Height as dimensions. Ellipse uses X/Y as centre and Width/Height as radii.
+        public SegRegion(string id, string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height, int zOrder)
+        {
+            Id = id; AnnotationSetId = annotationSetId; ImageId = imageId; ClassId = classId; Type = type;
+            X = x; Y = y; Width = width; Height = height; ZOrder = zOrder;
+        }
+
+        public string Id { get; }
+        public string AnnotationSetId { get; }
+        public string ImageId { get; }
+        public string ClassId { get; }
+        public SegRegionType Type { get; }
+        public int X { get; }
+        public int Y { get; }
+        public int Width { get; }
+        public int Height { get; }
+        public int ZOrder { get; }
+    }
+
     public sealed class ImageImportException : Exception
     {
         public ImageImportException(ImageImportFailure failure) : base(failure.ToString())
@@ -178,6 +201,8 @@ namespace Neurocle.Application.Projects
         void UpdateObdAnnotations(IEnumerable<ObdAnnotation> annotations);
         void DeleteObdAnnotation(string annotationId);
         void DeleteObdAnnotations(IEnumerable<string> annotationIds);
+        IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId, string imageId);
+        SegRegion AddSegRegion(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height);
         bool Undo(string annotationSetId);
         bool Redo(string annotationSetId);
         bool CanUndo(string annotationSetId);

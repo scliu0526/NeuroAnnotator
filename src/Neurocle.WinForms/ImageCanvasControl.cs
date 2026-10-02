@@ -29,8 +29,14 @@ namespace Neurocle.WinForms
         private PointF obdDragStart;
         private readonly HashSet<string> selectedObdIds = new HashSet<string>(StringComparer.Ordinal);
         private string selectedObdId;
+        private PointF segStart;
+        private RectangleF? segPreview;
+        private IReadOnlyList<SegRegion> segRegions = new List<SegRegion>();
+        private IReadOnlyDictionary<string, AnnotationClass> segClasses = new Dictionary<string, AnnotationClass>();
 
         public bool ObdEnabled { get; set; }
+        public bool SegEnabled { get; set; }
+        public SegRegionType? SegTool { get; set; }
         public string SelectedObdId { get { return selectedObdId; } }
         public IReadOnlyCollection<string> SelectedObdIds { get { return selectedObdIds; } }
         public IReadOnlyList<ObdAnnotation> ObdAnnotations
@@ -45,9 +51,12 @@ namespace Neurocle.WinForms
             }
         }
         public IReadOnlyDictionary<string, AnnotationClass> ObdClasses { get { return obdClasses; } set { obdClasses = value ?? new Dictionary<string, AnnotationClass>(); Invalidate(); } }
+        public IReadOnlyList<SegRegion> SegRegions { get { return segRegions; } set { segRegions = value ?? new List<SegRegion>(); Invalidate(); } }
+        public IReadOnlyDictionary<string, AnnotationClass> SegClasses { get { return segClasses; } set { segClasses = value ?? new Dictionary<string, AnnotationClass>(); Invalidate(); } }
         public event Action<Rectangle> ObdRectangleCreated;
         public event Action<IReadOnlyDictionary<string, Rectangle>> ObdRectanglesChanged;
         public event Action<IReadOnlyCollection<string>> ObdAnnotationsDeleteRequested;
+        public event Action<SegRegionType, Rectangle> SegRegionCreated;
 
         public ImageCanvasControl()
         {
@@ -131,6 +140,7 @@ namespace Neurocle.WinForms
         {
             obdPreview = null;
             obdPreviews = new Dictionary<string, RectangleF>();
+            segPreview = null;
             activeObd = null;
             obdDrag = ObdDragKind.None;
             Capture = false;
@@ -160,6 +170,37 @@ namespace Neurocle.WinForms
             {
                 RectangleF rectangle = ToScreenRectangle(obdPreview.Value.X, obdPreview.Value.Y, obdPreview.Value.Width, obdPreview.Value.Height);
                 using (var pen = new Pen(Color.White, 1f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            }
+            foreach (SegRegion region in segRegions)
+            {
+                AnnotationClass annotationClass;
+                segClasses.TryGetValue(region.ClassId, out annotationClass);
+                Color color = annotationClass == null ? Color.Red : ColorTranslator.FromHtml(annotationClass.Color);
+                using (var fill = new SolidBrush(Color.FromArgb(102, color)))
+                using (var pen = new Pen(color, 2f))
+                {
+                    if (region.Type == SegRegionType.Rect)
+                    {
+                        RectangleF rectangle = ToScreenRectangle(region.X, region.Y, region.Width, region.Height);
+                        args.Graphics.FillRectangle(fill, rectangle);
+                        args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                    }
+                    else
+                    {
+                        RectangleF ellipse = ToScreenRectangle(region.X - region.Width, region.Y - region.Height, region.Width * 2, region.Height * 2);
+                        args.Graphics.FillEllipse(fill, ellipse);
+                        args.Graphics.DrawEllipse(pen, ellipse);
+                    }
+                }
+            }
+            if (segPreview.HasValue)
+            {
+                RectangleF rectangle = ToScreenRectangle(segPreview.Value.X, segPreview.Value.Y, segPreview.Value.Width, segPreview.Value.Height);
+                using (var pen = new Pen(Color.White, 1f))
+                {
+                    if (SegTool == SegRegionType.Ellipse) args.Graphics.DrawEllipse(pen, rectangle);
+                    else args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                }
             }
         }
 
@@ -231,6 +272,13 @@ namespace Neurocle.WinForms
                 Capture = true;
                 Invalidate();
             }
+            else if (args.Button == MouseButtons.Left && SegEnabled && SegTool.HasValue && !panning && image != null)
+            {
+                segStart = ClampPoint(viewport.ScreenToImage(args.Location));
+                segPreview = new RectangleF(segStart, SizeF.Empty);
+                Capture = true;
+                Invalidate();
+            }
             previousPoint = args.Location;
             base.OnMouseDown(args);
         }
@@ -264,6 +312,11 @@ namespace Neurocle.WinForms
                 }
                 Invalidate();
             }
+            else if (segPreview.HasValue && (args.Button & MouseButtons.Left) == MouseButtons.Left)
+            {
+                segPreview = Normalize(segStart, ClampPoint(viewport.ScreenToImage(args.Location)));
+                Invalidate();
+            }
             base.OnMouseMove(args);
         }
 
@@ -293,6 +346,21 @@ namespace Neurocle.WinForms
                         if (original != null && ToIntegerRectangle(preview.Value) != new Rectangle(original.X, original.Y, original.Width, original.Height)) changed.Add(preview.Key, ToIntegerRectangle(preview.Value));
                     }
                     if (changed.Count > 0) ObdRectanglesChanged?.Invoke(changed);
+                }
+                Invalidate();
+            }
+            else if (args.Button == MouseButtons.Left && segPreview.HasValue)
+            {
+                Rectangle preview = ToIntegerRectangle(segPreview.Value);
+                SegRegionType? tool = SegTool;
+                segPreview = null;
+                Capture = false;
+                if (tool == SegRegionType.Rect && preview.Width >= 1 && preview.Height >= 1) SegRegionCreated?.Invoke(SegRegionType.Rect, preview);
+                else if (tool == SegRegionType.Ellipse)
+                {
+                    int radiusX = preview.Width / 2;
+                    int radiusY = preview.Height / 2;
+                    if (radiusX >= 1 && radiusY >= 1) SegRegionCreated?.Invoke(SegRegionType.Ellipse, preview);
                 }
                 Invalidate();
             }

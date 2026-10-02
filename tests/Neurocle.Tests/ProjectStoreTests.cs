@@ -201,7 +201,7 @@ namespace Neurocle.Tests
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = "SELECT Version FROM SchemaInfo;";
-                        Assert.AreEqual(4L, (long)command.ExecuteScalar());
+                        Assert.AreEqual(5L, (long)command.ExecuteScalar());
                     }
                 }
 
@@ -212,6 +212,40 @@ namespace Neurocle.Tests
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = "SELECT Version FROM SchemaInfo;";
+                        Assert.AreEqual(1L, (long)command.ExecuteScalar());
+                    }
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Opening_a_version_four_project_preserves_existing_annotations_and_adds_seg_storage()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                CreateVersionFourProject(path);
+                using (var store = ProjectStore.Open(path))
+                {
+                    Assert.AreEqual("class", store.GetClaClassId("cla-set", "image"));
+                    ObdAnnotation annotation = store.GetObdAnnotations("obd-set", "image").Single();
+                    Assert.AreEqual("obd-class", annotation.ClassId);
+                    Assert.AreEqual(1, annotation.X);
+                    Assert.AreEqual(5, annotation.Width);
+                    Assert.AreEqual(0, store.GetSegRegions("seg-set", "image").Count);
+                }
+
+                string backupDirectory = Path.Combine(Path.GetDirectoryName(path), "project.backups");
+                Assert.IsTrue(Directory.GetFiles(backupDirectory, "before-migration-v4*.neurocle").Any());
+                using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
+                {
+                    connection.Open();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT Version FROM SchemaInfo;";
+                        Assert.AreEqual(5L, (long)command.ExecuteScalar());
+                        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE Type = 'table' AND Name = 'SegRegion';";
                         Assert.AreEqual(1L, (long)command.ExecuteScalar());
                     }
                 }
@@ -1097,6 +1131,55 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Seg_rectangles_and_ellipses_are_bounded_undoable_and_persist_after_reopen()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 10);
+                string setId;
+                string imageId;
+                string rectangleId;
+                string ellipseId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    imageId = store.ImportFiles(new[] { source })[0].Id;
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    setId = set.Id;
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    SegRegion rectangle = store.AddSegRegion(set.Id, imageId, value.Id, SegRegionType.Rect, 1, 2, 5, 4);
+                    SegRegion ellipse = store.AddSegRegion(set.Id, imageId, value.Id, SegRegionType.Ellipse, 10, 5, 3, 2);
+                    rectangleId = rectangle.Id;
+                    ellipseId = ellipse.Id;
+
+                    Assert.AreEqual(SegRegionType.Rect, rectangle.Type);
+                    Assert.AreEqual(0, rectangle.ZOrder);
+                    Assert.AreEqual(SegRegionType.Ellipse, ellipse.Type);
+                    Assert.AreEqual(1, ellipse.ZOrder);
+                    Assert.ThrowsException<ArgumentOutOfRangeException>(() => store.AddSegRegion(set.Id, imageId, value.Id, SegRegionType.Rect, 16, 2, 5, 4));
+                    Assert.ThrowsException<ArgumentOutOfRangeException>(() => store.AddSegRegion(set.Id, imageId, value.Id, SegRegionType.Ellipse, 18, 5, 3, 2));
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(rectangleId, store.GetSegRegions(set.Id, imageId).Single().Id);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    Assert.AreEqual(2, store.GetSegRegions(set.Id, imageId).Count);
+                    store.Save();
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    SegRegion[] regions = reopened.GetSegRegions(setId, imageId).ToArray();
+                    Assert.AreEqual(rectangleId, regions[0].Id);
+                    Assert.AreEqual(ellipseId, regions[1].Id);
+                    Assert.AreEqual(10, regions[1].X);
+                    Assert.AreEqual(3, regions[1].Width);
+                    Assert.AreEqual(2, regions[1].Height);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Undoing_class_deletion_restores_cascaded_obd_annotations()
         {
             string path = TemporaryProjectPath();
@@ -1118,6 +1201,34 @@ namespace Neurocle.Tests
                     Assert.IsTrue(store.Undo(set.Id));
                     ObdAnnotation restored = store.GetObdAnnotations(set.Id, image.Id).Single();
                     Assert.AreEqual(annotation.Id, restored.Id);
+                    Assert.AreEqual(deleted.Id, restored.ClassId);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Undoing_class_deletion_restores_cascaded_seg_regions()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 10);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass deleted = store.GetClasses(set.Id).Single();
+                    store.AddClass(set.Id, "other", "#123456");
+                    SegRegion region = store.AddSegRegion(set.Id, image.Id, deleted.Id, SegRegionType.Ellipse, 10, 5, 3, 2);
+
+                    store.DeleteClass(deleted.Id);
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, image.Id).Count);
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    SegRegion restored = store.GetSegRegions(set.Id, image.Id).Single();
+                    Assert.AreEqual(region.Id, restored.Id);
                     Assert.AreEqual(deleted.Id, restored.ClassId);
                 }
             }
@@ -1244,6 +1355,20 @@ namespace Neurocle.Tests
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = "CREATE TABLE SchemaInfo (Version INTEGER NOT NULL); CREATE TABLE ProjectInfo (ProjectId TEXT NOT NULL, CreatedUtc TEXT NOT NULL); INSERT INTO SchemaInfo (Version) VALUES (1); INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ('legacy', '2026-01-01T00:00:00.0000000Z');";
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private static void CreateVersionFourProject(string path)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
+            {
+                connection.Open();
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "CREATE TABLE SchemaInfo (Version INTEGER NOT NULL); CREATE TABLE ProjectInfo (ProjectId TEXT NOT NULL, CreatedUtc TEXT NOT NULL); CREATE TABLE ImageRecord (Id TEXT PRIMARY KEY NOT NULL, OriginalFileName TEXT NOT NULL, ManagedFileName TEXT NOT NULL UNIQUE, Sha256 TEXT NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, Sequence INTEGER NOT NULL UNIQUE); CREATE TABLE AnnotationSet (Id TEXT PRIMARY KEY NOT NULL, Name TEXT NOT NULL, Type INTEGER NOT NULL); CREATE TABLE AnnotationClass (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL, Name TEXT NOT NULL, Color TEXT NOT NULL, UNIQUE (AnnotationSetId, Name)); CREATE TABLE ClaAnnotation (AnnotationSetId TEXT NOT NULL, ImageId TEXT NOT NULL, ClassId TEXT NOT NULL, PRIMARY KEY (AnnotationSetId, ImageId)); CREATE TABLE ObdAnnotation (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL, ImageId TEXT NOT NULL, ClassId TEXT NOT NULL, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL); INSERT INTO SchemaInfo (Version) VALUES (4); INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ('legacy', '2026-01-01T00:00:00.0000000Z'); INSERT INTO ImageRecord (Id, OriginalFileName, ManagedFileName, Sha256, Width, Height, Sequence) VALUES ('image', 'image.png', 'image.png', 'hash', 20, 10, 1); INSERT INTO AnnotationSet (Id, Name, Type) VALUES ('cla-set', 'cla', 0), ('obd-set', 'obd', 1), ('seg-set', 'seg', 2); INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ('class', 'cla-set', 'class1', '#FF0000'), ('obd-class', 'obd-set', 'class1', '#FF0000'), ('seg-class', 'seg-set', 'class1', '#FF0000'); INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ('cla-set', 'image', 'class'); INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ('obd', 'obd-set', 'image', 'obd-class', 1, 2, 5, 4, 0);";
                     command.ExecuteNonQuery();
                 }
             }

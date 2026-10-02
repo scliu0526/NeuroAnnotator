@@ -22,6 +22,7 @@ namespace Neurocle.WinForms
         private readonly FlowLayoutPanel annotationClasses;
         private string selectedImagePath;
         private string selectedImageId;
+        private string selectedSegClassId;
         private bool importInProgress;
 
         public MainForm(IProjectLifecycle projectLifecycle)
@@ -56,6 +57,7 @@ namespace Neurocle.WinForms
             canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
             canvas.ObdRectanglesChanged += rectangles => RunAnnotationCommand(() => UpdateObdRectangles(rectangles));
             canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
+            canvas.SegRegionCreated += (type, rectangle) => RunAnnotationCommand(() => CreateSegRegion(type, rectangle));
             imageBrowser.ImageSelected += (sender, args) =>
             {
                 selectedImagePath = args.Image.IsMissing ? null : args.Path;
@@ -82,6 +84,10 @@ namespace Neurocle.WinForms
             deleteSet.Click += (sender, args) => RunAnnotationCommand(DeleteSelectedAnnotationSet);
             var addClass = new Button { Dock = DockStyle.Top, Text = Strings.AddAnnotationClass };
             addClass.Click += (sender, args) => RunAnnotationCommand(AddAnnotationClass);
+            var segRectangle = new Button { Dock = DockStyle.Top, Text = Strings.SegRectangleTool };
+            segRectangle.Click += (sender, args) => canvas.SegTool = SegRegionType.Rect;
+            var segEllipse = new Button { Dock = DockStyle.Top, Text = Strings.SegEllipseTool };
+            segEllipse.Click += (sender, args) => canvas.SegTool = SegRegionType.Ellipse;
             var fit = new Button { Dock = DockStyle.Top, Text = Strings.FitToWindow };
             fit.Click += (sender, args) => canvas.FitToWindow();
             var zoom = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
@@ -95,6 +101,8 @@ namespace Neurocle.WinForms
             };
             annotationPage.Controls.Add(canvas);
             annotationPage.Controls.Add(annotationClasses);
+            annotationPage.Controls.Add(segEllipse);
+            annotationPage.Controls.Add(segRectangle);
             annotationPage.Controls.Add(addClass);
             annotationPage.Controls.Add(deleteSet);
             annotationPage.Controls.Add(renameSet);
@@ -215,9 +223,16 @@ namespace Neurocle.WinForms
             annotationClasses.Controls.Clear();
             AnnotationSet selected = annotationSets.SelectedItem as AnnotationSet;
             canvas.ObdEnabled = project != null && selected != null && selected.Type == AnnotationSetType.Obd && selectedImageId != null;
+            canvas.SegEnabled = project != null && selected != null && selected.Type == AnnotationSetType.Seg && selectedImageId != null;
+            if (!canvas.SegEnabled) canvas.SegTool = null;
+            else if (!canvas.SegTool.HasValue) canvas.SegTool = SegRegionType.Rect;
             AnnotationClass[] classes = project == null || selected == null ? new AnnotationClass[0] : project.GetClasses(selected.Id).ToArray();
+            if (selected == null || selected.Type != AnnotationSetType.Seg || !classes.Any(value => value.Id == selectedSegClassId)) selectedSegClassId = null;
+            if (canvas.SegEnabled && selectedSegClassId == null) selectedSegClassId = classes.FirstOrDefault()?.Id;
             canvas.ObdClasses = classes.ToDictionary(value => value.Id);
             canvas.ObdAnnotations = canvas.ObdEnabled ? project.GetObdAnnotations(selected.Id, selectedImageId) : null;
+            canvas.SegClasses = classes.ToDictionary(value => value.Id);
+            canvas.SegRegions = canvas.SegEnabled ? project.GetSegRegions(selected.Id, selectedImageId) : null;
             if (project == null || selected == null) return;
             foreach (AnnotationClass value in classes)
             {
@@ -226,6 +241,7 @@ namespace Neurocle.WinForms
                 {
                     if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() => project.SetClaClass(selected.Id, selectedImageId, value.Id));
                     else if (selected.Type == AnnotationSetType.Obd && selectedImageId != null && canvas.SelectedObdId != null) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
+                    else if (selected.Type == AnnotationSetType.Seg) selectedSegClassId = value.Id;
                 };
                 var menu = new ContextMenuStrip();
                 menu.Items.Add(Strings.RenameAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => RenameAnnotationClass(value)));
@@ -245,6 +261,24 @@ namespace Neurocle.WinForms
             AnnotationClass value = project.GetClasses(selected.Id).FirstOrDefault();
             if (value == null) return;
             project.AddObdAnnotation(selected.Id, selectedImageId, value.Id, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            RefreshAnnotationClasses();
+        }
+
+        private void CreateSegRegion(SegRegionType type, Rectangle rectangle)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || selected.Type != AnnotationSetType.Seg || selectedImageId == null) return;
+            AnnotationClass value = project.GetClasses(selected.Id).FirstOrDefault(item => item.Id == selectedSegClassId);
+            if (value == null) return;
+            if (type == SegRegionType.Rect) project.AddSegRegion(selected.Id, selectedImageId, value.Id, type, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            else
+            {
+                int radiusX = rectangle.Width / 2;
+                int radiusY = rectangle.Height / 2;
+                int centerX = rectangle.X + radiusX;
+                int centerY = rectangle.Y + radiusY;
+                project.AddSegRegion(selected.Id, selectedImageId, value.Id, type, centerX, centerY, radiusX, radiusY);
+            }
             RefreshAnnotationClasses();
         }
 
