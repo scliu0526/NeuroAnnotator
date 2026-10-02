@@ -16,6 +16,8 @@ namespace Neurocle.WinForms
         private readonly Label status;
         private readonly ToolStripMenuItem projectMenu;
         private readonly ImageBrowserControl imageBrowser;
+        private readonly ImageCanvasControl canvas;
+        private string selectedImagePath;
         private bool importInProgress;
 
         public MainForm(IProjectLifecycle projectLifecycle)
@@ -45,11 +47,48 @@ namespace Neurocle.WinForms
                 Text = Strings.OfflineStatus
             };
             imageBrowser = new ImageBrowserControl { Dock = DockStyle.Bottom, Height = 272 };
+            canvas = new ImageCanvasControl { Dock = DockStyle.Fill };
+            imageBrowser.ImageSelected += (sender, args) =>
+            {
+                selectedImagePath = args.Image.IsMissing ? null : args.Path;
+                if (selectedImagePath == null) canvas.LoadImage(null);
+            };
+            var pages = new TabControl { Dock = DockStyle.Fill };
+            var imagesPage = new TabPage(Strings.ImagesPage);
+            imagesPage.Controls.Add(imageBrowser);
+            var annotationPage = new TabPage(Strings.AnnotationPage);
+            var fit = new Button { Dock = DockStyle.Top, Text = Strings.FitToWindow };
+            fit.Click += (sender, args) => canvas.FitToWindow();
+            var zoom = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
+            zoom.Items.AddRange(new object[] { Strings.FitToWindow, "10%", "50%", "75%", "100%", "125%", "150%", "200%" });
+            zoom.SelectedIndex = 0;
+            zoom.SelectedIndexChanged += (sender, args) =>
+            {
+                string selected = zoom.SelectedItem as string;
+                if (selected == Strings.FitToWindow) canvas.FitToWindow();
+                else canvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
+            };
+            annotationPage.Controls.Add(canvas);
+            annotationPage.Controls.Add(zoom);
+            annotationPage.Controls.Add(fit);
+            pages.TabPages.Add(imagesPage);
+            pages.TabPages.Add(annotationPage);
+            pages.TabPages.Add(new TabPage(Strings.DatasetPage));
+            pages.TabPages.Add(new TabPage(Strings.ExportPage));
+            pages.SelectedIndexChanged += (sender, args) =>
+            {
+                canvas.DiscardUnfinishedShape();
+                if (pages.SelectedTab == annotationPage && selectedImagePath != null)
+                {
+                    try { canvas.LoadImage(selectedImagePath); }
+                    catch { }
+                }
+            };
 
             MainMenuStrip = menu;
             Controls.Add(menu);
             Controls.Add(status);
-            Controls.Add(imageBrowser);
+            Controls.Add(pages);
             FormClosing += (sender, args) =>
             {
                 if (importInProgress) args.Cancel = true;

@@ -26,6 +26,8 @@ namespace Neurocle.WinForms
         private ImageListSortColumn column = ImageListSortColumn.Sequence;
         private ImageListSortDirection direction = ImageListSortDirection.Ascending;
 
+        public event EventHandler<ImageSelectedEventArgs> ImageSelected;
+
         public ImageBrowserControl()
         {
             Dock = DockStyle.Fill;
@@ -94,6 +96,7 @@ namespace Neurocle.WinForms
                 return;
             }
             ProjectImage image = visible[list.SelectedIndices[0]];
+            ImageSelected?.Invoke(this, new ImageSelectedEventArgs(image, Path.Combine(imagesDirectory, image.ManagedFileName)));
             if (image.IsMissing)
             {
                 ShowPreviewMessage(Strings.ImagePreviewMissing);
@@ -197,5 +200,17 @@ namespace Neurocle.WinForms
             }
             base.Dispose(disposing);
         }
+    }
+
+    internal sealed class ImageSelectedEventArgs : EventArgs
+    {
+        public ImageSelectedEventArgs(ProjectImage image, string path)
+        {
+            Image = image;
+            Path = path;
+        }
+
+        public ProjectImage Image { get; private set; }
+        public string Path { get; private set; }
     }
 }

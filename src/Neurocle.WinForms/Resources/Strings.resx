@@ -80,4 +80,9 @@
   <data name="ImagePreviewLoading" xml:space="preserve"><value>正在載入預覽。</value></data>
   <data name="ImagePreviewMissing" xml:space="preserve"><value>這張圖片缺失或無法讀取。</value></data>
   <data name="ImagePreviewUnavailable" xml:space="preserve"><value>無法預覽這張圖片。</value></data>
+  <data name="ImagesPage" xml:space="preserve"><value>圖片</value></data>
+  <data name="AnnotationPage" xml:space="preserve"><value>標註</value></data>
+  <data name="DatasetPage" xml:space="preserve"><value>資料集分配</value></data>
+  <data name="ExportPage" xml:space="preserve"><value>完成與匯出</value></data>
+  <data name="FitToWindow" xml:space="preserve"><value>適合視窗</value></data>
 </root>

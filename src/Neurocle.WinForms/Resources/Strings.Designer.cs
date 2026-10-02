@@ -66,5 +66,10 @@ namespace Neurocle.WinForms.Resources
         internal static string ImagePreviewLoading { get { return ResourceManager.GetString("ImagePreviewLoading", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewMissing { get { return ResourceManager.GetString("ImagePreviewMissing", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewUnavailable { get { return ResourceManager.GetString("ImagePreviewUnavailable", CultureInfo.CurrentUICulture); } }
+        internal static string ImagesPage { get { return ResourceManager.GetString("ImagesPage", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationPage { get { return ResourceManager.GetString("AnnotationPage", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetPage { get { return ResourceManager.GetString("DatasetPage", CultureInfo.CurrentUICulture); } }
+        internal static string ExportPage { get { return ResourceManager.GetString("ExportPage", CultureInfo.CurrentUICulture); } }
+        internal static string FitToWindow { get { return ResourceManager.GetString("FitToWindow", CultureInfo.CurrentUICulture); } }
     }
 }

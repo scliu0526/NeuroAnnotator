@@ -863,6 +863,46 @@ namespace Neurocle.Tests
             CollectionAssert.AreEqual(new[] { "image9999.png", "image9998.png", "image9997.png", "image9996.png", "image9995.png", "image9994.png", "image9993.png", "image9992.png", "image9991.png", "image9990.png", "image999.png" }, filtered.Select(image => image.OriginalFileName).ToArray());
         }
 
+        [TestMethod]
+        public void Canvas_viewport_keeps_cursor_image_coordinate_and_clamps_zoom_at_all_supported_dpi_sizes()
+        {
+            foreach (float dpiScale in new[] { 1f, 1.25f, 1.5f, 1.75f, 2f })
+            {
+                var viewport = new CanvasViewport(new Size(5000, 3000), new Size((int)(1366 / dpiScale), (int)(768 / dpiScale)));
+                var cursor = new PointF(200f, 150f);
+                PointF before = viewport.ScreenToImage(cursor);
+                viewport.SetZoomAt(2d, cursor);
+                PointF after = viewport.ScreenToImage(cursor);
+                Assert.AreEqual(before.X, after.X, 0.001f);
+                Assert.AreEqual(before.Y, after.Y, 0.001f);
+                Assert.IsFalse(viewport.IsFitted);
+                viewport.SetZoomAt(100d, cursor);
+                Assert.AreEqual(4d, viewport.Zoom, 0.0001d);
+                viewport.SetZoomAt(0d, cursor);
+                Assert.AreEqual(0.01d, viewport.Zoom, 0.0001d);
+            }
+        }
+
+        [TestMethod]
+        public void Canvas_viewport_refits_when_the_viewport_changes_while_fit_mode_is_selected()
+        {
+            var viewport = new CanvasViewport(new Size(1000, 1000), new Size(1000, 500));
+            Assert.IsTrue(viewport.IsFitted);
+            Assert.AreEqual(0.5d, viewport.Zoom, 0.0001d);
+            viewport.SetViewportSize(new Size(1000, 1000));
+            Assert.AreEqual(1d, viewport.Zoom, 0.0001d);
+        }
+
+        [TestMethod]
+        public void Canvas_viewport_pan_exits_fit_mode()
+        {
+            var viewport = new CanvasViewport(new Size(1000, 1000), new Size(1000, 500));
+            viewport.Pan(10f, 0f);
+            Assert.IsFalse(viewport.IsFitted);
+            viewport.SetViewportSize(new Size(1000, 1000));
+            Assert.AreEqual(0.5d, viewport.Zoom, 0.0001d);
+        }
+
         private static string TemporaryProjectPath()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
