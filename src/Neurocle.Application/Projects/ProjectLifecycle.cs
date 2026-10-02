@@ -153,6 +153,10 @@ namespace Neurocle.Application.Projects
         void DeleteClass(string classId);
         void SetClaClass(string annotationSetId, string imageId, string classId);
         string GetClaClassId(string annotationSetId, string imageId);
+        bool Undo(string annotationSetId);
+        bool Redo(string annotationSetId);
+        bool CanUndo(string annotationSetId);
+        bool CanRedo(string annotationSetId);
     }
 
     public sealed class ProjectImage

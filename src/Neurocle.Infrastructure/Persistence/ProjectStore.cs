@@ -13,6 +13,9 @@ namespace Neurocle.Infrastructure.Persistence
         private const int MaximumBackupCount = 5;
         private readonly FileStream lockStream;
         private readonly SqliteConnection connection;
+        private readonly Dictionary<string, AnnotationHistory> histories = new Dictionary<string, AnnotationHistory>();
+        private bool replayingHistory;
+        private SqliteTransaction historyTransaction;
 
         internal static Func<DateTime> UtcNow = () => DateTime.UtcNow;
         internal static Action<string, string> ReplaceFile = (source, destination) => File.Replace(source, destination, null);
@@ -255,6 +258,7 @@ namespace Neurocle.Infrastructure.Persistence
             AnnotationSet set = GetAnnotationSets().SingleOrDefault(item => item.Id == annotationSetId);
             if (set == null || !string.Equals(set.Name, confirmationName, StringComparison.Ordinal)) return false;
             CompleteOperation((db, transaction) => Execute(db, transaction, "DELETE FROM AnnotationSet WHERE Id = $id;", new SqliteParameter("$id", annotationSetId)));
+            histories.Remove(annotationSetId);
             return true;
         }
 
@@ -274,17 +278,32 @@ namespace Neurocle.Infrastructure.Persistence
         {
             var value = new AnnotationClass(Guid.NewGuid().ToString("D"), annotationSetId, NormalizeName(name), color ?? throw new ArgumentNullException(nameof(color)));
             Execute(connection, null, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
+            Record(annotationSetId, () => DeleteClassRaw(value.Id), () => InsertClassRaw(value), EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.Name, value.Color));
             return value;
         }
 
-        public void RenameClass(string classId, string name) { Execute(connection, null, "UPDATE AnnotationClass SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", NormalizeName(name)), new SqliteParameter("$id", classId)); }
-        public void ChangeClassColor(string classId, string color) { Execute(connection, null, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", color ?? throw new ArgumentNullException(nameof(color))), new SqliteParameter("$id", classId)); }
+        public void RenameClass(string classId, string name)
+        {
+            AnnotationClass previous = GetClass(classId); string next = NormalizeName(name);
+            Execute(connection, null, "UPDATE AnnotationClass SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", next), new SqliteParameter("$id", classId));
+            Record(previous.AnnotationSetId, () => RenameClassRaw(classId, previous.Name), () => RenameClassRaw(classId, next), EstimateHistoryBytes(classId, previous.Name, next));
+        }
+        public void ChangeClassColor(string classId, string color)
+        {
+            AnnotationClass previous = GetClass(classId); string next = color ?? throw new ArgumentNullException(nameof(color));
+            Execute(connection, null, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", next), new SqliteParameter("$id", classId));
+            Record(previous.AnnotationSetId, () => ChangeClassColorRaw(classId, previous.Color), () => ChangeClassColorRaw(classId, next), EstimateHistoryBytes(classId, previous.Color, next));
+        }
         public void DeleteClass(string classId)
         {
-            string setId = Convert.ToString(ExecuteScalar(connection, "SELECT AnnotationSetId FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId)));
-            if (setId == null) return;
+            object setValue = ExecuteScalar(connection, "SELECT AnnotationSetId FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
+            if (setValue == null || setValue == DBNull.Value) return;
+            string setId = Convert.ToString(setValue);
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE AnnotationSetId = $set;", new SqliteParameter("$set", setId))) <= 1) throw new InvalidOperationException("An annotation set must retain one class.");
+            AnnotationClass deleted = GetClass(classId);
+            var assignments = GetClaAssignments(classId);
             Execute(connection, null, "DELETE FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
+            Record(setId, () => { InsertClassRaw(deleted); foreach (var assignment in assignments) SetClaRaw(setId, assignment, classId); }, () => DeleteClassRaw(classId), EstimateHistoryBytes(deleted.Id, deleted.AnnotationSetId, deleted.Name, deleted.Color) + EstimateHistoryBytes(assignments));
         }
 
         public void SetClaClass(string annotationSetId, string imageId, string classId)
@@ -292,8 +311,133 @@ namespace Neurocle.Infrastructure.Persistence
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
             if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Cla) throw new ArgumentException("The annotation set is not CLA.", nameof(annotationSetId));
             if (classId != null && Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
-            if (classId == null) Execute(connection, null, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
-            else Execute(connection, null, "INSERT OR REPLACE INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
+            string previous = GetClaClassId(annotationSetId, imageId);
+            SetClaRaw(annotationSetId, imageId, classId);
+            Record(annotationSetId, () => SetClaRaw(annotationSetId, imageId, previous), () => SetClaRaw(annotationSetId, imageId, classId), EstimateHistoryBytes(annotationSetId, imageId, previous, classId));
+        }
+
+        public bool Undo(string annotationSetId) { return RunHistory(annotationSetId, false); }
+        public bool Redo(string annotationSetId) { return RunHistory(annotationSetId, true); }
+        public bool CanUndo(string annotationSetId) { return GetHistory(annotationSetId).CanUndo; }
+        public bool CanRedo(string annotationSetId) { return GetHistory(annotationSetId).CanRedo; }
+
+        private void Record(string annotationSetId, Action undo, Action redo, long sizeBytes)
+        {
+            if (replayingHistory) return;
+            GetHistory(annotationSetId).Push(new HistoryEntry(undo, redo, sizeBytes));
+        }
+
+        private static long EstimateHistoryBytes(params string[] values)
+        {
+            long size = 256;
+            foreach (string value in values) if (value != null) size += 64 + (long)value.Length * sizeof(char);
+            return size;
+        }
+
+        private static long EstimateHistoryBytes(IReadOnlyList<string> values)
+        {
+            long size = 64 + (long)IntPtr.Size * values.Count;
+            foreach (string value in values) size += 64 + (long)value.Length * sizeof(char);
+            return size;
+        }
+
+        private AnnotationHistory GetHistory(string annotationSetId)
+        {
+            if (annotationSetId == null) throw new ArgumentNullException(nameof(annotationSetId));
+            AnnotationHistory history;
+            if (!histories.TryGetValue(annotationSetId, out history))
+            {
+                history = new AnnotationHistory();
+                histories.Add(annotationSetId, history);
+            }
+            return history;
+        }
+
+        private bool RunHistory(string annotationSetId, bool redo)
+        {
+            AnnotationHistory history = GetHistory(annotationSetId);
+            HistoryEntry entry = redo ? history.TakeRedo() : history.TakeUndo();
+            if (entry == null) return false;
+            bool moved = false;
+            try
+            {
+                replayingHistory = true;
+                using (historyTransaction = connection.BeginTransaction())
+                {
+                    if (redo) entry.Redo(); else entry.Undo();
+                    historyTransaction.Commit();
+                }
+                historyTransaction = null;
+                if (redo) history.MoveRedoToUndo(entry); else history.MoveUndoToRedo(entry);
+                moved = true;
+                Save();
+            }
+            catch
+            {
+                if (!moved)
+                {
+                    if (redo) history.ReturnRedo(entry); else history.ReturnUndo(entry);
+                }
+                throw;
+            }
+            finally
+            {
+                historyTransaction = null;
+                replayingHistory = false;
+            }
+            return true;
+        }
+
+        private AnnotationClass GetClass(string classId)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, AnnotationSetId, Name, Color FROM AnnotationClass WHERE Id = $id;";
+                command.Parameters.AddWithValue("$id", classId);
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    if (!reader.Read()) throw new ArgumentException("The annotation class does not exist.", nameof(classId));
+                    return new AnnotationClass(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
+                }
+            }
+        }
+
+        private IReadOnlyList<string> GetClaAssignments(string classId)
+        {
+            var imageIds = new List<string>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT ImageId FROM ClaAnnotation WHERE ClassId = $class;";
+                command.Parameters.AddWithValue("$class", classId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) imageIds.Add(reader.GetString(0));
+            }
+            return imageIds;
+        }
+
+        private void InsertClassRaw(AnnotationClass value)
+        {
+            Execute(connection, historyTransaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
+        }
+
+        private void DeleteClassRaw(string classId)
+        {
+            Execute(connection, historyTransaction, "DELETE FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
+        }
+
+        private void RenameClassRaw(string classId, string name)
+        {
+            Execute(connection, historyTransaction, "UPDATE AnnotationClass SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", name), new SqliteParameter("$id", classId));
+        }
+
+        private void ChangeClassColorRaw(string classId, string color)
+        {
+            Execute(connection, historyTransaction, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", color), new SqliteParameter("$id", classId));
+        }
+
+        private void SetClaRaw(string annotationSetId, string imageId, string classId)
+        {
+            Execute(connection, historyTransaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
+            if (classId != null) Execute(connection, historyTransaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
         }
 
         public string GetClaClassId(string annotationSetId, string imageId)
@@ -381,6 +525,7 @@ namespace Neurocle.Infrastructure.Persistence
                 throw;
             }
             RecoverStagedImages();
+            histories.Clear();
         }
 
         public IReadOnlyList<ProjectBackup> GetBackups()
@@ -805,6 +950,97 @@ namespace Neurocle.Infrastructure.Persistence
             if (Directory.Exists(imagesDirectory)) Directory.Delete(imagesDirectory, true);
             if (File.Exists(projectPath)) File.Delete(projectPath);
             if (File.Exists(projectPath + ".lock")) File.Delete(projectPath + ".lock");
+        }
+
+        private sealed class HistoryEntry
+        {
+            public HistoryEntry(Action undo, Action redo, long sizeBytes)
+            {
+                Undo = undo ?? throw new ArgumentNullException(nameof(undo));
+                Redo = redo ?? throw new ArgumentNullException(nameof(redo));
+                SizeBytes = sizeBytes;
+            }
+
+            public Action Undo { get; }
+            public Action Redo { get; }
+            public long SizeBytes { get; }
+        }
+
+        private sealed class AnnotationHistory
+        {
+            private const int MaximumActionCount = 100;
+            private const long MaximumSizeBytes = 512L * 1024L * 1024L;
+            private readonly List<HistoryEntry> undo = new List<HistoryEntry>();
+            private readonly List<HistoryEntry> redo = new List<HistoryEntry>();
+            private long undoSizeBytes;
+            private long redoSizeBytes;
+
+            public bool CanUndo { get { return undo.Count != 0; } }
+            public bool CanRedo { get { return redo.Count != 0; } }
+
+            public void Push(HistoryEntry entry)
+            {
+                redo.Clear();
+                redoSizeBytes = 0;
+                undo.Add(entry);
+                undoSizeBytes += entry.SizeBytes;
+                Trim(undo, ref undoSizeBytes);
+            }
+
+            public HistoryEntry TakeUndo()
+            {
+                return Take(undo, ref undoSizeBytes);
+            }
+
+            public HistoryEntry TakeRedo()
+            {
+                return Take(redo, ref redoSizeBytes);
+            }
+
+            public void ReturnUndo(HistoryEntry entry)
+            {
+                undo.Add(entry);
+                undoSizeBytes += entry.SizeBytes;
+            }
+
+            public void ReturnRedo(HistoryEntry entry)
+            {
+                redo.Add(entry);
+                redoSizeBytes += entry.SizeBytes;
+            }
+
+            public void MoveUndoToRedo(HistoryEntry entry)
+            {
+                redo.Add(entry);
+                redoSizeBytes += entry.SizeBytes;
+                Trim(redo, ref redoSizeBytes);
+            }
+
+            public void MoveRedoToUndo(HistoryEntry entry)
+            {
+                undo.Add(entry);
+                undoSizeBytes += entry.SizeBytes;
+                Trim(undo, ref undoSizeBytes);
+            }
+
+            private static HistoryEntry Take(List<HistoryEntry> entries, ref long sizeBytes)
+            {
+                if (entries.Count == 0) return null;
+                int index = entries.Count - 1;
+                HistoryEntry entry = entries[index];
+                entries.RemoveAt(index);
+                sizeBytes -= entry.SizeBytes;
+                return entry;
+            }
+
+            private static void Trim(List<HistoryEntry> entries, ref long sizeBytes)
+            {
+                while (entries.Count > MaximumActionCount || sizeBytes > MaximumSizeBytes)
+                {
+                    sizeBytes -= entries[0].SizeBytes;
+                    entries.RemoveAt(0);
+                }
+            }
         }
 
         private sealed class NaturalFileNameComparer : IComparer<string>

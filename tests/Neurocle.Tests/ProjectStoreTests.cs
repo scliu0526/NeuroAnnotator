@@ -943,6 +943,111 @@ namespace Neurocle.Tests
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
         }
 
+        [TestMethod]
+        public void Annotation_history_is_isolated_restores_deleted_classes_and_is_cleared_after_reopen()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png);
+                string firstSetId;
+                string secondSetId;
+                string imageId;
+                string deletedClassId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    imageId = store.ImportFiles(new[] { source })[0].Id;
+                    AnnotationSet first = store.CreateAnnotationSet("first", AnnotationSetType.Cla);
+                    AnnotationSet second = store.CreateAnnotationSet("second", AnnotationSetType.Cla);
+                    firstSetId = first.Id;
+                    secondSetId = second.Id;
+                    AnnotationClass firstClass = store.AddClass(first.Id, "cat", "#123456");
+                    AnnotationClass secondClass = store.AddClass(second.Id, "dog", "#654321");
+
+                    store.SetClaClass(first.Id, imageId, firstClass.Id);
+                    store.SetClaClass(second.Id, imageId, secondClass.Id);
+                    Assert.IsTrue(store.CanUndo(first.Id));
+                    Assert.IsTrue(store.CanUndo(second.Id));
+                    Assert.IsTrue(store.Undo(first.Id));
+                    Assert.IsNull(store.GetClaClassId(first.Id, imageId));
+                    Assert.AreEqual(secondClass.Id, store.GetClaClassId(second.Id, imageId));
+                    Assert.IsTrue(store.CanRedo(first.Id));
+                    Assert.IsTrue(store.Redo(first.Id));
+                    Assert.AreEqual(firstClass.Id, store.GetClaClassId(first.Id, imageId));
+
+                    deletedClassId = firstClass.Id;
+                    store.DeleteClass(firstClass.Id);
+                    Assert.IsNull(store.GetClaClassId(first.Id, imageId));
+                    Assert.AreEqual(1, store.GetClasses(first.Id).Count);
+                    Assert.IsTrue(store.Undo(first.Id));
+                    Assert.AreEqual(deletedClassId, store.GetClaClassId(first.Id, imageId));
+                    Assert.AreEqual("cat", store.GetClasses(first.Id).Single(item => item.Id == deletedClassId).Name);
+                    Assert.IsTrue(store.Redo(first.Id));
+                    Assert.IsNull(store.GetClaClassId(first.Id, imageId));
+
+                    store.Undo(first.Id);
+                    store.SetClaClass(first.Id, imageId, null);
+                    Assert.IsFalse(store.CanRedo(first.Id));
+                    store.Save();
+                }
+
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    Assert.IsFalse(reopened.CanUndo(firstSetId));
+                    Assert.IsFalse(reopened.CanRedo(firstSetId));
+                    Assert.IsFalse(reopened.CanUndo(secondSetId));
+                    Assert.IsNull(reopened.GetClaClassId(firstSetId, imageId));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Annotation_history_retains_only_the_most_recent_one_hundred_actions()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                using (var store = ProjectStore.Create(path))
+                {
+                    AnnotationSet set = store.CreateAnnotationSet("set", AnnotationSetType.Cla);
+                    AnnotationClass value = store.AddClass(set.Id, "start", "#123456");
+                    for (int index = 1; index <= 101; index++) store.RenameClass(value.Id, "name" + index);
+
+                    for (int index = 0; index < 100; index++) Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual("name1", store.GetClasses(set.Id).Single(item => item.Id == value.Id).Name);
+                    Assert.IsFalse(store.CanUndo(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Permanently_deleting_an_image_clears_annotation_history_without_replaying_stale_assignments()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("set", AnnotationSetType.Cla);
+                    AnnotationClass value = store.AddClass(set.Id, "cat", "#123456");
+                    store.SetClaClass(set.Id, image.Id, value.Id);
+                    store.DeleteClass(value.Id);
+                    store.DeleteImages(new[] { image.Id });
+
+                    Assert.IsFalse(store.CanUndo(set.Id));
+                    Assert.IsFalse(store.Undo(set.Id));
+                    Assert.AreEqual(1, store.GetClasses(set.Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
         private static string TemporaryProjectPath()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

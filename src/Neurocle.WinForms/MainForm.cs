@@ -30,6 +30,7 @@ namespace Neurocle.WinForms
             MinimumSize = new Size(640, 360);
             StartPosition = FormStartPosition.CenterScreen;
             Text = Strings.ApplicationTitle;
+            KeyPreview = true;
 
             var menu = new MenuStrip();
             projectMenu = new ToolStripMenuItem(Strings.ProjectMenu);
@@ -121,6 +122,15 @@ namespace Neurocle.WinForms
                 if (importInProgress) args.Cancel = true;
             };
             FormClosed += (sender, args) => project?.Dispose();
+            KeyDown += (sender, args) =>
+            {
+                if (!args.Control) return;
+                if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
+                else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
+                else return;
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+            };
         }
 
         private void CreateProject()
@@ -271,6 +281,17 @@ namespace Neurocle.WinForms
             if (MessageBox.Show(this, Strings.DeleteAnnotationClassPrompt, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             project.DeleteClass(value.Id);
             RefreshAnnotationClasses();
+        }
+
+        private void UndoOrRedoSelectedAnnotationSet(bool redo)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null) return;
+            RunAnnotationCommand(() =>
+            {
+                if (redo) project.Redo(selected.Id); else project.Undo(selected.Id);
+                RefreshAnnotationClasses();
+            });
         }
 
         private void RunAnnotationCommand(Action command)
