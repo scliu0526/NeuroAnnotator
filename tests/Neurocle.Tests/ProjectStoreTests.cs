@@ -201,7 +201,7 @@ namespace Neurocle.Tests
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = "SELECT Version FROM SchemaInfo;";
-                        Assert.AreEqual(3L, (long)command.ExecuteScalar());
+                        Assert.AreEqual(4L, (long)command.ExecuteScalar());
                     }
                 }
 
@@ -1043,6 +1043,118 @@ namespace Neurocle.Tests
                     Assert.IsFalse(store.CanUndo(set.Id));
                     Assert.IsFalse(store.Undo(set.Id));
                     Assert.AreEqual(1, store.GetClasses(set.Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Obd_annotations_are_bounded_classed_undoable_and_persist_after_reopen()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 10);
+                string setId;
+                string imageId;
+                string annotationId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    imageId = store.ImportFiles(new[] { source })[0].Id;
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    setId = set.Id;
+                    AnnotationClass first = store.GetClasses(set.Id).Single();
+                    AnnotationClass second = store.AddClass(set.Id, "other", "#123456");
+                    ObdAnnotation added = store.AddObdAnnotation(set.Id, imageId, first.Id, 1, 2, 5, 4);
+                    annotationId = added.Id;
+                    Assert.AreEqual(0, added.ZOrder);
+                    Assert.ThrowsException<ArgumentOutOfRangeException>(() => store.AddObdAnnotation(set.Id, imageId, first.Id, 16, 2, 5, 4));
+                    store.UpdateObdAnnotation(added.Id, second.Id, 2, 1, 8, 6);
+                    ObdAnnotation updated = store.GetObdAnnotations(set.Id, imageId).Single();
+                    Assert.AreEqual(second.Id, updated.ClassId);
+                    Assert.AreEqual(2, updated.X);
+                    Assert.AreEqual(6, updated.Height);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(first.Id, store.GetObdAnnotations(set.Id, imageId).Single().ClassId);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    store.DeleteObdAnnotation(added.Id);
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, imageId).Count);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(annotationId, store.GetObdAnnotations(set.Id, imageId).Single().Id);
+                    store.Save();
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    ObdAnnotation annotation = reopened.GetObdAnnotations(setId, imageId).Single();
+                    Assert.AreEqual(annotationId, annotation.Id);
+                    Assert.AreEqual(2, annotation.X);
+                    Assert.AreEqual(8, annotation.Width);
+                    Assert.AreEqual(6, annotation.Height);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Undoing_class_deletion_restores_cascaded_obd_annotations()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 10);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    AnnotationClass deleted = store.GetClasses(set.Id).Single();
+                    store.AddClass(set.Id, "other", "#123456");
+                    ObdAnnotation annotation = store.AddObdAnnotation(set.Id, image.Id, deleted.Id, 1, 2, 5, 4);
+
+                    store.DeleteClass(deleted.Id);
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, image.Id).Count);
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    ObdAnnotation restored = store.GetObdAnnotations(set.Id, image.Id).Single();
+                    Assert.AreEqual(annotation.Id, restored.Id);
+                    Assert.AreEqual(deleted.Id, restored.ClassId);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Editing_an_obd_annotation_moves_it_to_the_persisted_top_layer()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 10);
+                string setId;
+                string imageId;
+                string editedId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    imageId = store.ImportFiles(new[] { source })[0].Id;
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    setId = set.Id;
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    ObdAnnotation edited = store.AddObdAnnotation(set.Id, imageId, value.Id, 1, 1, 5, 4);
+                    ObdAnnotation other = store.AddObdAnnotation(set.Id, imageId, value.Id, 2, 2, 5, 4);
+                    editedId = edited.Id;
+
+                    store.UpdateObdAnnotation(edited.Id, value.Id, 3, 1, 5, 4);
+                    Assert.AreEqual(other.ZOrder + 1, store.GetObdAnnotations(set.Id, imageId).Single(item => item.Id == edited.Id).ZOrder);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(edited.ZOrder, store.GetObdAnnotations(set.Id, imageId).Single(item => item.Id == edited.Id).ZOrder);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    store.Save();
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    Assert.AreEqual(2, reopened.GetObdAnnotations(setId, imageId).Single(item => item.Id == editedId).ZOrder);
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }

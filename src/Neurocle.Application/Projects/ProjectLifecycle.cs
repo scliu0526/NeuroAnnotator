@@ -36,6 +36,25 @@ namespace Neurocle.Application.Projects
         public string Color { get; }
     }
 
+    public sealed class ObdAnnotation
+    {
+        public ObdAnnotation(string id, string annotationSetId, string imageId, string classId, int x, int y, int width, int height, int zOrder)
+        {
+            Id = id; AnnotationSetId = annotationSetId; ImageId = imageId; ClassId = classId;
+            X = x; Y = y; Width = width; Height = height; ZOrder = zOrder;
+        }
+
+        public string Id { get; }
+        public string AnnotationSetId { get; }
+        public string ImageId { get; }
+        public string ClassId { get; }
+        public int X { get; }
+        public int Y { get; }
+        public int Width { get; }
+        public int Height { get; }
+        public int ZOrder { get; }
+    }
+
     public sealed class ImageImportException : Exception
     {
         public ImageImportException(ImageImportFailure failure) : base(failure.ToString())
@@ -153,6 +172,10 @@ namespace Neurocle.Application.Projects
         void DeleteClass(string classId);
         void SetClaClass(string annotationSetId, string imageId, string classId);
         string GetClaClassId(string annotationSetId, string imageId);
+        IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId, string imageId);
+        ObdAnnotation AddObdAnnotation(string annotationSetId, string imageId, string classId, int x, int y, int width, int height);
+        void UpdateObdAnnotation(string annotationId, string classId, int x, int y, int width, int height);
+        void DeleteObdAnnotation(string annotationId);
         bool Undo(string annotationSetId);
         bool Redo(string annotationSetId);
         bool CanUndo(string annotationSetId);

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using Microsoft.Data.Sqlite;
@@ -9,7 +10,7 @@ namespace Neurocle.Infrastructure.Persistence
 {
     public sealed class ProjectStore : IProjectSession
     {
-        private const int CurrentSchemaVersion = 3;
+        private const int CurrentSchemaVersion = 4;
         private const int MaximumBackupCount = 5;
         private readonly FileStream lockStream;
         private readonly SqliteConnection connection;
@@ -302,8 +303,9 @@ namespace Neurocle.Infrastructure.Persistence
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE AnnotationSetId = $set;", new SqliteParameter("$set", setId))) <= 1) throw new InvalidOperationException("An annotation set must retain one class.");
             AnnotationClass deleted = GetClass(classId);
             var assignments = GetClaAssignments(classId);
+            var obdAnnotations = GetObdAnnotationsForClass(classId);
             Execute(connection, null, "DELETE FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
-            Record(setId, () => { InsertClassRaw(deleted); foreach (var assignment in assignments) SetClaRaw(setId, assignment, classId); }, () => DeleteClassRaw(classId), EstimateHistoryBytes(deleted.Id, deleted.AnnotationSetId, deleted.Name, deleted.Color) + EstimateHistoryBytes(assignments));
+            Record(setId, () => { InsertClassRaw(deleted); foreach (var assignment in assignments) SetClaRaw(setId, assignment, classId); foreach (var annotation in obdAnnotations) InsertObdRaw(annotation); }, () => DeleteClassRaw(classId), EstimateHistoryBytes(deleted.Id, deleted.AnnotationSetId, deleted.Name, deleted.Color) + EstimateHistoryBytes(assignments) + EstimateHistoryBytes(obdAnnotations));
         }
 
         public void SetClaClass(string annotationSetId, string imageId, string classId)
@@ -338,6 +340,13 @@ namespace Neurocle.Infrastructure.Persistence
         {
             long size = 64 + (long)IntPtr.Size * values.Count;
             foreach (string value in values) size += 64 + (long)value.Length * sizeof(char);
+            return size;
+        }
+
+        private static long EstimateHistoryBytes(IReadOnlyList<ObdAnnotation> values)
+        {
+            long size = 64 + (long)IntPtr.Size * values.Count;
+            foreach (ObdAnnotation value in values) size += EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId) + sizeof(int) * 5;
             return size;
         }
 
@@ -414,6 +423,18 @@ namespace Neurocle.Infrastructure.Persistence
             return imageIds;
         }
 
+        private IReadOnlyList<ObdAnnotation> GetObdAnnotationsForClass(string classId)
+        {
+            var result = new List<ObdAnnotation>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder FROM ObdAnnotation WHERE ClassId = $class;";
+                command.Parameters.AddWithValue("$class", classId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(ReadObdAnnotation(reader));
+            }
+            return result;
+        }
+
         private void InsertClassRaw(AnnotationClass value)
         {
             Execute(connection, historyTransaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
@@ -440,10 +461,108 @@ namespace Neurocle.Infrastructure.Persistence
             if (classId != null) Execute(connection, historyTransaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
         }
 
+        private static ObdAnnotation ReadObdAnnotation(SqliteDataReader reader)
+        {
+            return new ObdAnnotation(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8));
+        }
+
+        private ObdAnnotation GetObdAnnotation(string annotationId)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder FROM ObdAnnotation WHERE Id = $id;";
+                command.Parameters.AddWithValue("$id", annotationId);
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    if (!reader.Read()) throw new ArgumentException("The OBD annotation does not exist.", nameof(annotationId));
+                    return ReadObdAnnotation(reader);
+                }
+            }
+        }
+
+        private void ValidateObd(string annotationSetId, string imageId, string classId, int x, int y, int width, int height)
+        {
+            object type = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
+            if (type == null || Convert.ToInt32(type) != (int)AnnotationSetType.Obd) throw new ArgumentException("The annotation set is not OBD.", nameof(annotationSetId));
+            if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
+            Size imageSize = GetImageSize(imageId);
+            int imageWidth = imageSize.Width; int imageHeight = imageSize.Height;
+            if (width < 1 || height < 1 || x < 0 || y < 0 || (long)x + width > imageWidth || (long)y + height > imageHeight) throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
+        private Size GetImageSize(string imageId)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Width, Height FROM ImageRecord WHERE Id = $id;";
+                command.Parameters.AddWithValue("$id", imageId);
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    if (!reader.Read()) throw new ArgumentException("The image does not exist.", nameof(imageId));
+                    return new Size(reader.GetInt32(0), reader.GetInt32(1));
+                }
+            }
+        }
+
+        private void InsertObdRaw(ObdAnnotation value)
+        {
+            Execute(connection, historyTransaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder));
+        }
+
+        private void UpdateObdRaw(ObdAnnotation value)
+        {
+            Execute(connection, historyTransaction, "UPDATE ObdAnnotation SET ClassId = $class, X = $x, Y = $y, Width = $width, Height = $height, ZOrder = $order WHERE Id = $id;", new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$id", value.Id));
+        }
+
+        private void DeleteObdRaw(string annotationId)
+        {
+            Execute(connection, historyTransaction, "DELETE FROM ObdAnnotation WHERE Id = $id;", new SqliteParameter("$id", annotationId));
+        }
+
         public string GetClaClassId(string annotationSetId, string imageId)
         {
             object value = ExecuteScalar(connection, "SELECT ClassId FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
+        }
+
+        public IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId, string imageId)
+        {
+            var result = new List<ObdAnnotation>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image ORDER BY ZOrder;";
+                command.Parameters.AddWithValue("$set", annotationSetId);
+                command.Parameters.AddWithValue("$image", imageId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(ReadObdAnnotation(reader));
+            }
+            return result;
+        }
+
+        public ObdAnnotation AddObdAnnotation(string annotationSetId, string imageId, string classId, int x, int y, int width, int height)
+        {
+            ValidateObd(annotationSetId, imageId, classId, x, y, width, height);
+            int zOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
+            var value = new ObdAnnotation(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, x, y, width, height, zOrder);
+            InsertObdRaw(value);
+            Record(annotationSetId, () => DeleteObdRaw(value.Id), () => InsertObdRaw(value), EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId));
+            return value;
+        }
+
+        public void UpdateObdAnnotation(string annotationId, string classId, int x, int y, int width, int height)
+        {
+            ObdAnnotation previous = GetObdAnnotation(annotationId);
+            ValidateObd(previous.AnnotationSetId, previous.ImageId, classId, x, y, width, height);
+            int zOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", previous.AnnotationSetId), new SqliteParameter("$image", previous.ImageId)));
+            var next = new ObdAnnotation(previous.Id, previous.AnnotationSetId, previous.ImageId, classId, x, y, width, height, zOrder);
+            UpdateObdRaw(next);
+            Record(previous.AnnotationSetId, () => UpdateObdRaw(previous), () => UpdateObdRaw(next), EstimateHistoryBytes(previous.Id, previous.ClassId, next.ClassId));
+        }
+
+        public void DeleteObdAnnotation(string annotationId)
+        {
+            ObdAnnotation previous = GetObdAnnotation(annotationId);
+            DeleteObdRaw(annotationId);
+            Record(previous.AnnotationSetId, () => InsertObdRaw(previous), () => DeleteObdRaw(annotationId), EstimateHistoryBytes(previous.Id, previous.AnnotationSetId, previous.ImageId, previous.ClassId));
         }
 
         public IReadOnlyList<ProjectImage> GetMissingImages()
@@ -721,7 +840,7 @@ namespace Neurocle.Infrastructure.Persistence
         {
             int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
             if (version == CurrentSchemaVersion) return;
-            if (version != 1 && version != 2) throw new NotSupportedException("The project schema version is not supported.");
+            if (version != 1 && version != 2 && version != 3) throw new NotSupportedException("The project schema version is not supported.");
 
             CreateMigrationBackup(db, projectPath, version);
             using (SqliteTransaction transaction = db.BeginTransaction())
@@ -805,7 +924,7 @@ namespace Neurocle.Infrastructure.Persistence
             using (SqliteConnection db = OpenConnection(path))
             {
                 int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
-                if (version != 1 && version != 2 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
+                if (version != 1 && version != 2 && version != 3 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
                 ValidateTableColumns(db, "SchemaInfo", new[] { "Version" }, null, null);
                 ValidateTableColumns(db, "ProjectInfo", new[] { "ProjectId", "CreatedUtc" }, null, null);
                 if (version >= 2) ValidateTableColumns(db, "ImageRecord", new[] { "Id", "OriginalFileName", "ManagedFileName", "Sha256", "Width", "Height", "Sequence" }, "Id", new[] { "ManagedFileName", "Sequence" });
@@ -814,6 +933,7 @@ namespace Neurocle.Infrastructure.Persistence
                     ValidateTableColumns(db, "AnnotationSet", new[] { "Id", "Name", "Type" }, "Id", null);
                     ValidateTableColumns(db, "AnnotationClass", new[] { "Id", "AnnotationSetId", "Name", "Color" }, "Id", null);
                     ValidateTableColumns(db, "ClaAnnotation", new[] { "AnnotationSetId", "ImageId", "ClassId" }, null, null);
+                    ValidateTableColumns(db, "ObdAnnotation", new[] { "Id", "AnnotationSetId", "ImageId", "ClassId", "X", "Y", "Width", "Height", "ZOrder" }, "Id", null);
                 }
             }
         }
@@ -886,6 +1006,7 @@ namespace Neurocle.Infrastructure.Persistence
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS AnnotationSet (Id TEXT PRIMARY KEY NOT NULL, Name TEXT NOT NULL, Type INTEGER NOT NULL);");
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS AnnotationClass (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, Name TEXT NOT NULL, Color TEXT NOT NULL, UNIQUE (AnnotationSetId, Name));");
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ClaAnnotation (AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, PRIMARY KEY (AnnotationSetId, ImageId));");
+            Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ObdAnnotation (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL);");
         }
 
         private static string NormalizeName(string name)

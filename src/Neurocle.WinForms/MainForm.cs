@@ -52,18 +52,22 @@ namespace Neurocle.WinForms
             };
             imageBrowser = new ImageBrowserControl { Dock = DockStyle.Bottom, Height = 272 };
             canvas = new ImageCanvasControl { Dock = DockStyle.Fill };
+            canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
+            canvas.ObdRectangleChanged += (id, rectangle) => RunAnnotationCommand(() => UpdateObdRectangle(id, rectangle));
+            canvas.ObdAnnotationDeleteRequested += id => RunAnnotationCommand(() => DeleteObdRectangle(id));
             imageBrowser.ImageSelected += (sender, args) =>
             {
                 selectedImagePath = args.Image.IsMissing ? null : args.Path;
                 selectedImageId = args.Image.Id;
                 if (selectedImagePath == null) canvas.LoadImage(null);
+                RefreshAnnotationClasses();
             };
             var pages = new TabControl { Dock = DockStyle.Fill };
             var imagesPage = new TabPage(Strings.ImagesPage);
             imagesPage.Controls.Add(imageBrowser);
             var annotationPage = new TabPage(Strings.AnnotationPage);
             annotationSets = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
-            annotationSets.SelectedIndexChanged += (sender, args) => RefreshAnnotationClasses();
+            annotationSets.SelectedIndexChanged += (sender, args) => { canvas.DiscardUnfinishedShape(); RefreshAnnotationClasses(); };
             annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 180, AutoScroll = true };
             var newCla = new Button { Dock = DockStyle.Top, Text = Strings.NewClaSet };
             newCla.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Cla));
@@ -209,13 +213,18 @@ namespace Neurocle.WinForms
             if (annotationClasses == null) return;
             annotationClasses.Controls.Clear();
             AnnotationSet selected = annotationSets.SelectedItem as AnnotationSet;
+            canvas.ObdEnabled = project != null && selected != null && selected.Type == AnnotationSetType.Obd && selectedImageId != null;
+            AnnotationClass[] classes = project == null || selected == null ? new AnnotationClass[0] : project.GetClasses(selected.Id).ToArray();
+            canvas.ObdClasses = classes.ToDictionary(value => value.Id);
+            canvas.ObdAnnotations = canvas.ObdEnabled ? project.GetObdAnnotations(selected.Id, selectedImageId) : null;
             if (project == null || selected == null) return;
-            foreach (AnnotationClass value in project.GetClasses(selected.Id))
+            foreach (AnnotationClass value in classes)
             {
                 var button = new Button { Text = value.Name, AutoSize = true, BackColor = ColorTranslator.FromHtml(value.Color) };
                 button.Click += (sender, args) =>
                 {
                     if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() => project.SetClaClass(selected.Id, selectedImageId, value.Id));
+                    else if (selected.Type == AnnotationSetType.Obd && selectedImageId != null && canvas.SelectedObdId != null) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
                 };
                 var menu = new ContextMenuStrip();
                 menu.Items.Add(Strings.RenameAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => RenameAnnotationClass(value)));
@@ -227,6 +236,45 @@ namespace Neurocle.WinForms
         }
 
         private AnnotationSet SelectedAnnotationSet { get { return annotationSets.SelectedItem as AnnotationSet; } }
+
+        private void CreateObdRectangle(Rectangle rectangle)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || selected.Type != AnnotationSetType.Obd || selectedImageId == null) return;
+            AnnotationClass value = project.GetClasses(selected.Id).FirstOrDefault();
+            if (value == null) return;
+            project.AddObdAnnotation(selected.Id, selectedImageId, value.Id, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            RefreshAnnotationClasses();
+        }
+
+        private void UpdateObdRectangle(string annotationId, Rectangle rectangle)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || selected.Type != AnnotationSetType.Obd || selectedImageId == null) return;
+            ObdAnnotation annotation = project.GetObdAnnotations(selected.Id, selectedImageId).FirstOrDefault(item => item.Id == annotationId);
+            if (annotation == null) return;
+            project.UpdateObdAnnotation(annotation.Id, annotation.ClassId, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            RefreshAnnotationClasses();
+        }
+
+        private void DeleteObdRectangle(string annotationId)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || selected.Type != AnnotationSetType.Obd || selectedImageId == null) return;
+            if (!project.GetObdAnnotations(selected.Id, selectedImageId).Any(item => item.Id == annotationId)) return;
+            project.DeleteObdAnnotation(annotationId);
+            RefreshAnnotationClasses();
+        }
+
+        private void ChangeSelectedObdClass(string classId)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || selectedImageId == null || canvas.SelectedObdId == null) return;
+            ObdAnnotation annotation = project.GetObdAnnotations(selected.Id, selectedImageId).FirstOrDefault(item => item.Id == canvas.SelectedObdId);
+            if (annotation == null) return;
+            project.UpdateObdAnnotation(annotation.Id, classId, annotation.X, annotation.Y, annotation.Width, annotation.Height);
+            RefreshAnnotationClasses();
+        }
 
         private void RenameSelectedAnnotationSet()
         {
