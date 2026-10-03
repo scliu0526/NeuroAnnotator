@@ -90,6 +90,11 @@
   <data name="NewSegSet" xml:space="preserve"><value>新增 SEG</value></data>
   <data name="SegRectangleTool" xml:space="preserve"><value>SEG 矩形</value></data>
   <data name="SegEllipseTool" xml:space="preserve"><value>SEG 橢圓</value></data>
+  <data name="SegPolygonTool" xml:space="preserve"><value>SEG 畫筆</value></data>
+  <data name="SegBrushTool" xml:space="preserve"><value>SEG 筆刷</value></data>
+  <data name="SegLineTool" xml:space="preserve"><value>SEG 線型</value></data>
+  <data name="SegBrushWidth" xml:space="preserve"><value>筆刷寬度</value></data>
+  <data name="SegLineWidth" xml:space="preserve"><value>線型寬度</value></data>
   <data name="AnnotationSetNamePrompt" xml:space="preserve"><value>標註集名稱</value></data>
   <data name="RenameAnnotationSet" xml:space="preserve"><value>重新命名標註集</value></data>
   <data name="DeleteAnnotationSet" xml:space="preserve"><value>刪除標註集</value></data>

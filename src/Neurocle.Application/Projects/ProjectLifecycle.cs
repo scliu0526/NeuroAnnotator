@@ -55,15 +55,22 @@ namespace Neurocle.Application.Projects
         public int ZOrder { get; }
     }
 
-    public enum SegRegionType { Rect, Ellipse }
+    public enum SegRegionType { Rect, Ellipse, PolyLine, PolyGon }
+
+    public sealed class SegPoint
+    {
+        public SegPoint(int x, int y) { X = x; Y = y; }
+        public int X { get; }
+        public int Y { get; }
+    }
 
     public sealed class SegRegion
     {
         // Rect uses X/Y as top-left and Width/Height as dimensions. Ellipse uses X/Y as centre and Width/Height as radii.
-        public SegRegion(string id, string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height, int zOrder)
+        public SegRegion(string id, string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height, int zOrder, IReadOnlyList<SegPoint> points = null, int strokeWidth = 0)
         {
             Id = id; AnnotationSetId = annotationSetId; ImageId = imageId; ClassId = classId; Type = type;
-            X = x; Y = y; Width = width; Height = height; ZOrder = zOrder;
+            X = x; Y = y; Width = width; Height = height; ZOrder = zOrder; Points = points ?? new SegPoint[0]; StrokeWidth = strokeWidth;
         }
 
         public string Id { get; }
@@ -76,6 +83,8 @@ namespace Neurocle.Application.Projects
         public int Width { get; }
         public int Height { get; }
         public int ZOrder { get; }
+        public IReadOnlyList<SegPoint> Points { get; }
+        public int StrokeWidth { get; }
     }
 
     public sealed class ImageImportException : Exception
@@ -203,6 +212,7 @@ namespace Neurocle.Application.Projects
         void DeleteObdAnnotations(IEnumerable<string> annotationIds);
         IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId, string imageId);
         SegRegion AddSegRegion(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height);
+        SegRegion AddSegPath(string annotationSetId, string imageId, string classId, SegRegionType type, IReadOnlyList<SegPoint> points, int strokeWidth);
         bool Undo(string annotationSetId);
         bool Redo(string annotationSetId);
         bool CanUndo(string annotationSetId);

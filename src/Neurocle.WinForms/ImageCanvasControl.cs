@@ -31,12 +31,18 @@ namespace Neurocle.WinForms
         private string selectedObdId;
         private PointF segStart;
         private RectangleF? segPreview;
+        private readonly List<PointF> segPath = new List<PointF>();
+        private bool segPathDragging;
+        private PointF? segLineStart;
+        private PointF segCursor;
         private IReadOnlyList<SegRegion> segRegions = new List<SegRegion>();
         private IReadOnlyDictionary<string, AnnotationClass> segClasses = new Dictionary<string, AnnotationClass>();
 
         public bool ObdEnabled { get; set; }
         public bool SegEnabled { get; set; }
-        public SegRegionType? SegTool { get; set; }
+        public SegToolKind? SegTool { get; set; }
+        public int BrushWidth { get; set; } = 15;
+        public int LineWidth { get; set; } = 15;
         public string SelectedObdId { get { return selectedObdId; } }
         public IReadOnlyCollection<string> SelectedObdIds { get { return selectedObdIds; } }
         public IReadOnlyList<ObdAnnotation> ObdAnnotations
@@ -57,6 +63,7 @@ namespace Neurocle.WinForms
         public event Action<IReadOnlyDictionary<string, Rectangle>> ObdRectanglesChanged;
         public event Action<IReadOnlyCollection<string>> ObdAnnotationsDeleteRequested;
         public event Action<SegRegionType, Rectangle> SegRegionCreated;
+        public event Action<SegRegionType, IReadOnlyList<SegPoint>, int> SegPathCreated;
 
         public ImageCanvasControl()
         {
@@ -141,6 +148,9 @@ namespace Neurocle.WinForms
             obdPreview = null;
             obdPreviews = new Dictionary<string, RectangleF>();
             segPreview = null;
+            segPath.Clear();
+            segPathDragging = false;
+            segLineStart = null;
             activeObd = null;
             obdDrag = ObdDragKind.None;
             Capture = false;
@@ -185,22 +195,60 @@ namespace Neurocle.WinForms
                         args.Graphics.FillRectangle(fill, rectangle);
                         args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
                     }
-                    else
+                    else if (region.Type == SegRegionType.Ellipse)
                     {
                         RectangleF ellipse = ToScreenRectangle(region.X - region.Width, region.Y - region.Height, region.Width * 2, region.Height * 2);
                         args.Graphics.FillEllipse(fill, ellipse);
                         args.Graphics.DrawEllipse(pen, ellipse);
+                    }
+                    else if (region.Points.Count > 1)
+                    {
+                        PointF[] points = region.Points.Select(point => viewport.ImageToScreen(new PointF(point.X, point.Y))).ToArray();
+                        if (region.Type == SegRegionType.PolyGon && points.Length > 2)
+                        {
+                            args.Graphics.FillPolygon(fill, points);
+                            args.Graphics.DrawPolygon(pen, points);
+                        }
+                        else
+                        {
+                            using (var stroke = new Pen(color, Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom)))) args.Graphics.DrawLines(stroke, points);
+                        }
                     }
                 }
             }
             if (segPreview.HasValue)
             {
                 RectangleF rectangle = ToScreenRectangle(segPreview.Value.X, segPreview.Value.Y, segPreview.Value.Width, segPreview.Value.Height);
-                using (var pen = new Pen(Color.White, 1f))
+                float width = SegTool == SegToolKind.Brush ? Math.Max(1f, (float)(BrushWidth * viewport.Zoom)) : 1f;
+                using (var pen = new Pen(Color.White, width))
                 {
-                    if (SegTool == SegRegionType.Ellipse) args.Graphics.DrawEllipse(pen, rectangle);
+                    if (SegTool == SegToolKind.Ellipse) args.Graphics.DrawEllipse(pen, rectangle);
                     else args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
                 }
+            }
+            if (segPath.Count > 0)
+            {
+                PointF[] points = segPath.Select(viewport.ImageToScreen).ToArray();
+                using (var pen = new Pen(Color.White, 1f))
+                {
+                    if (points.Length > 1) args.Graphics.DrawLines(pen, points);
+                    if (SegTool == SegToolKind.Polygon && points.Length > 2) args.Graphics.DrawLine(pen, points[points.Length - 1], points[0]);
+                }
+                if (SegTool == SegToolKind.Polygon && DistanceInScreenPixels(segPath[0], segCursor) <= 8f)
+                {
+                    PointF closureOrigin = points[0];
+                    using (var pen = new Pen(Color.Lime, 2f)) args.Graphics.DrawEllipse(pen, closureOrigin.X - 5f, closureOrigin.Y - 5f, 10f, 10f);
+                }
+            }
+            if (segLineStart.HasValue && SegTool == SegToolKind.Line)
+            {
+                using (var pen = new Pen(Color.White, Math.Max(1f, (float)(LineWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
+            }
+            if (SegTool == SegToolKind.Brush)
+            {
+                PointF cursor = viewport.ImageToScreen(segCursor);
+                float diameter = Math.Max(1f, (float)(BrushWidth * viewport.Zoom));
+                using (var pen = new Pen(Color.White, 1f)) args.Graphics.DrawEllipse(pen, cursor.X - diameter / 2f, cursor.Y - diameter / 2f, diameter, diameter);
             }
         }
 
@@ -274,9 +322,45 @@ namespace Neurocle.WinForms
             }
             else if (args.Button == MouseButtons.Left && SegEnabled && SegTool.HasValue && !panning && image != null)
             {
-                segStart = ClampPoint(viewport.ScreenToImage(args.Location));
-                segPreview = new RectangleF(segStart, SizeF.Empty);
-                Capture = true;
+                if ((SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line) && !CanFitSegPath())
+                {
+                    DiscardUnfinishedShape();
+                    base.OnMouseDown(args);
+                    return;
+                }
+                PointF point = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
+                if (SegTool == SegToolKind.Rect || SegTool == SegToolKind.Ellipse)
+                {
+                    segStart = point;
+                    segPreview = new RectangleF(segStart, SizeF.Empty);
+                    Capture = true;
+                }
+                else if (SegTool == SegToolKind.Line)
+                {
+                    if (!segLineStart.HasValue) segLineStart = point;
+                    else
+                    {
+                        SegPoint first = ToSegPoint(segLineStart.Value);
+                        SegPoint second = ToSegPoint(point);
+                        if (first.X != second.X || first.Y != second.Y) SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, LineWidth);
+                        segLineStart = null;
+                    }
+                }
+                else
+                {
+                    if (SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
+                    {
+                        SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
+                        segPath.Clear();
+                        Invalidate();
+                        base.OnMouseDown(args);
+                        return;
+                    }
+                    if (segPath.Count == 0) segPath.Add(point);
+                    else segPath.Add(point);
+                    segPathDragging = false;
+                    Capture = true;
+                }
                 Invalidate();
             }
             previousPoint = args.Location;
@@ -295,6 +379,7 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseMove(MouseEventArgs args)
         {
+            if (SegEnabled && image != null) segCursor = ClampPoint(viewport.ScreenToImage(args.Location));
             if (panning)
             {
                 viewport.Pan(args.X - previousPoint.X, args.Y - previousPoint.Y);
@@ -315,6 +400,20 @@ namespace Neurocle.WinForms
             else if (segPreview.HasValue && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
                 segPreview = Normalize(segStart, ClampPoint(viewport.ScreenToImage(args.Location)));
+                Invalidate();
+            }
+            else if (SegEnabled && SegTool == SegToolKind.Line && segLineStart.HasValue)
+            {
+                segCursor = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
+                Invalidate();
+            }
+            else if (segPath.Count > 0 && (args.Button & MouseButtons.Left) == MouseButtons.Left && (SegTool == SegToolKind.Polygon || SegTool == SegToolKind.Brush))
+            {
+                if (DistanceInScreenPixels(segPath[segPath.Count - 1], viewport.ScreenToImage(args.Location)) >= 2f)
+                {
+                    segPath.Add(ClampSegPathPoint(viewport.ScreenToImage(args.Location)));
+                    segPathDragging = true;
+                }
                 Invalidate();
             }
             base.OnMouseMove(args);
@@ -352,16 +451,33 @@ namespace Neurocle.WinForms
             else if (args.Button == MouseButtons.Left && segPreview.HasValue)
             {
                 Rectangle preview = ToIntegerRectangle(segPreview.Value);
-                SegRegionType? tool = SegTool;
+                SegToolKind? tool = SegTool;
                 segPreview = null;
                 Capture = false;
-                if (tool == SegRegionType.Rect && preview.Width >= 1 && preview.Height >= 1) SegRegionCreated?.Invoke(SegRegionType.Rect, preview);
-                else if (tool == SegRegionType.Ellipse)
+                if (tool == SegToolKind.Rect && preview.Width >= 1 && preview.Height >= 1) SegRegionCreated?.Invoke(SegRegionType.Rect, preview);
+                else if (tool == SegToolKind.Ellipse)
                 {
                     int radiusX = preview.Width / 2;
                     int radiusY = preview.Height / 2;
                     if (radiusX >= 1 && radiusY >= 1) SegRegionCreated?.Invoke(SegRegionType.Ellipse, preview);
                 }
+                Invalidate();
+            }
+            else if (args.Button == MouseButtons.Left && Capture && (SegTool == SegToolKind.Polygon || SegTool == SegToolKind.Brush))
+            {
+                Capture = false;
+                PointF point = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
+                if (segPathDragging && SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
+                {
+                    SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
+                    segPath.Clear();
+                }
+                else if (SegTool == SegToolKind.Brush)
+                {
+                    if (segPath.Count >= 2) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), BrushWidth);
+                    segPath.Clear();
+                }
+                segPathDragging = false;
                 Invalidate();
             }
             panning = false;
@@ -446,6 +562,21 @@ namespace Neurocle.WinForms
         }
         private static RectangleF Normalize(PointF first, PointF second) { return RectangleF.FromLTRB(Math.Min(first.X, second.X), Math.Min(first.Y, second.Y), Math.Max(first.X, second.X), Math.Max(first.Y, second.Y)); }
         private static Rectangle ToIntegerRectangle(RectangleF rectangle) { return Rectangle.FromLTRB((int)Math.Round(rectangle.Left), (int)Math.Round(rectangle.Top), (int)Math.Round(rectangle.Right), (int)Math.Round(rectangle.Bottom)); }
+        private PointF ClampSegPathPoint(PointF point)
+        {
+            int width = SegTool == SegToolKind.Brush ? BrushWidth : SegTool == SegToolKind.Line ? LineWidth : 0;
+            int inset = width == 0 ? 0 : (width + 1) / 2;
+            Size size = viewport.ImageSize;
+            return new PointF(Math.Max(inset, Math.Min(size.Width - inset, point.X)), Math.Max(inset, Math.Min(size.Height - inset, point.Y)));
+        }
+        private bool CanFitSegPath()
+        {
+            int width = SegTool == SegToolKind.Brush ? BrushWidth : LineWidth;
+            int inset = (width + 1) / 2;
+            return viewport.ImageSize.Width >= inset * 2 && viewport.ImageSize.Height >= inset * 2;
+        }
+        private static SegPoint ToSegPoint(PointF point) { return new SegPoint((int)Math.Round(point.X, MidpointRounding.AwayFromZero), (int)Math.Round(point.Y, MidpointRounding.AwayFromZero)); }
+        private float DistanceInScreenPixels(PointF first, PointF second) { PointF a = viewport.ImageToScreen(first); PointF b = viewport.ImageToScreen(second); float x = a.X - b.X, y = a.Y - b.Y; return (float)Math.Sqrt(x * x + y * y); }
 
         protected override void Dispose(bool disposing)
         {
@@ -454,6 +585,7 @@ namespace Neurocle.WinForms
         }
 
         private enum ObdDragKind { None, Create, Move, ResizeN, ResizeS, ResizeW, ResizeE, ResizeNw, ResizeNe, ResizeSw, ResizeSe }
+        public enum SegToolKind { Rect, Ellipse, Polygon, Brush, Line }
         private sealed class CanvasImage
         {
             public CanvasImage(Image preview, Size originalSize) { Preview = preview; OriginalSize = originalSize; }

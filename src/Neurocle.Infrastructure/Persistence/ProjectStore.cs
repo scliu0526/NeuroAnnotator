@@ -10,7 +10,7 @@ namespace Neurocle.Infrastructure.Persistence
 {
     public sealed class ProjectStore : IProjectSession
     {
-        private const int CurrentSchemaVersion = 5;
+        private const int CurrentSchemaVersion = 6;
         private const int MaximumBackupCount = 5;
         private readonly FileStream lockStream;
         private readonly SqliteConnection connection;
@@ -354,7 +354,7 @@ namespace Neurocle.Infrastructure.Persistence
         private static long EstimateHistoryBytes(IReadOnlyList<SegRegion> values)
         {
             long size = 64 + (long)IntPtr.Size * values.Count;
-            foreach (SegRegion value in values) size += EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId) + sizeof(int) * 6;
+            foreach (SegRegion value in values) size += EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId) + sizeof(int) * (6 + value.Points.Count * 2);
             return size;
         }
 
@@ -448,7 +448,7 @@ namespace Neurocle.Infrastructure.Persistence
             var result = new List<SegRegion>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder FROM SegRegion WHERE ClassId = $class;";
+                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth FROM SegRegion WHERE ClassId = $class;";
                 command.Parameters.AddWithValue("$class", classId);
                 using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(ReadSegRegion(reader));
             }
@@ -486,9 +486,10 @@ namespace Neurocle.Infrastructure.Persistence
             return new ObdAnnotation(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8));
         }
 
-        private static SegRegion ReadSegRegion(SqliteDataReader reader)
+        private SegRegion ReadSegRegion(SqliteDataReader reader)
         {
-            return new SegRegion(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), (SegRegionType)reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8), reader.GetInt32(9));
+            string id = reader.GetString(0);
+            return new SegRegion(id, reader.GetString(1), reader.GetString(2), reader.GetString(3), (SegRegionType)reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8), reader.GetInt32(9), GetSegPoints(id), reader.IsDBNull(10) ? 0 : reader.GetInt32(10));
         }
 
         private ObdAnnotation GetObdAnnotation(string annotationId)
@@ -560,7 +561,24 @@ namespace Neurocle.Infrastructure.Persistence
 
         private void InsertSegRegionRaw(SegRegion value)
         {
-            Execute(connection, historyTransaction, "INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $type, $x, $y, $width, $height, $order);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$type", (int)value.Type), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder));
+            Execute(connection, historyTransaction, "INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth) VALUES ($id, $set, $image, $class, $type, $x, $y, $width, $height, $order, $stroke);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$type", (int)value.Type), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$stroke", value.StrokeWidth == 0 ? (object)DBNull.Value : value.StrokeWidth));
+            for (int index = 0; index < value.Points.Count; index++)
+            {
+                SegPoint point = value.Points[index];
+                Execute(connection, historyTransaction, "INSERT INTO SegRegionPoint (RegionId, Ordinal, X, Y) VALUES ($region, $ordinal, $x, $y);", new SqliteParameter("$region", value.Id), new SqliteParameter("$ordinal", index), new SqliteParameter("$x", point.X), new SqliteParameter("$y", point.Y));
+            }
+        }
+
+        private IReadOnlyList<SegPoint> GetSegPoints(string regionId)
+        {
+            var result = new List<SegPoint>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT X, Y FROM SegRegionPoint WHERE RegionId = $region ORDER BY Ordinal;";
+                command.Parameters.AddWithValue("$region", regionId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(new SegPoint(reader.GetInt32(0), reader.GetInt32(1)));
+            }
+            return result;
         }
 
         public string GetClaClassId(string annotationSetId, string imageId)
@@ -597,7 +615,7 @@ namespace Neurocle.Infrastructure.Persistence
             var result = new List<SegRegion>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image ORDER BY ZOrder;";
+                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image ORDER BY ZOrder;";
                 command.Parameters.AddWithValue("$set", annotationSetId);
                 command.Parameters.AddWithValue("$image", imageId);
                 using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(ReadSegRegion(reader));
@@ -619,6 +637,45 @@ namespace Neurocle.Infrastructure.Persistence
             InsertSegRegionRaw(value);
             Record(annotationSetId, () => Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", value.Id)), () => InsertSegRegionRaw(value), EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId));
             return value;
+        }
+
+        public SegRegion AddSegPath(string annotationSetId, string imageId, string classId, SegRegionType type, IReadOnlyList<SegPoint> points, int strokeWidth)
+        {
+            if (points == null) throw new ArgumentNullException(nameof(points));
+            if (type != SegRegionType.PolyLine && type != SegRegionType.PolyGon) throw new ArgumentOutOfRangeException(nameof(type));
+            object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
+            if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Seg) throw new ArgumentException("The annotation set is not SEG.", nameof(annotationSetId));
+            if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
+            SegPoint[] values = points.ToArray();
+            if (values.Any(point => point == null)) throw new ArgumentException("The path contains a null point.", nameof(points));
+            if (values.Length < (type == SegRegionType.PolyGon ? 3 : 2) || values.Distinct(new SegPointComparer()).Count() < (type == SegRegionType.PolyGon ? 3 : 2)) throw new ArgumentException("The path has too few distinct points.", nameof(points));
+            if (type == SegRegionType.PolyGon && AreCollinear(values)) throw new ArgumentException("The polygon points are collinear.", nameof(points));
+            if (type == SegRegionType.PolyLine && (strokeWidth < 1 || strokeWidth > 100)) throw new ArgumentOutOfRangeException(nameof(strokeWidth));
+            Size imageSize = GetImageSize(imageId);
+            if (values.Any(point => point.X < 0 || point.Y < 0 || point.X >= imageSize.Width || point.Y >= imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(points));
+            if (type == SegRegionType.PolyLine)
+            {
+                int inset = (strokeWidth + 1) / 2;
+                if (values.Any(point => point.X < inset || point.Y < inset || point.X > imageSize.Width - inset || point.Y > imageSize.Height - inset)) throw new ArgumentOutOfRangeException(nameof(points));
+            }
+            int zOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
+            var value = new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, type, 0, 0, 0, 0, zOrder, values, type == SegRegionType.PolyLine ? strokeWidth : 0);
+            InsertSegRegionRaw(value);
+            Record(annotationSetId, () => Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", value.Id)), () => InsertSegRegionRaw(value), EstimateHistoryBytes(new[] { value }));
+            return value;
+        }
+
+        private static bool AreCollinear(IReadOnlyList<SegPoint> points)
+        {
+            SegPoint first = points[0];
+            SegPoint second = points.First(point => point.X != first.X || point.Y != first.Y);
+            return points.All(point => (long)(second.X - first.X) * (point.Y - first.Y) == (long)(second.Y - first.Y) * (point.X - first.X));
+        }
+
+        private sealed class SegPointComparer : IEqualityComparer<SegPoint>
+        {
+            public bool Equals(SegPoint first, SegPoint second) { return first.X == second.X && first.Y == second.Y; }
+            public int GetHashCode(SegPoint value) { return value.X.GetHashCode() ^ value.Y.GetHashCode(); }
         }
 
         public void UpdateObdAnnotation(string annotationId, string classId, int x, int y, int width, int height)
@@ -970,13 +1027,14 @@ namespace Neurocle.Infrastructure.Persistence
         {
             int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
             if (version == CurrentSchemaVersion) return;
-            if (version != 1 && version != 2 && version != 3 && version != 4) throw new NotSupportedException("The project schema version is not supported.");
+            if (version != 1 && version != 2 && version != 3 && version != 4 && version != 5) throw new NotSupportedException("The project schema version is not supported.");
 
             CreateMigrationBackup(db, projectPath, version);
             using (SqliteTransaction transaction = db.BeginTransaction())
             {
                 CreateImageTable(db, transaction);
                 CreateAnnotationTables(db, transaction);
+                if (version == 5) Execute(db, transaction, "ALTER TABLE SegRegion ADD COLUMN StrokeWidth INTEGER NULL;");
                 Execute(db, transaction, "UPDATE SchemaInfo SET Version = $version;", new SqliteParameter("$version", CurrentSchemaVersion));
                 transaction.Commit();
             }
@@ -1054,7 +1112,7 @@ namespace Neurocle.Infrastructure.Persistence
             using (SqliteConnection db = OpenConnection(path))
             {
                 int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
-                if (version != 1 && version != 2 && version != 3 && version != 4 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
+                if (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
                 ValidateTableColumns(db, "SchemaInfo", new[] { "Version" }, null, null);
                 ValidateTableColumns(db, "ProjectInfo", new[] { "ProjectId", "CreatedUtc" }, null, null);
                 if (version >= 2) ValidateTableColumns(db, "ImageRecord", new[] { "Id", "OriginalFileName", "ManagedFileName", "Sha256", "Width", "Height", "Sequence" }, "Id", new[] { "ManagedFileName", "Sequence" });
@@ -1064,7 +1122,8 @@ namespace Neurocle.Infrastructure.Persistence
                     ValidateTableColumns(db, "AnnotationClass", new[] { "Id", "AnnotationSetId", "Name", "Color" }, "Id", null);
                     ValidateTableColumns(db, "ClaAnnotation", new[] { "AnnotationSetId", "ImageId", "ClassId" }, null, null);
                     ValidateTableColumns(db, "ObdAnnotation", new[] { "Id", "AnnotationSetId", "ImageId", "ClassId", "X", "Y", "Width", "Height", "ZOrder" }, "Id", null);
-                    ValidateTableColumns(db, "SegRegion", new[] { "Id", "AnnotationSetId", "ImageId", "ClassId", "Type", "X", "Y", "Width", "Height", "ZOrder" }, "Id", null);
+                    ValidateTableColumns(db, "SegRegion", new[] { "Id", "AnnotationSetId", "ImageId", "ClassId", "Type", "X", "Y", "Width", "Height", "ZOrder", "StrokeWidth" }, "Id", null);
+                    ValidateTableColumns(db, "SegRegionPoint", new[] { "RegionId", "Ordinal", "X", "Y" }, null, null);
                 }
             }
         }
@@ -1138,7 +1197,8 @@ namespace Neurocle.Infrastructure.Persistence
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS AnnotationClass (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, Name TEXT NOT NULL, Color TEXT NOT NULL, UNIQUE (AnnotationSetId, Name));");
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ClaAnnotation (AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, PRIMARY KEY (AnnotationSetId, ImageId));");
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ObdAnnotation (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL);");
-            Execute(db, transaction, "CREATE TABLE IF NOT EXISTS SegRegion (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, Type INTEGER NOT NULL, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL);");
+            Execute(db, transaction, "CREATE TABLE IF NOT EXISTS SegRegion (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, Type INTEGER NOT NULL, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL, StrokeWidth INTEGER NULL);");
+            Execute(db, transaction, "CREATE TABLE IF NOT EXISTS SegRegionPoint (RegionId TEXT NOT NULL REFERENCES SegRegion(Id) ON DELETE CASCADE, Ordinal INTEGER NOT NULL, X INTEGER NOT NULL, Y INTEGER NOT NULL, PRIMARY KEY (RegionId, Ordinal));");
         }
 
         private static string NormalizeName(string name)

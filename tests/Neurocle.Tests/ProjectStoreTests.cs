@@ -201,7 +201,7 @@ namespace Neurocle.Tests
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = "SELECT Version FROM SchemaInfo;";
-                        Assert.AreEqual(5L, (long)command.ExecuteScalar());
+                        Assert.AreEqual(6L, (long)command.ExecuteScalar());
                     }
                 }
 
@@ -244,10 +244,30 @@ namespace Neurocle.Tests
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = "SELECT Version FROM SchemaInfo;";
-                        Assert.AreEqual(5L, (long)command.ExecuteScalar());
+                        Assert.AreEqual(6L, (long)command.ExecuteScalar());
                         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE Type = 'table' AND Name = 'SegRegion';";
                         Assert.AreEqual(1L, (long)command.ExecuteScalar());
                     }
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Opening_a_version_five_project_preserves_existing_seg_regions_and_adds_path_storage()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                CreateVersionFiveProject(path);
+                using (var store = ProjectStore.Open(path))
+                {
+                    SegRegion region = store.GetSegRegions("seg-set", "image").Single();
+                    Assert.AreEqual(SegRegionType.Rect, region.Type);
+                    Assert.AreEqual(3, region.X);
+                    Assert.AreEqual(4, region.Y);
+                    Assert.AreEqual(0, region.StrokeWidth);
+                    Assert.AreEqual(0, region.Points.Count);
                 }
             }
             finally { DeleteTemporaryProject(path); }
@@ -1180,6 +1200,48 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Seg_paths_preserve_points_width_and_undo_after_reopen()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                string setId;
+                string imageId;
+                string brushId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    imageId = store.ImportFiles(new[] { source })[0].Id;
+                    AnnotationSet set = store.CreateAnnotationSet("paths", AnnotationSetType.Seg);
+                    setId = set.Id;
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    SegRegion brush = store.AddSegPath(set.Id, imageId, value.Id, SegRegionType.PolyLine, new[] { new SegPoint(10, 10), new SegPoint(20, 10), new SegPoint(20, 20) }, 15);
+                    brushId = brush.Id;
+                    store.AddSegPath(set.Id, imageId, value.Id, SegRegionType.PolyGon, new[] { new SegPoint(1, 1), new SegPoint(5, 1), new SegPoint(3, 5) }, 0);
+                    Assert.AreEqual(15, brush.StrokeWidth);
+                    Assert.AreEqual(3, brush.Points.Count);
+                    Assert.ThrowsException<ArgumentException>(() => store.AddSegPath(set.Id, imageId, value.Id, SegRegionType.PolyGon, new[] { new SegPoint(1, 1), new SegPoint(2, 2), new SegPoint(3, 3) }, 0));
+                    Assert.ThrowsException<ArgumentOutOfRangeException>(() => store.AddSegPath(set.Id, imageId, value.Id, SegRegionType.PolyLine, new[] { new SegPoint(1, 1), new SegPoint(2, 2) }, 101));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(brushId, store.GetSegRegions(set.Id, imageId).Single().Id);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    store.Save();
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    SegRegion restored = reopened.GetSegRegions(setId, imageId).Single(item => item.Id == brushId);
+                    Assert.AreEqual(SegRegionType.PolyLine, restored.Type);
+                    Assert.AreEqual(15, restored.StrokeWidth);
+                    Assert.AreEqual(20, restored.Points[2].X);
+                    Assert.AreEqual(20, restored.Points[2].Y);
+                    Assert.ThrowsException<ArgumentOutOfRangeException>(() => reopened.AddSegPath(setId, imageId, reopened.GetClasses(setId).Single().Id, SegRegionType.PolyLine, new[] { new SegPoint(7, 10), new SegPoint(20, 10) }, 15));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Undoing_class_deletion_restores_cascaded_obd_annotations()
         {
             string path = TemporaryProjectPath();
@@ -1369,6 +1431,20 @@ namespace Neurocle.Tests
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = "CREATE TABLE SchemaInfo (Version INTEGER NOT NULL); CREATE TABLE ProjectInfo (ProjectId TEXT NOT NULL, CreatedUtc TEXT NOT NULL); CREATE TABLE ImageRecord (Id TEXT PRIMARY KEY NOT NULL, OriginalFileName TEXT NOT NULL, ManagedFileName TEXT NOT NULL UNIQUE, Sha256 TEXT NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, Sequence INTEGER NOT NULL UNIQUE); CREATE TABLE AnnotationSet (Id TEXT PRIMARY KEY NOT NULL, Name TEXT NOT NULL, Type INTEGER NOT NULL); CREATE TABLE AnnotationClass (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL, Name TEXT NOT NULL, Color TEXT NOT NULL, UNIQUE (AnnotationSetId, Name)); CREATE TABLE ClaAnnotation (AnnotationSetId TEXT NOT NULL, ImageId TEXT NOT NULL, ClassId TEXT NOT NULL, PRIMARY KEY (AnnotationSetId, ImageId)); CREATE TABLE ObdAnnotation (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL, ImageId TEXT NOT NULL, ClassId TEXT NOT NULL, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL); INSERT INTO SchemaInfo (Version) VALUES (4); INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ('legacy', '2026-01-01T00:00:00.0000000Z'); INSERT INTO ImageRecord (Id, OriginalFileName, ManagedFileName, Sha256, Width, Height, Sequence) VALUES ('image', 'image.png', 'image.png', 'hash', 20, 10, 1); INSERT INTO AnnotationSet (Id, Name, Type) VALUES ('cla-set', 'cla', 0), ('obd-set', 'obd', 1), ('seg-set', 'seg', 2); INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ('class', 'cla-set', 'class1', '#FF0000'), ('obd-class', 'obd-set', 'class1', '#FF0000'), ('seg-class', 'seg-set', 'class1', '#FF0000'); INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ('cla-set', 'image', 'class'); INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ('obd', 'obd-set', 'image', 'obd-class', 1, 2, 5, 4, 0);";
+                    command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private static void CreateVersionFiveProject(string path)
+        {
+            CreateVersionFourProject(path);
+            using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
+            {
+                connection.Open();
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "CREATE TABLE SegRegion (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL, ImageId TEXT NOT NULL, ClassId TEXT NOT NULL, Type INTEGER NOT NULL, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL); INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder) VALUES ('region', 'seg-set', 'image', 'seg-class', 0, 3, 4, 5, 6, 0); UPDATE SchemaInfo SET Version = 5;";
                     command.ExecuteNonQuery();
                 }
             }
