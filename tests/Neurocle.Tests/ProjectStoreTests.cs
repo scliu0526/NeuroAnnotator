@@ -1334,6 +1334,43 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Seg_region_group_update_and_delete_are_undoable_and_preserve_relative_layer_order()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 30, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass first = store.GetClasses(set.Id).Single();
+                    AnnotationClass second = store.AddClass(set.Id, "other", "#123456");
+                    SegRegion firstRegion = store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 1, 1, 4, 4);
+                    SegRegion secondRegion = store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 10, 1, 4, 4);
+                    SegRegion updatedFirst = new SegRegion(firstRegion.Id, set.Id, image.Id, second.Id, SegRegionType.PolyGon, 0, 0, 0, 0, firstRegion.ZOrder, new[] { new SegPoint(2, 2), new SegPoint(7, 2), new SegPoint(2, 7) });
+                    SegRegion updatedSecond = new SegRegion(secondRegion.Id, set.Id, image.Id, first.Id, SegRegionType.Rect, 11, 2, 4, 4, secondRegion.ZOrder);
+
+                    store.UpdateSegRegions(new[] { updatedSecond, updatedFirst });
+                    SegRegion[] updated = store.GetSegRegions(set.Id, image.Id).ToArray();
+                    Assert.AreEqual(second.Id, updated.Single(item => item.Id == firstRegion.Id).ClassId);
+                    Assert.AreEqual(SegRegionType.PolyGon, updated.Single(item => item.Id == firstRegion.Id).Type);
+                    Assert.AreEqual(2, updated.Single(item => item.Id == firstRegion.Id).ZOrder);
+                    Assert.AreEqual(3, updated.Single(item => item.Id == secondRegion.Id).ZOrder);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(SegRegionType.Rect, store.GetSegRegions(set.Id, image.Id).Single(item => item.Id == firstRegion.Id).Type);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    store.DeleteSegRegions(new[] { firstRegion.Id, secondRegion.Id });
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(2, store.GetSegRegions(set.Id, image.Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Group_obd_update_and_delete_are_undoable_and_preserve_relative_layer_order()
         {
             string path = TemporaryProjectPath();

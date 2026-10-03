@@ -79,6 +79,8 @@ namespace Neurocle.WinForms.Resources
         internal static string SegPolygonTool { get { return ResourceManager.GetString("SegPolygonTool", CultureInfo.CurrentUICulture); } }
         internal static string SegBrushTool { get { return ResourceManager.GetString("SegBrushTool", CultureInfo.CurrentUICulture); } }
         internal static string SegLineTool { get { return ResourceManager.GetString("SegLineTool", CultureInfo.CurrentUICulture); } }
+        internal static string SegSelectTool { get { return ResourceManager.GetString("SegSelectTool", CultureInfo.CurrentUICulture); } }
+        internal static string SegOpacity { get { return ResourceManager.GetString("SegOpacity", CultureInfo.CurrentUICulture); } }
         internal static string SegBrushWidth { get { return ResourceManager.GetString("SegBrushWidth", CultureInfo.CurrentUICulture); } }
         internal static string SegLineWidth { get { return ResourceManager.GetString("SegLineWidth", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationSetNamePrompt { get { return ResourceManager.GetString("AnnotationSetNamePrompt", CultureInfo.CurrentUICulture); } }

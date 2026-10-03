@@ -59,6 +59,8 @@ namespace Neurocle.WinForms
             canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
             canvas.SegRegionCreated += (type, rectangle) => RunAnnotationCommand(() => CreateSegRegion(type, rectangle));
             canvas.SegPathCreated += (type, points, width) => RunAnnotationCommand(() => CreateSegPath(type, points, width));
+            canvas.SegRegionsChanged += regions => RunAnnotationCommand(() => UpdateSegRegions(regions));
+            canvas.SegRegionsDeleteRequested += ids => RunAnnotationCommand(() => DeleteSegRegions(ids));
             imageBrowser.ImageSelected += (sender, args) =>
             {
                 selectedImagePath = args.Image.IsMissing ? null : args.Path;
@@ -95,11 +97,16 @@ namespace Neurocle.WinForms
             segBrush.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Brush);
             var segLine = new Button { Dock = DockStyle.Top, Text = Strings.SegLineTool };
             segLine.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Line);
+            var segSelect = new Button { Dock = DockStyle.Top, Text = Strings.SegSelectTool };
+            segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
             var segWidths = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 2 };
             segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             AddSegWidthControl(segWidths, 0, Strings.SegBrushWidth, value => canvas.BrushWidth = value);
             AddSegWidthControl(segWidths, 1, Strings.SegLineWidth, value => canvas.LineWidth = value);
+            var segOpacity = new NumericUpDown { Dock = DockStyle.Top, Minimum = 0, Maximum = 100, Value = 40 };
+            segOpacity.ValueChanged += (sender, args) => { canvas.SegOpacity = (float)segOpacity.Value / 100f; canvas.Invalidate(); };
+            var segOpacityLabel = new Label { Dock = DockStyle.Top, Text = Strings.SegOpacity, AutoSize = true };
             var fit = new Button { Dock = DockStyle.Top, Text = Strings.FitToWindow };
             fit.Click += (sender, args) => canvas.FitToWindow();
             var zoom = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
@@ -114,6 +121,9 @@ namespace Neurocle.WinForms
             annotationPage.Controls.Add(canvas);
             annotationPage.Controls.Add(annotationClasses);
             annotationPage.Controls.Add(segWidths);
+            annotationPage.Controls.Add(segOpacity);
+            annotationPage.Controls.Add(segOpacityLabel);
+            annotationPage.Controls.Add(segSelect);
             annotationPage.Controls.Add(segLine);
             annotationPage.Controls.Add(segBrush);
             annotationPage.Controls.Add(segPolygon);
@@ -271,7 +281,11 @@ namespace Neurocle.WinForms
                 {
                     if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() => project.SetClaClass(selected.Id, selectedImageId, value.Id));
                     else if (selected.Type == AnnotationSetType.Obd && selectedImageId != null && canvas.SelectedObdId != null) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
-                    else if (selected.Type == AnnotationSetType.Seg) selectedSegClassId = value.Id;
+                    else if (selected.Type == AnnotationSetType.Seg)
+                    {
+                        selectedSegClassId = value.Id;
+                        if (selectedImageId != null && canvas.SelectedSegIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedSegClass(value.Id));
+                    }
                 };
                 var menu = new ContextMenuStrip();
                 menu.Items.Add(Strings.RenameAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => RenameAnnotationClass(value)));
@@ -319,6 +333,29 @@ namespace Neurocle.WinForms
             AnnotationClass value = project.GetClasses(selected.Id).FirstOrDefault(item => item.Id == selectedSegClassId);
             if (value == null) return;
             project.AddSegPath(selected.Id, selectedImageId, value.Id, type, points, width);
+            RefreshAnnotationClasses();
+        }
+
+        private void UpdateSegRegions(IReadOnlyList<SegRegion> regions)
+        {
+            if (project == null || SelectedAnnotationSet == null || SelectedAnnotationSet.Type != AnnotationSetType.Seg || regions.Count == 0) return;
+            project.UpdateSegRegions(regions);
+            RefreshAnnotationClasses();
+        }
+
+        private void DeleteSegRegions(IReadOnlyCollection<string> regionIds)
+        {
+            if (project == null || SelectedAnnotationSet == null || SelectedAnnotationSet.Type != AnnotationSetType.Seg || regionIds.Count == 0) return;
+            project.DeleteSegRegions(regionIds);
+            RefreshAnnotationClasses();
+        }
+
+        private void ChangeSelectedSegClass(string classId)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || selected.Type != AnnotationSetType.Seg || selectedImageId == null) return;
+            SegRegion[] regions = project.GetSegRegions(selected.Id, selectedImageId).Where(region => canvas.SelectedSegIds.Contains(region.Id)).ToArray();
+            if (regions.Length > 0) project.UpdateSegRegions(regions.Select(region => new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, classId, region.Type, region.X, region.Y, region.Width, region.Height, region.ZOrder, region.Points, region.StrokeWidth)));
             RefreshAnnotationClasses();
         }
 
