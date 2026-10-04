@@ -696,9 +696,9 @@ namespace Neurocle.WinForms
             if (region.Points.Count > 0)
             {
                 int inset = region.Type == SegRegionType.PolyLine ? (region.StrokeWidth + 1) / 2 : 0;
-                int right = region.Type == SegRegionType.PolyLine ? viewport.ImageSize.Width - inset : viewport.ImageSize.Width;
-                int bottom = region.Type == SegRegionType.PolyLine ? viewport.ImageSize.Height - inset : viewport.ImageSize.Height;
-                target = RectangleF.FromLTRB(Math.Max(inset, target.Left), Math.Max(inset, target.Top), Math.Min(right, target.Right), Math.Min(bottom, target.Bottom));
+                int maximumRight = region.Type == SegRegionType.PolyLine ? viewport.ImageSize.Width - inset : viewport.ImageSize.Width;
+                int maximumBottom = region.Type == SegRegionType.PolyLine ? viewport.ImageSize.Height - inset : viewport.ImageSize.Height;
+                target = RectangleF.FromLTRB(Math.Max(inset, target.Left), Math.Max(inset, target.Top), Math.Min(maximumRight, target.Right), Math.Min(maximumBottom, target.Bottom));
             }
             return ScaleSegRegion(region, segOriginalBounds, target);
         }
