@@ -201,7 +201,7 @@ namespace Neurocle.Tests
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = "SELECT Version FROM SchemaInfo;";
-                        Assert.AreEqual(6L, (long)command.ExecuteScalar());
+                        Assert.AreEqual(7L, (long)command.ExecuteScalar());
                     }
                 }
 
@@ -244,8 +244,10 @@ namespace Neurocle.Tests
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = "SELECT Version FROM SchemaInfo;";
-                        Assert.AreEqual(6L, (long)command.ExecuteScalar());
+                        Assert.AreEqual(7L, (long)command.ExecuteScalar());
                         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE Type = 'table' AND Name = 'SegRegion';";
+                        Assert.AreEqual(1L, (long)command.ExecuteScalar());
+                        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE Type = 'table' AND Name = 'DatasetAssignment';";
                         Assert.AreEqual(1L, (long)command.ExecuteScalar());
                     }
                 }
@@ -1323,6 +1325,102 @@ namespace Neurocle.Tests
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Dataset_assignments_are_isolated_batch_undoable_and_default_to_unassigned_retest_zero()
+        {
+            string path = TemporaryProjectPath();
+            string firstSource = Path.Combine(Path.GetDirectoryName(path), "one.png");
+            string secondSource = Path.Combine(Path.GetDirectoryName(path), "two.png");
+            try
+            {
+                CreateBitmap(firstSource, Color.Red, ImageFormat.Png, 20, 20);
+                CreateBitmap(secondSource, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(new[] { firstSource, secondSource }).ToArray();
+                    AnnotationSet first = store.CreateAnnotationSet("first", AnnotationSetType.Cla);
+                    AnnotationSet second = store.CreateAnnotationSet("second", AnnotationSetType.Obd);
+                    Assert.IsTrue(store.GetDatasetAssignments(first.Id).All(value => value.Status == DatasetAssignmentStatus.Unassigned && !value.Retest));
+                    store.SetDatasetAssignments(first.Id, images.Select(value => value.Id), DatasetAssignmentStatus.Train);
+                    store.SetRetest(first.Id, new[] { images[0].Id }, true);
+                    Assert.IsTrue(store.GetDatasetAssignments(first.Id).All(value => value.Status == DatasetAssignmentStatus.Train));
+                    Assert.IsTrue(store.GetDatasetAssignments(first.Id).Single(value => value.ImageId == images[0].Id).Retest);
+                    Assert.IsTrue(store.GetDatasetAssignments(second.Id).All(value => value.Status == DatasetAssignmentStatus.Unassigned && !value.Retest));
+                    Assert.IsTrue(store.Undo(first.Id));
+                    Assert.IsFalse(store.GetDatasetAssignments(first.Id).Single(value => value.ImageId == images[0].Id).Retest);
+                    Assert.IsTrue(store.Undo(first.Id));
+                    Assert.IsTrue(store.GetDatasetAssignments(first.Id).All(value => value.Status == DatasetAssignmentStatus.Unassigned));
+                    Assert.IsFalse(store.CanUndo(first.Id));
+                    store.SetDatasetAssignments(first.Id, images.Select(value => value.Id), DatasetAssignmentStatus.Unassigned);
+                    store.SetRetest(first.Id, images.Select(value => value.Id), false);
+                    Assert.IsFalse(store.CanUndo(first.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(firstSource)) File.Delete(firstSource); if (File.Exists(secondSource)) File.Delete(secondSource); }
+        }
+
+        [TestMethod]
+        public void Image_annotation_summaries_are_batched_and_include_every_distinct_class_on_an_image()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet obd = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    AnnotationClass first = store.GetClasses(obd.Id).Single();
+                    AnnotationClass second = store.AddClass(obd.Id, "other", "#123456");
+                    store.AddObdAnnotation(obd.Id, image.Id, first.Id, 1, 1, 5, 5);
+                    store.AddObdAnnotation(obd.Id, image.Id, second.Id, 10, 10, 5, 5);
+                    store.AddObdAnnotation(obd.Id, image.Id, first.Id, 2, 2, 3, 3);
+
+                    ImageAnnotationSummary summary = store.GetImageAnnotationSummaries(obd.Id).Single();
+                    CollectionAssert.AreEquivalent(new[] { first.Id, second.Id }, summary.ClassIds.ToArray());
+                    Assert.IsFalse(store.GetImageAnnotationSummaries(store.CreateAnnotationSet("empty", AnnotationSetType.Seg).Id).Any());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Clear_annotations_only_affects_requested_images_in_the_current_annotation_set()
+        {
+            string path = TemporaryProjectPath();
+            string firstSource = Path.Combine(Path.GetDirectoryName(path), "one.png");
+            string secondSource = Path.Combine(Path.GetDirectoryName(path), "two.png");
+            try
+            {
+                CreateBitmap(firstSource, Color.Red, ImageFormat.Png, 20, 20);
+                CreateBitmap(secondSource, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(new[] { firstSource, secondSource }).ToArray();
+                    AnnotationSet set = store.CreateAnnotationSet("classes", AnnotationSetType.Cla);
+                    AnnotationSet other = store.CreateAnnotationSet("other", AnnotationSetType.Cla);
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    AnnotationClass otherValue = store.GetClasses(other.Id).Single();
+                    store.SetClaClass(set.Id, images[0].Id, value.Id);
+                    store.SetClaClass(set.Id, images[1].Id, value.Id);
+                    store.SetClaClass(other.Id, images[0].Id, otherValue.Id);
+                    store.ClearAnnotations(set.Id, new[] { images[0].Id });
+                    Assert.IsNull(store.GetClaClassId(set.Id, images[0].Id));
+                    Assert.AreEqual(value.Id, store.GetClaClassId(set.Id, images[1].Id));
+                    Assert.AreEqual(otherValue.Id, store.GetClaClassId(other.Id, images[0].Id));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(value.Id, store.GetClaClassId(set.Id, images[0].Id));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.IsFalse(store.CanUndo(set.Id));
+                    store.ClearAnnotations(set.Id, images.Select(image => image.Id));
+                    Assert.IsFalse(store.CanUndo(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(firstSource)) File.Delete(firstSource); if (File.Exists(secondSource)) File.Delete(secondSource); }
         }
 
         [TestMethod]

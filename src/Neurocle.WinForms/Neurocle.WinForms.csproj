@@ -51,6 +51,7 @@
     <Compile Include="MissingImagesForm.cs" />
     <Compile Include="BackupManagementForm.cs" />
     <Compile Include="ImageBrowserControl.cs" />
+    <Compile Include="DatasetAssignmentControl.cs" />
     <Compile Include="ImageCanvasControl.cs" />
     <Compile Include="Resources\Strings.Designer.cs" />
     <EmbeddedResource Include="Resources\Strings.resx">

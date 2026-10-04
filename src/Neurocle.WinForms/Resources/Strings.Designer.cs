@@ -69,6 +69,26 @@ namespace Neurocle.WinForms.Resources
         internal static string ImagesPage { get { return ResourceManager.GetString("ImagesPage", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationPage { get { return ResourceManager.GetString("AnnotationPage", CultureInfo.CurrentUICulture); } }
         internal static string DatasetPage { get { return ResourceManager.GetString("DatasetPage", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetTrain { get { return ResourceManager.GetString("DatasetTrain", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetTest { get { return ResourceManager.GetString("DatasetTest", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetUnassigned { get { return ResourceManager.GetString("DatasetUnassigned", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetNotUsed { get { return ResourceManager.GetString("DatasetNotUsed", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRetest { get { return ResourceManager.GetString("DatasetRetest", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetClearRetest { get { return ResourceManager.GetString("DatasetClearRetest", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetClearClass { get { return ResourceManager.GetString("DatasetClearClass", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetClearSet { get { return ResourceManager.GetString("DatasetClearSet", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetFilterSet { get { return ResourceManager.GetString("DatasetFilterSet", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetFilterClass { get { return ResourceManager.GetString("DatasetFilterClass", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetFilterAnnotation { get { return ResourceManager.GetString("DatasetFilterAnnotation", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetFilterRetest { get { return ResourceManager.GetString("DatasetFilterRetest", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetFilterAll { get { return ResourceManager.GetString("DatasetFilterAll", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetFilterAnnotated { get { return ResourceManager.GetString("DatasetFilterAnnotated", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetFilterEmpty { get { return ResourceManager.GetString("DatasetFilterEmpty", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetFilterNoRetest { get { return ResourceManager.GetString("DatasetFilterNoRetest", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetColumn { get { return ResourceManager.GetString("DatasetColumn", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetClassColumn { get { return ResourceManager.GetString("DatasetClassColumn", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetAnnotatedColumn { get { return ResourceManager.GetString("DatasetAnnotatedColumn", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRetestColumn { get { return ResourceManager.GetString("DatasetRetestColumn", CultureInfo.CurrentUICulture); } }
         internal static string ExportPage { get { return ResourceManager.GetString("ExportPage", CultureInfo.CurrentUICulture); } }
         internal static string FitToWindow { get { return ResourceManager.GetString("FitToWindow", CultureInfo.CurrentUICulture); } }
         internal static string NewClaSet { get { return ResourceManager.GetString("NewClaSet", CultureInfo.CurrentUICulture); } }

@@ -18,6 +18,7 @@ namespace Neurocle.WinForms
         private readonly ToolStripMenuItem projectMenu;
         private readonly ImageBrowserControl imageBrowser;
         private readonly ImageCanvasControl canvas;
+        private readonly DatasetAssignmentControl datasetAssignments;
         private readonly ComboBox annotationSets;
         private readonly FlowLayoutPanel annotationClasses;
         private string selectedImagePath;
@@ -54,6 +55,10 @@ namespace Neurocle.WinForms
             };
             imageBrowser = new ImageBrowserControl { Dock = DockStyle.Bottom, Height = 272 };
             canvas = new ImageCanvasControl { Dock = DockStyle.Fill };
+            datasetAssignments = new DatasetAssignmentControl { Dock = DockStyle.Fill };
+            datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
+            datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
+            datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ClearDatasetClasses(ids));
             canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
             canvas.ObdRectanglesChanged += rectangles => RunAnnotationCommand(() => UpdateObdRectangles(rectangles));
             canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
@@ -74,7 +79,7 @@ namespace Neurocle.WinForms
             imagesPage.Controls.Add(imageBrowser);
             var annotationPage = new TabPage(Strings.AnnotationPage);
             annotationSets = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
-            annotationSets.SelectedIndexChanged += (sender, args) => { canvas.DiscardUnfinishedShape(); RefreshAnnotationClasses(); };
+            annotationSets.SelectedIndexChanged += (sender, args) => { canvas.DiscardUnfinishedShape(); RefreshAnnotationClasses(); RefreshDatasetAssignments(); };
             annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 180, AutoScroll = true };
             var newCla = new Button { Dock = DockStyle.Top, Text = Strings.NewClaSet };
             newCla.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Cla));
@@ -145,7 +150,9 @@ namespace Neurocle.WinForms
             annotationPage.Controls.Add(fit);
             pages.TabPages.Add(imagesPage);
             pages.TabPages.Add(annotationPage);
-            pages.TabPages.Add(new TabPage(Strings.DatasetPage));
+            var datasetPage = new TabPage(Strings.DatasetPage);
+            datasetPage.Controls.Add(datasetAssignments);
+            pages.TabPages.Add(datasetPage);
             pages.TabPages.Add(new TabPage(Strings.ExportPage));
             pages.SelectedIndexChanged += (sender, args) =>
             {
@@ -155,6 +162,7 @@ namespace Neurocle.WinForms
                     try { canvas.LoadImage(selectedImagePath); }
                     catch { }
                 }
+                if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
             };
 
             MainMenuStrip = menu;
@@ -302,6 +310,50 @@ namespace Neurocle.WinForms
         }
 
         private AnnotationSet SelectedAnnotationSet { get { return annotationSets.SelectedItem as AnnotationSet; } }
+
+        private void RefreshDatasetAssignments()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null) { datasetAssignments.LoadRows(new DatasetRow[0]); return; }
+            var images = project.GetImages().ToDictionary(value => value.Id, StringComparer.Ordinal);
+            var classes = project.GetClasses(selected.Id).ToDictionary(value => value.Id, value => value.Name, StringComparer.Ordinal);
+            var summaries = project.GetImageAnnotationSummaries(selected.Id).ToDictionary(value => value.ImageId, value => value.ClassIds, StringComparer.Ordinal);
+            var rows = new List<DatasetRow>();
+            foreach (DatasetAssignment assignment in project.GetDatasetAssignments(selected.Id))
+            {
+                ProjectImage image = images[assignment.ImageId];
+                IReadOnlyList<string> classIds;
+                summaries.TryGetValue(image.Id, out classIds);
+                string[] classNames = (classIds ?? new string[0]).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
+                rows.Add(new DatasetRow(image, assignment, classNames));
+            }
+            datasetAssignments.LoadRows(rows);
+        }
+
+        private void SetDatasetAssignments(IReadOnlyList<string> imageIds, DatasetAssignmentStatus status)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || imageIds.Count == 0) return;
+            project.SetDatasetAssignments(selected.Id, imageIds, status);
+            RefreshDatasetAssignments();
+        }
+
+        private void SetRetest(IReadOnlyList<string> imageIds, bool retest)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || imageIds.Count == 0) return;
+            project.SetRetest(selected.Id, imageIds, retest);
+            RefreshDatasetAssignments();
+        }
+
+        private void ClearDatasetClasses(IReadOnlyList<string> imageIds)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null || imageIds.Count == 0) return;
+            project.ClearAnnotations(selected.Id, imageIds);
+            RefreshAnnotationClasses();
+            RefreshDatasetAssignments();
+        }
 
         private void CreateObdRectangle(Rectangle rectangle)
         {

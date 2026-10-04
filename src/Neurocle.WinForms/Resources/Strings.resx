@@ -83,6 +83,26 @@
   <data name="ImagesPage" xml:space="preserve"><value>圖片</value></data>
   <data name="AnnotationPage" xml:space="preserve"><value>標註</value></data>
   <data name="DatasetPage" xml:space="preserve"><value>資料集分配</value></data>
+  <data name="DatasetTrain" xml:space="preserve"><value>訓練 (train)</value></data>
+  <data name="DatasetTest" xml:space="preserve"><value>測試 (test)</value></data>
+  <data name="DatasetUnassigned" xml:space="preserve"><value>未分配</value></data>
+  <data name="DatasetNotUsed" xml:space="preserve"><value>不使用</value></data>
+  <data name="DatasetRetest" xml:space="preserve"><value>Retest</value></data>
+  <data name="DatasetClearRetest" xml:space="preserve"><value>清除 Retest</value></data>
+  <data name="DatasetClearClass" xml:space="preserve"><value>清除類別</value></data>
+  <data name="DatasetClearSet" xml:space="preserve"><value>清除資料集</value></data>
+  <data name="DatasetFilterSet" xml:space="preserve"><value>資料集：</value></data>
+  <data name="DatasetFilterClass" xml:space="preserve"><value>類別：</value></data>
+  <data name="DatasetFilterAnnotation" xml:space="preserve"><value>標註：</value></data>
+  <data name="DatasetFilterRetest" xml:space="preserve"><value>Retest：</value></data>
+  <data name="DatasetFilterAll" xml:space="preserve"><value>全部</value></data>
+  <data name="DatasetFilterAnnotated" xml:space="preserve"><value>有標註</value></data>
+  <data name="DatasetFilterEmpty" xml:space="preserve"><value>無標註</value></data>
+  <data name="DatasetFilterNoRetest" xml:space="preserve"><value>非 Retest</value></data>
+  <data name="DatasetColumn" xml:space="preserve"><value>資料集</value></data>
+  <data name="DatasetClassColumn" xml:space="preserve"><value>類別</value></data>
+  <data name="DatasetAnnotatedColumn" xml:space="preserve"><value>標註</value></data>
+  <data name="DatasetRetestColumn" xml:space="preserve"><value>Retest</value></data>
   <data name="ExportPage" xml:space="preserve"><value>完成與匯出</value></data>
   <data name="FitToWindow" xml:space="preserve"><value>適合視窗</value></data>
   <data name="NewClaSet" xml:space="preserve"><value>新增 CLA</value></data>

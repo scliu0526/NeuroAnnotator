@@ -216,10 +216,45 @@ namespace Neurocle.Application.Projects
         void EraseSegPath(string annotationSetId, string imageId, string classId, IReadOnlyList<SegPoint> points, int strokeWidth);
         void UpdateSegRegions(IEnumerable<SegRegion> regions);
         void DeleteSegRegions(IEnumerable<string> regionIds);
+        IReadOnlyList<DatasetAssignment> GetDatasetAssignments(string annotationSetId);
+        IReadOnlyList<ImageAnnotationSummary> GetImageAnnotationSummaries(string annotationSetId);
+        void SetDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, DatasetAssignmentStatus status);
+        void SetRetest(string annotationSetId, IEnumerable<string> imageIds, bool retest);
+        void ClearAnnotations(string annotationSetId, IEnumerable<string> imageIds);
         bool Undo(string annotationSetId);
         bool Redo(string annotationSetId);
         bool CanUndo(string annotationSetId);
         bool CanRedo(string annotationSetId);
+    }
+
+    public enum DatasetAssignmentStatus { Unassigned, Train, Test, NotUsed }
+
+    public sealed class DatasetAssignment
+    {
+        public DatasetAssignment(string annotationSetId, string imageId, DatasetAssignmentStatus status, bool retest)
+        {
+            AnnotationSetId = annotationSetId;
+            ImageId = imageId;
+            Status = status;
+            Retest = retest;
+        }
+
+        public string AnnotationSetId { get; }
+        public string ImageId { get; }
+        public DatasetAssignmentStatus Status { get; }
+        public bool Retest { get; }
+    }
+
+    public sealed class ImageAnnotationSummary
+    {
+        public ImageAnnotationSummary(string imageId, IReadOnlyList<string> classIds)
+        {
+            ImageId = imageId;
+            ClassIds = classIds ?? throw new ArgumentNullException(nameof(classIds));
+        }
+
+        public string ImageId { get; private set; }
+        public IReadOnlyList<string> ClassIds { get; private set; }
     }
 
     public sealed class ProjectImage

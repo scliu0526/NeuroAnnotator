@@ -12,7 +12,7 @@ namespace Neurocle.Infrastructure.Persistence
 {
     public sealed class ProjectStore : IProjectSession
     {
-        private const int CurrentSchemaVersion = 6;
+        private const int CurrentSchemaVersion = 7;
         private const int MaximumBackupCount = 5;
         private readonly FileStream lockStream;
         private readonly SqliteConnection connection;
@@ -319,6 +319,118 @@ namespace Neurocle.Infrastructure.Persistence
             string previous = GetClaClassId(annotationSetId, imageId);
             SetClaRaw(annotationSetId, imageId, classId);
             Record(annotationSetId, () => SetClaRaw(annotationSetId, imageId, previous), () => SetClaRaw(annotationSetId, imageId, classId), EstimateHistoryBytes(annotationSetId, imageId, previous, classId));
+        }
+
+        public IReadOnlyList<DatasetAssignment> GetDatasetAssignments(string annotationSetId)
+        {
+            EnsureAnnotationSetExists(annotationSetId);
+            var result = new List<DatasetAssignment>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT image.Id, assignment.Status, assignment.Retest FROM ImageRecord image LEFT JOIN DatasetAssignment assignment ON assignment.ImageId = image.Id AND assignment.AnnotationSetId = $set ORDER BY image.Sequence;";
+                command.Parameters.AddWithValue("$set", annotationSetId);
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read()) result.Add(new DatasetAssignment(annotationSetId, reader.GetString(0), reader.IsDBNull(1) ? DatasetAssignmentStatus.Unassigned : (DatasetAssignmentStatus)reader.GetInt32(1), !reader.IsDBNull(2) && reader.GetInt32(2) != 0));
+                }
+            }
+            return result;
+        }
+
+        public IReadOnlyList<ImageAnnotationSummary> GetImageAnnotationSummaries(string annotationSetId)
+        {
+            AnnotationSet set = GetAnnotationSets().SingleOrDefault(value => value.Id == annotationSetId);
+            if (set == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
+            string table = set.Type == AnnotationSetType.Cla ? "ClaAnnotation" : set.Type == AnnotationSetType.Obd ? "ObdAnnotation" : "SegRegion";
+            var grouped = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT ImageId, ClassId FROM " + table + " WHERE AnnotationSetId = $set ORDER BY ImageId;";
+                command.Parameters.AddWithValue("$set", annotationSetId);
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        string imageId = reader.GetString(0);
+                        List<string> classIds;
+                        if (!grouped.TryGetValue(imageId, out classIds)) { classIds = new List<string>(); grouped.Add(imageId, classIds); }
+                        string classId = reader.GetString(1);
+                        if (!classIds.Contains(classId)) classIds.Add(classId);
+                    }
+                }
+            }
+            return grouped.Select(value => new ImageAnnotationSummary(value.Key, value.Value)).ToArray();
+        }
+
+        public void SetDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, DatasetAssignmentStatus status)
+        {
+            if (!Enum.IsDefined(typeof(DatasetAssignmentStatus), status)) throw new ArgumentOutOfRangeException(nameof(status));
+            UpdateDatasetAssignments(annotationSetId, imageIds, assignment => new DatasetAssignment(annotationSetId, assignment.ImageId, status, assignment.Retest));
+        }
+
+        public void SetRetest(string annotationSetId, IEnumerable<string> imageIds, bool retest)
+        {
+            UpdateDatasetAssignments(annotationSetId, imageIds, assignment => new DatasetAssignment(annotationSetId, assignment.ImageId, assignment.Status, retest));
+        }
+
+        public void ClearAnnotations(string annotationSetId, IEnumerable<string> imageIds)
+        {
+            string[] ids = ValidateDatasetImageIds(annotationSetId, imageIds);
+            if (ids.Length == 0) return;
+            AnnotationSet set = GetAnnotationSets().Single(value => value.Id == annotationSetId);
+            if (set.Type == AnnotationSetType.Cla)
+            {
+                string[] previous = ids.Select(imageId => GetClaClassId(annotationSetId, imageId)).ToArray();
+                if (previous.All(value => value == null)) return;
+                CompleteOperation((db, transaction) => { foreach (string imageId in ids) Execute(db, transaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); });
+                Record(annotationSetId, () => { for (int index = 0; index < ids.Length; index++) SetClaRaw(annotationSetId, ids[index], previous[index]); }, () => { foreach (string imageId in ids) SetClaRaw(annotationSetId, imageId, null); }, EstimateHistoryBytes(ids) + EstimateHistoryBytes(previous));
+                return;
+            }
+            if (set.Type == AnnotationSetType.Obd)
+            {
+                ObdAnnotation[] previous = ids.SelectMany(imageId => GetObdAnnotations(annotationSetId, imageId)).ToArray();
+                if (previous.Length == 0) return;
+                CompleteOperation((db, transaction) => { foreach (string imageId in ids) Execute(db, transaction, "DELETE FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); });
+                Record(annotationSetId, () => { foreach (ObdAnnotation value in previous) InsertObdRaw(value); }, () => { foreach (string imageId in ids) Execute(connection, historyTransaction, "DELETE FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); }, EstimateHistoryBytes(previous));
+                return;
+            }
+            SegRegion[] regions = ids.SelectMany(imageId => GetSegRegions(annotationSetId, imageId)).ToArray();
+            if (regions.Length == 0) return;
+            CompleteOperation((db, transaction) => { foreach (string imageId in ids) Execute(db, transaction, "DELETE FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); });
+            Record(annotationSetId, () => { foreach (SegRegion value in regions) InsertSegRegionRaw(value); }, () => { foreach (string imageId in ids) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); }, EstimateHistoryBytes(regions));
+        }
+
+        private void UpdateDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, Func<DatasetAssignment, DatasetAssignment> transform)
+        {
+            string[] ids = ValidateDatasetImageIds(annotationSetId, imageIds);
+            if (ids.Length == 0) return;
+            DatasetAssignment[] requested = GetDatasetAssignments(annotationSetId).Where(value => ids.Contains(value.ImageId)).ToArray();
+            var changes = requested.Select(value => new { Previous = value, Next = transform(value) }).Where(value => value.Previous.Status != value.Next.Status || value.Previous.Retest != value.Next.Retest).ToArray();
+            if (changes.Length == 0) return;
+            DatasetAssignment[] previous = changes.Select(value => value.Previous).ToArray();
+            DatasetAssignment[] next = changes.Select(value => value.Next).ToArray();
+            CompleteOperation((db, transaction) => { foreach (DatasetAssignment value in next) SetDatasetAssignmentRaw(db, transaction, value); });
+            Record(annotationSetId, () => { foreach (DatasetAssignment value in previous) SetDatasetAssignmentRaw(connection, historyTransaction, value); }, () => { foreach (DatasetAssignment value in next) SetDatasetAssignmentRaw(connection, historyTransaction, value); }, EstimateHistoryBytes(ids));
+        }
+
+        private string[] ValidateDatasetImageIds(string annotationSetId, IEnumerable<string> imageIds)
+        {
+            if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
+            EnsureAnnotationSetExists(annotationSetId);
+            string[] ids = imageIds.ToArray();
+            if (ids.Distinct(StringComparer.Ordinal).Count() != ids.Length) throw new ArgumentException("An image can only be assigned once.", nameof(imageIds));
+            foreach (string imageId in ids) GetImageSize(imageId);
+            return ids;
+        }
+
+        private void EnsureAnnotationSetExists(string annotationSetId)
+        {
+            if (ExecuteScalar(connection, "SELECT Id FROM AnnotationSet WHERE Id = $id;", new SqliteParameter("$id", annotationSetId)) == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
+        }
+
+        private static void SetDatasetAssignmentRaw(SqliteConnection db, SqliteTransaction transaction, DatasetAssignment value)
+        {
+            Execute(db, transaction, "INSERT INTO DatasetAssignment (AnnotationSetId, ImageId, Status, Retest) VALUES ($set, $image, $status, $retest) ON CONFLICT(AnnotationSetId, ImageId) DO UPDATE SET Status = excluded.Status, Retest = excluded.Retest;", new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$status", (int)value.Status), new SqliteParameter("$retest", value.Retest ? 1 : 0));
         }
 
         public bool Undo(string annotationSetId) { return RunHistory(annotationSetId, false); }
@@ -1247,7 +1359,7 @@ namespace Neurocle.Infrastructure.Persistence
         {
             int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
             if (version == CurrentSchemaVersion) return;
-            if (version != 1 && version != 2 && version != 3 && version != 4 && version != 5) throw new NotSupportedException("The project schema version is not supported.");
+            if (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6) throw new NotSupportedException("The project schema version is not supported.");
 
             CreateMigrationBackup(db, projectPath, version);
             using (SqliteTransaction transaction = db.BeginTransaction())
@@ -1332,7 +1444,7 @@ namespace Neurocle.Infrastructure.Persistence
             using (SqliteConnection db = OpenConnection(path))
             {
                 int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
-                if (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
+                if (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != CurrentSchemaVersion) throw new NotSupportedException("The backup schema version is not supported.");
                 ValidateTableColumns(db, "SchemaInfo", new[] { "Version" }, null, null);
                 ValidateTableColumns(db, "ProjectInfo", new[] { "ProjectId", "CreatedUtc" }, null, null);
                 if (version >= 2) ValidateTableColumns(db, "ImageRecord", new[] { "Id", "OriginalFileName", "ManagedFileName", "Sha256", "Width", "Height", "Sequence" }, "Id", new[] { "ManagedFileName", "Sequence" });
@@ -1344,6 +1456,7 @@ namespace Neurocle.Infrastructure.Persistence
                     ValidateTableColumns(db, "ObdAnnotation", new[] { "Id", "AnnotationSetId", "ImageId", "ClassId", "X", "Y", "Width", "Height", "ZOrder" }, "Id", null);
                     ValidateTableColumns(db, "SegRegion", new[] { "Id", "AnnotationSetId", "ImageId", "ClassId", "Type", "X", "Y", "Width", "Height", "ZOrder", "StrokeWidth" }, "Id", null);
                     ValidateTableColumns(db, "SegRegionPoint", new[] { "RegionId", "Ordinal", "X", "Y" }, null, null);
+                    ValidateTableColumns(db, "DatasetAssignment", new[] { "AnnotationSetId", "ImageId", "Status", "Retest" }, null, null);
                 }
             }
         }
@@ -1419,6 +1532,7 @@ namespace Neurocle.Infrastructure.Persistence
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ObdAnnotation (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL);");
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS SegRegion (Id TEXT PRIMARY KEY NOT NULL, AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, ClassId TEXT NOT NULL REFERENCES AnnotationClass(Id) ON DELETE CASCADE, Type INTEGER NOT NULL, X INTEGER NOT NULL, Y INTEGER NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, ZOrder INTEGER NOT NULL, StrokeWidth INTEGER NULL);");
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS SegRegionPoint (RegionId TEXT NOT NULL REFERENCES SegRegion(Id) ON DELETE CASCADE, Ordinal INTEGER NOT NULL, X INTEGER NOT NULL, Y INTEGER NOT NULL, PRIMARY KEY (RegionId, Ordinal));");
+            Execute(db, transaction, "CREATE TABLE IF NOT EXISTS DatasetAssignment (AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, Status INTEGER NOT NULL, Retest INTEGER NOT NULL, PRIMARY KEY (AnnotationSetId, ImageId));");
         }
 
         private static string NormalizeName(string name)
