@@ -51,6 +51,7 @@ namespace Neurocle.WinForms
         public SegToolKind? SegTool { get; set; }
         public int BrushWidth { get; set; } = 15;
         public int LineWidth { get; set; } = 15;
+        public int EraserWidth { get; set; } = 15;
         public float SegOpacity { get; set; } = 0.4f;
         public string SelectedSegId { get { return selectedSegId; } }
         public IReadOnlyCollection<string> SelectedSegIds { get { return selectedSegIds; } }
@@ -85,6 +86,7 @@ namespace Neurocle.WinForms
         public event Action<IReadOnlyCollection<string>> ObdAnnotationsDeleteRequested;
         public event Action<SegRegionType, Rectangle> SegRegionCreated;
         public event Action<SegRegionType, IReadOnlyList<SegPoint>, int> SegPathCreated;
+        public event Action<IReadOnlyList<SegPoint>, int> SegEraseRequested;
         public event Action<IReadOnlyList<SegRegion>> SegRegionsChanged;
         public event Action<IReadOnlyCollection<string>> SegRegionsDeleteRequested;
 
@@ -274,10 +276,11 @@ namespace Neurocle.WinForms
             {
                 using (var pen = new Pen(Color.White, Math.Max(1f, (float)(LineWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
             }
-            if (SegTool == SegToolKind.Brush)
+            if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
             {
                 PointF cursor = viewport.ImageToScreen(segCursor);
-                float diameter = Math.Max(1f, (float)(BrushWidth * viewport.Zoom));
+                int toolWidth = SegTool == SegToolKind.Eraser ? EraserWidth : BrushWidth;
+                float diameter = Math.Max(1f, (float)(toolWidth * viewport.Zoom));
                 using (var pen = new Pen(Color.White, 1f)) args.Graphics.DrawEllipse(pen, cursor.X - diameter / 2f, cursor.Y - diameter / 2f, diameter, diameter);
             }
         }
@@ -396,7 +399,7 @@ namespace Neurocle.WinForms
                     base.OnMouseDown(args);
                     return;
                 }
-                if ((SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line) && !CanFitSegPath())
+                if ((SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser) && !CanFitSegPath())
                 {
                     DiscardUnfinishedShape();
                     base.OnMouseDown(args);
@@ -489,7 +492,7 @@ namespace Neurocle.WinForms
                 segCursor = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
                 Invalidate();
             }
-            else if (segPath.Count > 0 && (args.Button & MouseButtons.Left) == MouseButtons.Left && (SegTool == SegToolKind.Polygon || SegTool == SegToolKind.Brush))
+            else if (segPath.Count > 0 && (args.Button & MouseButtons.Left) == MouseButtons.Left && (SegTool == SegToolKind.Polygon || SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser))
             {
                 if (DistanceInScreenPixels(segPath[segPath.Count - 1], viewport.ScreenToImage(args.Location)) >= 2f)
                 {
@@ -554,7 +557,7 @@ namespace Neurocle.WinForms
                 }
                 Invalidate();
             }
-            else if (args.Button == MouseButtons.Left && Capture && (SegTool == SegToolKind.Polygon || SegTool == SegToolKind.Brush))
+            else if (args.Button == MouseButtons.Left && Capture && (SegTool == SegToolKind.Polygon || SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser))
             {
                 Capture = false;
                 PointF point = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
@@ -566,6 +569,11 @@ namespace Neurocle.WinForms
                 else if (SegTool == SegToolKind.Brush)
                 {
                     if (segPath.Count >= 2) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), BrushWidth);
+                    segPath.Clear();
+                }
+                else if (SegTool == SegToolKind.Eraser)
+                {
+                    if (segPath.Count >= 2) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), EraserWidth);
                     segPath.Clear();
                 }
                 segPathDragging = false;
@@ -608,8 +616,8 @@ namespace Neurocle.WinForms
             SegRegion[] selected = segRegions.Where(item => selectedSegIds.Contains(item.Id)).ToArray();
             float xOffset = point.X - segDragStart.X;
             float yOffset = point.Y - segDragStart.Y;
-            xOffset = Math.Max(selected.Max(item => -GetStoredBounds(item).Left), Math.Min(xOffset, selected.Min(item => (item.Type == SegRegionType.PolyGon ? viewport.ImageSize.Width - 1 : viewport.ImageSize.Width) - GetStoredBounds(item).Right)));
-            yOffset = Math.Max(selected.Max(item => -GetStoredBounds(item).Top), Math.Min(yOffset, selected.Min(item => (item.Type == SegRegionType.PolyGon ? viewport.ImageSize.Height - 1 : viewport.ImageSize.Height) - GetStoredBounds(item).Bottom)));
+            xOffset = Math.Max(selected.Max(item => -GetStoredBounds(item).Left), Math.Min(xOffset, selected.Min(item => viewport.ImageSize.Width - GetStoredBounds(item).Right)));
+            yOffset = Math.Max(selected.Max(item => -GetStoredBounds(item).Top), Math.Min(yOffset, selected.Min(item => viewport.ImageSize.Height - GetStoredBounds(item).Bottom)));
             return selected.ToDictionary(item => item.Id, item => TranslateSegRegion(item, xOffset, yOffset));
         }
 
@@ -688,7 +696,9 @@ namespace Neurocle.WinForms
             if (region.Points.Count > 0)
             {
                 int inset = region.Type == SegRegionType.PolyLine ? (region.StrokeWidth + 1) / 2 : 0;
-                target = RectangleF.FromLTRB(Math.Max(inset, target.Left), Math.Max(inset, target.Top), Math.Min(viewport.ImageSize.Width - 1 - inset, target.Right), Math.Min(viewport.ImageSize.Height - 1 - inset, target.Bottom));
+                int right = region.Type == SegRegionType.PolyLine ? viewport.ImageSize.Width - inset : viewport.ImageSize.Width;
+                int bottom = region.Type == SegRegionType.PolyLine ? viewport.ImageSize.Height - inset : viewport.ImageSize.Height;
+                target = RectangleF.FromLTRB(Math.Max(inset, target.Left), Math.Max(inset, target.Top), Math.Min(right, target.Right), Math.Min(bottom, target.Bottom));
             }
             return ScaleSegRegion(region, segOriginalBounds, target);
         }
@@ -723,7 +733,7 @@ namespace Neurocle.WinForms
             SegPoint[] transformed = points.ToArray();
             SegRegion rotated = new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, region.ClassId, region.Type == SegRegionType.PolyLine ? SegRegionType.PolyLine : SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, transformed, region.StrokeWidth);
             RectangleF bounds = GetSegBounds(rotated);
-            if (transformed.Any(value => value.X < 0 || value.Y < 0 || value.X >= viewport.ImageSize.Width || value.Y >= viewport.ImageSize.Height) || bounds.Left < 0 || bounds.Top < 0 || bounds.Right > viewport.ImageSize.Width || bounds.Bottom > viewport.ImageSize.Height) return region;
+            if (transformed.Any(value => value.X < 0 || value.Y < 0 || value.X > viewport.ImageSize.Width || value.Y > viewport.ImageSize.Height) || bounds.Left < 0 || bounds.Top < 0 || bounds.Right > viewport.ImageSize.Width || bounds.Bottom > viewport.ImageSize.Height) return region;
             return rotated;
         }
 
@@ -815,14 +825,14 @@ namespace Neurocle.WinForms
         private static Rectangle ToIntegerRectangle(RectangleF rectangle) { return Rectangle.FromLTRB((int)Math.Round(rectangle.Left), (int)Math.Round(rectangle.Top), (int)Math.Round(rectangle.Right), (int)Math.Round(rectangle.Bottom)); }
         private PointF ClampSegPathPoint(PointF point)
         {
-            int width = SegTool == SegToolKind.Brush ? BrushWidth : SegTool == SegToolKind.Line ? LineWidth : 0;
+            int width = SegTool == SegToolKind.Brush ? BrushWidth : SegTool == SegToolKind.Eraser ? EraserWidth : SegTool == SegToolKind.Line ? LineWidth : 0;
             int inset = width == 0 ? 0 : (width + 1) / 2;
             Size size = viewport.ImageSize;
             return new PointF(Math.Max(inset, Math.Min(size.Width - inset, point.X)), Math.Max(inset, Math.Min(size.Height - inset, point.Y)));
         }
         private bool CanFitSegPath()
         {
-            int width = SegTool == SegToolKind.Brush ? BrushWidth : LineWidth;
+            int width = SegTool == SegToolKind.Brush ? BrushWidth : SegTool == SegToolKind.Eraser ? EraserWidth : LineWidth;
             int inset = (width + 1) / 2;
             return viewport.ImageSize.Width >= inset * 2 && viewport.ImageSize.Height >= inset * 2;
         }
@@ -837,7 +847,7 @@ namespace Neurocle.WinForms
 
         private enum ObdDragKind { None, Create, Move, ResizeN, ResizeS, ResizeW, ResizeE, ResizeNw, ResizeNe, ResizeSw, ResizeSe }
         private enum SegDragKind { None, Move, ResizeN, ResizeS, ResizeW, ResizeE, ResizeNw, ResizeNe, ResizeSw, ResizeSe, Rotate }
-        public enum SegToolKind { Select, Rect, Ellipse, Polygon, Brush, Line }
+        public enum SegToolKind { Select, Rect, Ellipse, Polygon, Brush, Line, Eraser }
         private sealed class CanvasImage
         {
             public CanvasImage(Image preview, Size originalSize) { Preview = preview; OriginalSize = originalSize; }

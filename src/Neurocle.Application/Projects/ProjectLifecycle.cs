@@ -213,6 +213,7 @@ namespace Neurocle.Application.Projects
         IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId, string imageId);
         SegRegion AddSegRegion(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height);
         SegRegion AddSegPath(string annotationSetId, string imageId, string classId, SegRegionType type, IReadOnlyList<SegPoint> points, int strokeWidth);
+        void EraseSegPath(string annotationSetId, string imageId, string classId, IReadOnlyList<SegPoint> points, int strokeWidth);
         void UpdateSegRegions(IEnumerable<SegRegion> regions);
         void DeleteSegRegions(IEnumerable<string> regionIds);
         bool Undo(string annotationSetId);

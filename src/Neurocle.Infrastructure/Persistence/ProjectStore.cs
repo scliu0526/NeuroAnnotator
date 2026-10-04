@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using Clipper2Lib;
 using Microsoft.Data.Sqlite;
 using Neurocle.Application.Projects;
+using Neurocle.Domain.Segmentation;
 
 namespace Neurocle.Infrastructure.Persistence
 {
@@ -561,11 +563,16 @@ namespace Neurocle.Infrastructure.Persistence
 
         private void InsertSegRegionRaw(SegRegion value)
         {
-            Execute(connection, historyTransaction, "INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth) VALUES ($id, $set, $image, $class, $type, $x, $y, $width, $height, $order, $stroke);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$type", (int)value.Type), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$stroke", value.StrokeWidth == 0 ? (object)DBNull.Value : value.StrokeWidth));
+            InsertSegRegionRaw(connection, historyTransaction, value);
+        }
+
+        private static void InsertSegRegionRaw(SqliteConnection db, SqliteTransaction transaction, SegRegion value)
+        {
+            Execute(db, transaction, "INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth) VALUES ($id, $set, $image, $class, $type, $x, $y, $width, $height, $order, $stroke);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$type", (int)value.Type), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$stroke", value.StrokeWidth == 0 ? (object)DBNull.Value : value.StrokeWidth));
             for (int index = 0; index < value.Points.Count; index++)
             {
                 SegPoint point = value.Points[index];
-                Execute(connection, historyTransaction, "INSERT INTO SegRegionPoint (RegionId, Ordinal, X, Y) VALUES ($region, $ordinal, $x, $y);", new SqliteParameter("$region", value.Id), new SqliteParameter("$ordinal", index), new SqliteParameter("$x", point.X), new SqliteParameter("$y", point.Y));
+                Execute(db, transaction, "INSERT INTO SegRegionPoint (RegionId, Ordinal, X, Y) VALUES ($region, $ordinal, $x, $y);", new SqliteParameter("$region", value.Id), new SqliteParameter("$ordinal", index), new SqliteParameter("$x", point.X), new SqliteParameter("$y", point.Y));
             }
         }
 
@@ -658,11 +665,9 @@ namespace Neurocle.Infrastructure.Persistence
             Size imageSize = GetImageSize(imageId);
             if (type == SegRegionType.Rect) ValidateObdGeometry(imageSize, x, y, width, height);
             else if (width < 1 || height < 1 || x - width < 0 || y - height < 0 || (long)x + width > imageSize.Width || (long)y + height > imageSize.Height) throw new ArgumentOutOfRangeException(nameof(width));
-            int zOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
+            int zOrder = NextSegZOrder(annotationSetId, imageId);
             var value = new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, type, x, y, width, height, zOrder);
-            InsertSegRegionRaw(value);
-            Record(annotationSetId, () => Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", value.Id)), () => InsertSegRegionRaw(value), EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId));
-            return value;
+            return AddNewSegRegion(value, imageSize);
         }
 
         public SegRegion AddSegPath(string annotationSetId, string imageId, string classId, SegRegionType type, IReadOnlyList<SegPoint> points, int strokeWidth)
@@ -678,17 +683,145 @@ namespace Neurocle.Infrastructure.Persistence
             if (type == SegRegionType.PolyGon && AreCollinear(values)) throw new ArgumentException("The polygon points are collinear.", nameof(points));
             if (type == SegRegionType.PolyLine && (strokeWidth < 1 || strokeWidth > 100)) throw new ArgumentOutOfRangeException(nameof(strokeWidth));
             Size imageSize = GetImageSize(imageId);
-            if (values.Any(point => point.X < 0 || point.Y < 0 || point.X >= imageSize.Width || point.Y >= imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(points));
+            if (values.Any(point => point.X < 0 || point.Y < 0 || point.X > imageSize.Width || point.Y > imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(points));
             if (type == SegRegionType.PolyLine)
             {
                 int inset = (strokeWidth + 1) / 2;
                 if (values.Any(point => point.X < inset || point.Y < inset || point.X > imageSize.Width - inset || point.Y > imageSize.Height - inset)) throw new ArgumentOutOfRangeException(nameof(points));
             }
-            int zOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
+            int zOrder = NextSegZOrder(annotationSetId, imageId);
             var value = new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, type, 0, 0, 0, 0, zOrder, values, type == SegRegionType.PolyLine ? strokeWidth : 0);
-            InsertSegRegionRaw(value);
-            Record(annotationSetId, () => Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", value.Id)), () => InsertSegRegionRaw(value), EstimateHistoryBytes(new[] { value }));
-            return value;
+            return AddNewSegRegion(value, imageSize);
+        }
+
+        public void EraseSegPath(string annotationSetId, string imageId, string classId, IReadOnlyList<SegPoint> points, int strokeWidth)
+        {
+            if (points == null) throw new ArgumentNullException(nameof(points));
+            object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
+            if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Seg) throw new ArgumentException("The annotation set is not SEG.", nameof(annotationSetId));
+            if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
+            SegPoint[] values = points.ToArray();
+            if (values.Length < 2 || values.Any(point => point == null)) throw new ArgumentException("The eraser path is invalid.", nameof(points));
+            if (strokeWidth < 1 || strokeWidth > 100) throw new ArgumentOutOfRangeException(nameof(strokeWidth));
+            Size imageSize = GetImageSize(imageId);
+            if (values.Any(point => point.X < 0 || point.Y < 0 || point.X >= imageSize.Width || point.Y >= imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(points));
+            int inset = (strokeWidth + 1) / 2;
+            if (values.Any(point => point.X < inset || point.Y < inset || point.X > imageSize.Width - inset || point.Y > imageSize.Height - inset)) throw new ArgumentOutOfRangeException(nameof(points));
+            var eraser = SegGeometryPrototype.Stroke(ToPath(values), strokeWidth);
+            SegRegion[] affected = GetSegRegions(annotationSetId, imageId).Where(value => value.ClassId == classId && HasAreaOverlap(ToPaths(value), eraser)).ToArray();
+            if (affected.Length == 0) return;
+            var next = new List<SegRegion>();
+            int zOrder = NextSegZOrder(annotationSetId, imageId);
+            foreach (SegRegion region in affected)
+            {
+                Paths64 difference = SegGeometryPrototype.Difference(ToPaths(region), eraser);
+                next.AddRange(ToPolygonRegions(region.AnnotationSetId, region.ImageId, region.ClassId, difference, imageSize, ref zOrder));
+            }
+            CompleteOperation((db, transaction) =>
+            {
+                foreach (SegRegion region in affected) Execute(db, transaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", region.Id));
+                foreach (SegRegion region in next) InsertSegRegionRaw(db, transaction, region);
+            });
+            Record(annotationSetId,
+                () => { foreach (SegRegion region in next) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", region.Id)); foreach (SegRegion region in affected) InsertSegRegionRaw(region); },
+                () => { foreach (SegRegion region in affected) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", region.Id)); foreach (SegRegion region in next) InsertSegRegionRaw(region); },
+                EstimateHistoryBytes(affected) + EstimateHistoryBytes(next));
+        }
+
+        private SegRegion AddNewSegRegion(SegRegion value, Size imageSize)
+        {
+            Paths64 merged = ToPaths(value);
+            var removed = new List<SegRegion>();
+            bool found;
+            do
+            {
+                found = false;
+                foreach (SegRegion existing in GetSegRegions(value.AnnotationSetId, value.ImageId).Where(item => item.ClassId == value.ClassId && !removed.Any(removedItem => removedItem.Id == item.Id)))
+                {
+                    Paths64 existingPaths = ToPaths(existing);
+                    if (!HasAreaOverlap(merged, existingPaths)) continue;
+                    merged = SegGeometryPrototype.Union(merged, existingPaths);
+                    removed.Add(existing);
+                    found = true;
+                }
+            } while (found);
+            if (removed.Count == 0)
+            {
+                InsertSegRegionRaw(value);
+                Record(value.AnnotationSetId, () => Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", value.Id)), () => InsertSegRegionRaw(value), EstimateHistoryBytes(new[] { value }));
+                return value;
+            }
+            int zOrder = NextSegZOrder(value.AnnotationSetId, value.ImageId);
+            List<SegRegion> next = ToPolygonRegions(value.AnnotationSetId, value.ImageId, value.ClassId, merged, imageSize, ref zOrder);
+            CompleteOperation((db, transaction) =>
+            {
+                foreach (SegRegion region in removed) Execute(db, transaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", region.Id));
+                foreach (SegRegion region in next) InsertSegRegionRaw(db, transaction, region);
+            });
+            Record(value.AnnotationSetId,
+                () => { foreach (SegRegion region in next) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", region.Id)); foreach (SegRegion region in removed) InsertSegRegionRaw(region); },
+                () => { foreach (SegRegion region in removed) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", region.Id)); foreach (SegRegion region in next) InsertSegRegionRaw(region); },
+                EstimateHistoryBytes(removed) + EstimateHistoryBytes(next));
+            return next[0];
+        }
+
+        private int NextSegZOrder(string annotationSetId, string imageId)
+        {
+            return Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
+        }
+
+        private static bool HasAreaOverlap(Paths64 first, Paths64 second)
+        {
+            return SegGeometryPrototype.Area(Clipper.Intersect(first, second, FillRule.NonZero)) > 0;
+        }
+
+        private static Path64 ToPath(IEnumerable<SegPoint> points)
+        {
+            return new Path64(points.Select(point => new Point64(point.X, point.Y)).ToList());
+        }
+
+        private static Paths64 ToPaths(SegRegion value)
+        {
+            if (value.Type == SegRegionType.Rect) return new Paths64 { SegGeometryPrototype.Rectangle(value.X, value.Y, value.X + value.Width, value.Y + value.Height) };
+            if (value.Type == SegRegionType.Ellipse) return new Paths64 { SegGeometryPrototype.Ellipse(value.X, value.Y, value.Width, value.Height, 32) };
+            if (value.Type == SegRegionType.PolyLine) return SegGeometryPrototype.Stroke(ToPath(value.Points), value.StrokeWidth);
+            return new Paths64 { ToPath(value.Points) };
+        }
+
+        private static List<SegRegion> ToPolygonRegions(string annotationSetId, string imageId, string classId, Paths64 paths, Size imageSize, ref int zOrder)
+        {
+            var remaining = paths.Where(path => path.Count >= 3 && Math.Abs(Clipper.Area(path)) > 0).OrderByDescending(path => Math.Abs(Clipper.Area(path))).Select(path => new Path64(path)).ToList();
+            var result = new List<SegRegion>();
+            while (remaining.Count > 0)
+            {
+                Path64 outer = remaining[0];
+                remaining.RemoveAt(0);
+                var polygon = new Path64(outer);
+                int orientation = Math.Sign(Clipper.Area(outer));
+                for (int index = remaining.Count - 1; index >= 0; index--)
+                {
+                    Path64 possibleHole = remaining[index];
+                    if (Math.Sign(Clipper.Area(possibleHole)) != orientation && PointInPath(possibleHole[0], outer))
+                    {
+                        polygon = SegGeometryPrototype.BridgeHole(polygon, possibleHole);
+                        remaining.RemoveAt(index);
+                    }
+                }
+                SegPoint[] points = polygon.Select(point => new SegPoint((int)Math.Max(0, Math.Min(imageSize.Width, point.X)), (int)Math.Max(0, Math.Min(imageSize.Height, point.Y)))).ToArray();
+                if (points.Distinct(new SegPointComparer()).Count() >= 3) result.Add(new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, SegRegionType.PolyGon, 0, 0, 0, 0, zOrder++, points));
+            }
+            return result;
+        }
+
+        private static bool PointInPath(Point64 point, Path64 path)
+        {
+            bool inside = false;
+            for (int current = 0, previous = path.Count - 1; current < path.Count; previous = current++)
+            {
+                Point64 a = path[current]; Point64 b = path[previous];
+                if ((a.Y > point.Y) != (b.Y > point.Y) && point.X < (b.X - a.X) * (point.Y - a.Y) / (double)(b.Y - a.Y) + a.X) inside = !inside;
+            }
+            return inside;
         }
 
         public void UpdateSegRegions(IEnumerable<SegRegion> regions)
@@ -741,7 +874,7 @@ namespace Neurocle.Infrastructure.Persistence
                 if (value.Width < 1 || value.Height < 1 || value.X - value.Width < 0 || value.Y - value.Height < 0 || (long)value.X + value.Width > imageSize.Width || (long)value.Y + value.Height > imageSize.Height) throw new ArgumentOutOfRangeException(nameof(value));
                 return;
             }
-            if (value.Points == null || value.Points.Any(point => point == null) || value.Points.Any(point => point.X < 0 || point.Y < 0 || point.X >= imageSize.Width || point.Y >= imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(value));
+            if (value.Points == null || value.Points.Any(point => point == null) || value.Points.Any(point => point.X < 0 || point.Y < 0 || point.X > imageSize.Width || point.Y > imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(value));
             if (value.Type == SegRegionType.PolyGon && (value.Points.Distinct(new SegPointComparer()).Count() < 3 || AreCollinear(value.Points))) throw new ArgumentException("The polygon is invalid.", nameof(value));
             if (value.Type == SegRegionType.PolyLine)
             {

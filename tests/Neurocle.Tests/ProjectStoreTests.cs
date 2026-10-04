@@ -1242,6 +1242,90 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void New_same_class_seg_regions_union_only_when_their_areas_overlap()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass first = store.GetClasses(set.Id).Single();
+                    AnnotationClass second = store.AddClass(set.Id, "other", "#123456");
+                    store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 10, 10, 20, 20);
+                    store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 20, 10, 20, 20);
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count(item => item.ClassId == first.Id));
+                    Assert.AreEqual(SegRegionType.PolyGon, store.GetSegRegions(set.Id, image.Id).Single(item => item.ClassId == first.Id).Type);
+
+                    store.AddSegRegion(set.Id, image.Id, second.Id, SegRegionType.Rect, 20, 10, 20, 20);
+                    Assert.AreEqual(2, store.GetSegRegions(set.Id, image.Id).Count);
+                    store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 50, 10, 10, 10);
+                    store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 60, 10, 10, 10);
+                    Assert.AreEqual(3, store.GetSegRegions(set.Id, image.Id).Count(item => item.ClassId == first.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Seg_geometry_at_the_right_and_bottom_edges_keeps_its_outer_boundary_after_union_and_erase()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    store.AddSegRegion(set.Id, image.Id, value.Id, SegRegionType.Rect, 70, 70, 30, 30);
+                    store.AddSegRegion(set.Id, image.Id, value.Id, SegRegionType.Rect, 80, 80, 20, 20);
+                    SegRegion union = store.GetSegRegions(set.Id, image.Id).Single();
+                    Assert.AreEqual(100, union.Points.Max(point => point.X));
+                    Assert.AreEqual(100, union.Points.Max(point => point.Y));
+                    store.EraseSegPath(set.Id, image.Id, value.Id, new[] { new SegPoint(85, 75), new SegPoint(85, 95) }, 4);
+                    Assert.IsTrue(store.GetSegRegions(set.Id, image.Id).Where(region => region.ClassId == value.Id).SelectMany(region => region.Points).Any(point => point.X == 100 || point.Y == 100));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Seg_eraser_only_changes_the_selected_class_and_preserves_holes_and_components()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass first = store.GetClasses(set.Id).Single();
+                    AnnotationClass second = store.AddClass(set.Id, "other", "#123456");
+                    store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 10, 10, 40, 40);
+                    store.AddSegRegion(set.Id, image.Id, second.Id, SegRegionType.Rect, 10, 10, 40, 40);
+                    store.EraseSegPath(set.Id, image.Id, first.Id, new[] { new SegPoint(30, 10), new SegPoint(30, 50) }, 12);
+                    SegRegion[] firstRegions = store.GetSegRegions(set.Id, image.Id).Where(item => item.ClassId == first.Id).ToArray();
+                    Assert.IsTrue(firstRegions.Length >= 2);
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count(item => item.ClassId == second.Id));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count(item => item.ClassId == first.Id));
+                    store.EraseSegPath(set.Id, image.Id, first.Id, new[] { new SegPoint(30, 20), new SegPoint(30, 40) }, 12);
+                    SegRegion hole = store.GetSegRegions(set.Id, image.Id).Single(item => item.ClassId == first.Id);
+                    Assert.IsTrue(hole.Points.GroupBy(point => point.X + ":" + point.Y).Any(group => group.Count() > 1));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Undoing_class_deletion_restores_cascaded_obd_annotations()
         {
             string path = TemporaryProjectPath();
