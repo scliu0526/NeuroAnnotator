@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
@@ -1504,6 +1505,41 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Image_zip_export_selects_available_images_preserves_bytes_and_suffixes_existing_output()
+        {
+            string path = TemporaryProjectPath();
+            string firstSource = Path.Combine(Path.GetDirectoryName(path), "first.png");
+            string secondSource = Path.Combine(Path.GetDirectoryName(path), "second.png");
+            string output = Path.Combine(Path.GetDirectoryName(path), "images.zip");
+            try
+            {
+                CreateBitmap(firstSource, Color.Red, ImageFormat.Png, 20, 20);
+                CreateBitmap(secondSource, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(new[] { firstSource, secondSource }).ToArray();
+                    string selected = store.ExportImagesZip(output, new[] { images[0].Id });
+                    Assert.AreEqual(output, selected);
+                    using (var archive = ZipFile.OpenRead(selected))
+                    {
+                        Assert.AreEqual(1, archive.Entries.Count);
+                        ZipArchiveEntry entry = archive.Entries.Single();
+                        Assert.AreEqual(images[0].ManagedFileName, entry.FullName);
+                        using (Stream actual = entry.Open()) using (Stream expected = File.OpenRead(Path.Combine(store.ImagesDirectory, images[0].ManagedFileName))) CollectionAssert.AreEqual(ReadAllBytes(expected), ReadAllBytes(actual));
+                    }
+                    string all = store.ExportImagesZip(output, null);
+                    Assert.AreEqual(Path.Combine(Path.GetDirectoryName(output), "images (1).zip"), all);
+                    using (var archive = ZipFile.OpenRead(all)) Assert.AreEqual(2, archive.Entries.Count);
+                    File.Delete(Path.Combine(store.ImagesDirectory, images[1].ManagedFileName));
+                    string directoryCollision = Path.Combine(Path.GetDirectoryName(path), "folder.zip");
+                    Directory.CreateDirectory(directoryCollision);
+                    Assert.AreEqual(Path.Combine(Path.GetDirectoryName(path), "folder (1).zip"), store.ExportImagesZip(directoryCollision, null));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(firstSource)) File.Delete(firstSource); if (File.Exists(secondSource)) File.Delete(secondSource); }
+        }
+
+        [TestMethod]
         public void Dataset_split_planner_stratifies_annotated_images_before_empty_images()
         {
             DatasetSplitCandidate[] values = Enumerable.Range(1, 12).Select(index => new DatasetSplitCandidate("a" + index, new[] { "a" }, true))
@@ -1764,6 +1800,15 @@ namespace Neurocle.Tests
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        private static byte[] ReadAllBytes(Stream source)
+        {
+            using (var buffer = new MemoryStream())
+            {
+                source.CopyTo(buffer);
+                return buffer.ToArray();
+            }
         }
 
         private static string FindRepositoryLabelsDirectory()

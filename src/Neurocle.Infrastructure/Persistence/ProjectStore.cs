@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO.Compression;
 using System.IO;
 using System.Linq;
 using Clipper2Lib;
@@ -228,6 +229,53 @@ namespace Neurocle.Infrastructure.Persistence
                 }
             }
             return images;
+        }
+
+        public string ExportImagesZip(string outputPath, IEnumerable<string> imageIds)
+        {
+            if (String.IsNullOrWhiteSpace(outputPath)) throw new ArgumentException("The output path is required.", nameof(outputPath));
+            string requestedPath = Path.GetFullPath(outputPath);
+            string directory = Path.GetDirectoryName(requestedPath);
+            if (!Directory.Exists(directory)) throw new DirectoryNotFoundException(directory);
+            string extension = Path.GetExtension(requestedPath);
+            if (!String.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase)) requestedPath += ".zip";
+            string output = CreateUniqueExportPath(requestedPath);
+            ISet<string> selected = imageIds == null ? null : new HashSet<string>(imageIds, StringComparer.Ordinal);
+            ProjectImage[] images = GetImages().Where(image => selected == null || selected.Contains(image.Id)).Where(image => !image.IsMissing).ToArray();
+            bool created = false;
+            try
+            {
+                using (var file = new FileStream(output, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                using (var archive = new ZipArchive(file, ZipArchiveMode.Create))
+                {
+                    created = true;
+                    foreach (ProjectImage image in images)
+                    {
+                        ZipArchiveEntry entry = archive.CreateEntry(image.ManagedFileName, CompressionLevel.Optimal);
+                        using (Stream input = File.OpenRead(Path.Combine(ImagesDirectory, image.ManagedFileName)))
+                        using (Stream destination = entry.Open()) input.CopyTo(destination);
+                    }
+                }
+                return output;
+            }
+            catch
+            {
+                if (created && File.Exists(output)) File.Delete(output);
+                throw;
+            }
+        }
+
+        private static string CreateUniqueExportPath(string requestedPath)
+        {
+            if (!File.Exists(requestedPath) && !Directory.Exists(requestedPath)) return requestedPath;
+            string directory = Path.GetDirectoryName(requestedPath);
+            string name = Path.GetFileNameWithoutExtension(requestedPath);
+            string extension = Path.GetExtension(requestedPath);
+            for (int index = 1; ; index++)
+            {
+                string candidate = Path.Combine(directory, name + " (" + index + ")" + extension);
+                if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate;
+            }
         }
 
         public AnnotationSet CreateAnnotationSet(string name, AnnotationSetType type)

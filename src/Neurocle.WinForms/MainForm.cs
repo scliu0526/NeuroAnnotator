@@ -26,6 +26,7 @@ namespace Neurocle.WinForms
         private string selectedImageId;
         private string selectedSegClassId;
         private bool importInProgress;
+        private bool exportInProgress;
 
         public MainForm(IProjectLifecycle projectLifecycle)
         {
@@ -156,7 +157,14 @@ namespace Neurocle.WinForms
             var datasetPage = new TabPage(Strings.DatasetPage);
             datasetPage.Controls.Add(datasetAssignments);
             pages.TabPages.Add(datasetPage);
-            pages.TabPages.Add(new TabPage(Strings.ExportPage));
+            var exportPage = new TabPage(Strings.ExportPage);
+            var exportSelected = new Button { Dock = DockStyle.Top, Text = Strings.ExportSelectedImages };
+            exportSelected.Click += async (sender, args) => await ExportImagesAsync(imageBrowser.SelectedImageIds);
+            var exportAll = new Button { Dock = DockStyle.Top, Text = Strings.ExportAllImages };
+            exportAll.Click += async (sender, args) => await ExportImagesAsync(null);
+            exportPage.Controls.Add(exportSelected);
+            exportPage.Controls.Add(exportAll);
+            pages.TabPages.Add(exportPage);
             pages.SelectedIndexChanged += (sender, args) =>
             {
                 canvas.DiscardUnfinishedShape();
@@ -174,7 +182,7 @@ namespace Neurocle.WinForms
             Controls.Add(pages);
             FormClosing += (sender, args) =>
             {
-                if (importInProgress) args.Cancel = true;
+                if (importInProgress || exportInProgress) args.Cancel = true;
             };
             FormClosed += (sender, args) => project?.Dispose();
             KeyDown += (sender, args) =>
@@ -382,6 +390,32 @@ namespace Neurocle.WinForms
                     project.ImportAnnotationJson(json, name, true);
                 }
                 RefreshAnnotationSets();
+            }
+        }
+
+        private async Task ExportImagesAsync(IEnumerable<string> imageIds)
+        {
+            if (project == null) return;
+            using (var dialog = new SaveFileDialog { DefaultExt = "zip", AddExtension = true, Filter = Strings.ImageZipFileFilter, OverwritePrompt = false })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                IProjectSession session = project;
+                string[] selected = imageIds == null ? null : imageIds.ToArray();
+                exportInProgress = true;
+                Enabled = false;
+                UseWaitCursor = true;
+                try { await Task.Run(() => session.ExportImagesZip(dialog.FileName, selected)); }
+                catch (Exception exception)
+                {
+                    Enabled = true;
+                    MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                finally
+                {
+                    UseWaitCursor = false;
+                    Enabled = true;
+                    exportInProgress = false;
+                }
             }
         }
 

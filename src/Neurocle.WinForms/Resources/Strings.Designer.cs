@@ -98,6 +98,9 @@ namespace Neurocle.WinForms.Resources
         internal static string DatasetSplitCannotMeet { get { return ResourceManager.GetString("DatasetSplitCannotMeet", CultureInfo.CurrentUICulture); } }
         internal static string DatasetAutoSplitConfirm { get { return ResourceManager.GetString("DatasetAutoSplitConfirm", CultureInfo.CurrentUICulture); } }
         internal static string ExportPage { get { return ResourceManager.GetString("ExportPage", CultureInfo.CurrentUICulture); } }
+        internal static string ExportSelectedImages { get { return ResourceManager.GetString("ExportSelectedImages", CultureInfo.CurrentUICulture); } }
+        internal static string ExportAllImages { get { return ResourceManager.GetString("ExportAllImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImageZipFileFilter { get { return ResourceManager.GetString("ImageZipFileFilter", CultureInfo.CurrentUICulture); } }
         internal static string FitToWindow { get { return ResourceManager.GetString("FitToWindow", CultureInfo.CurrentUICulture); } }
         internal static string NewClaSet { get { return ResourceManager.GetString("NewClaSet", CultureInfo.CurrentUICulture); } }
         internal static string NewObdSet { get { return ResourceManager.GetString("NewObdSet", CultureInfo.CurrentUICulture); } }

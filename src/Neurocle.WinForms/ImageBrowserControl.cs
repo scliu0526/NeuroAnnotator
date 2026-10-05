@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -27,6 +28,8 @@ namespace Neurocle.WinForms
         private ImageListSortDirection direction = ImageListSortDirection.Ascending;
 
         public event EventHandler<ImageSelectedEventArgs> ImageSelected;
+
+        public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visible[index].Id).ToArray(); } }
 
         public ImageBrowserControl()
         {
