@@ -242,6 +242,59 @@ namespace Neurocle.Infrastructure.Persistence
             return set;
         }
 
+        public AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields)
+        {
+            ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
+            if (!allowUnknownFields && imported.UnknownFields.Count > 0) throw new JsonAnnotationImportException("JSON contains unknown fields.");
+            ProjectImage[] images = GetImages().ToArray();
+            var imageByName = images.GroupBy(image => image.OriginalFileName, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+            foreach (ImportedImage item in imported.Data)
+            {
+                ProjectImage[] matches;
+                if (!imageByName.TryGetValue(item.FileName, out matches) || matches.Length != 1 || matches[0].Width != item.Width || matches[0].Height != item.Height) throw new JsonAnnotationImportException("JSON image does not map to exactly one project image.");
+                foreach (ImportedRegion region in item.Regions)
+                {
+                    if (imported.Type == AnnotationSetType.Obd) ValidateObdGeometry(new Size(item.Width, item.Height), region.X, region.Y, region.Width, region.Height);
+                    else ValidateSegGeometry(new Size(item.Width, item.Height), new SegRegion("import", "import", "import", "import", region.Type, region.X, region.Y, region.Type == SegRegionType.Ellipse ? region.RadiusX : region.Width, region.Type == SegRegionType.Ellipse ? region.RadiusY : region.Height, 0, region.Points, region.StrokeWidth));
+                }
+            }
+            var set = new AnnotationSet(Guid.NewGuid().ToString("D"), NormalizeName(annotationSetName), imported.Type);
+            var classes = imported.Classes.Select(value => new AnnotationClass(Guid.NewGuid().ToString("D"), set.Id, NormalizeName(value.Name), value.Color)).ToArray();
+            if (classes.Select(value => value.Name).Distinct(StringComparer.Ordinal).Count() != classes.Length) throw new JsonAnnotationImportException("classes contains duplicates.");
+            var classByName = classes.ToDictionary(value => value.Name, StringComparer.Ordinal);
+            CompleteOperation((db, transaction) =>
+            {
+                Execute(db, transaction, "INSERT INTO AnnotationSet (Id, Name, Type) VALUES ($id, $name, $type);", new SqliteParameter("$id", set.Id), new SqliteParameter("$name", set.Name), new SqliteParameter("$type", (int)set.Type));
+                foreach (AnnotationClass value in classes) Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", set.Id), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
+                foreach (ImportedImage item in imported.Data)
+                {
+                    string imageId = imageByName[item.FileName][0].Id;
+                    DatasetAssignmentStatus status = item.Set == "train" ? DatasetAssignmentStatus.Train : item.Set == "test" ? DatasetAssignmentStatus.Test : item.Set == "not_used" ? DatasetAssignmentStatus.NotUsed : DatasetAssignmentStatus.Unassigned;
+                    SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(set.Id, imageId, status, item.Retest));
+                    if (set.Type == AnnotationSetType.Cla && item.ClassLabel != "") Execute(db, transaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", set.Id), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classByName[item.ClassLabel].Id));
+                    int zOrder = 0;
+                    foreach (ImportedRegion region in item.Regions)
+                    {
+                        string classId = classByName[region.ClassName].Id;
+                        if (set.Type == AnnotationSetType.Obd) Execute(db, transaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", set.Id), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId), new SqliteParameter("$x", region.X), new SqliteParameter("$y", region.Y), new SqliteParameter("$width", region.Width), new SqliteParameter("$height", region.Height), new SqliteParameter("$order", zOrder++));
+                        else InsertImportedSegRegion(db, transaction, set.Id, imageId, classId, region, zOrder++);
+                    }
+                }
+            });
+            return set;
+        }
+
+        private static void InsertImportedSegRegion(SqliteConnection db, SqliteTransaction transaction, string setId, string imageId, string classId, ImportedRegion region, int zOrder)
+        {
+            string id = Guid.NewGuid().ToString("D");
+            int x = region.X;
+            int y = region.Y;
+            int width = region.Type == SegRegionType.Ellipse ? region.RadiusX : region.Width;
+            int height = region.Type == SegRegionType.Ellipse ? region.RadiusY : region.Height;
+            Execute(db, transaction, "INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth) VALUES ($id, $set, $image, $class, $type, $x, $y, $width, $height, $order, $stroke);", new SqliteParameter("$id", id), new SqliteParameter("$set", setId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId), new SqliteParameter("$type", (int)region.Type), new SqliteParameter("$x", x), new SqliteParameter("$y", y), new SqliteParameter("$width", width), new SqliteParameter("$height", height), new SqliteParameter("$order", zOrder), new SqliteParameter("$stroke", region.StrokeWidth == 0 ? (object)DBNull.Value : region.StrokeWidth));
+            for (int index = 0; index < region.Points.Count; index++) Execute(db, transaction, "INSERT INTO SegRegionPoint (RegionId, Ordinal, X, Y) VALUES ($id, $ordinal, $x, $y);", new SqliteParameter("$id", id), new SqliteParameter("$ordinal", index), new SqliteParameter("$x", region.Points[index].X), new SqliteParameter("$y", region.Points[index].Y));
+        }
+
         public IReadOnlyList<AnnotationSet> GetAnnotationSets()
         {
             var result = new List<AnnotationSet>();

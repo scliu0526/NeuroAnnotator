@@ -1398,6 +1398,112 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Json_annotation_import_is_atomic_and_persists_obd_data()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "sample.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    string valid = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"rgba(1, 2, 3, 1)-custom\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"train\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":2,\"width\":3,\"height\":4}],\"retestset\":1,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    AnnotationSet set = store.ImportAnnotationJson(valid, "imported", false);
+                    Assert.AreEqual(AnnotationSetType.Obd, set.Type);
+                    Assert.AreEqual("rgba(1, 2, 3, 1)-custom", store.GetClasses(set.Id).Single().Color);
+                    Assert.AreEqual(1, store.GetObdAnnotations(set.Id, image.Id).Count);
+                    DatasetAssignment assignment = store.GetDatasetAssignments(set.Id).Single(value => value.ImageId == image.Id);
+                    Assert.AreEqual(DatasetAssignmentStatus.Train, assignment.Status);
+                    Assert.IsTrue(assignment.Retest);
+                    string invalid = valid.Replace("sample.png", "missing.png");
+                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJson(invalid, "bad", false));
+                    Assert.AreEqual(1, store.GetAnnotationSets().Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Json_annotation_import_preserves_seg_path_points()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "sample.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[1,2],[3,4]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    AnnotationSet set = store.ImportAnnotationJson(json, "seg", false);
+                    SegRegion region = store.GetSegRegions(set.Id, image.Id).Single();
+                    Assert.AreEqual(SegRegionType.PolyLine, region.Type);
+                    Assert.AreEqual(2, region.StrokeWidth);
+                    CollectionAssert.AreEqual(new[] { 1, 3 }, region.Points.Select(value => value.X).ToArray());
+                    CollectionAssert.AreEqual(new[] { 2, 4 }, region.Points.Select(value => value.Y).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Json_annotation_import_normalizes_class_references_and_accepts_polygon_image_edges()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "sample.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    string obd = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\" part \",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\" part \",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    AnnotationSet obdSet = store.ImportAnnotationJson(obd, "obd", false);
+                    Assert.AreEqual("part", store.GetClasses(obdSet.Id).Single().Name);
+                    string seg = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyGon\",\"points\":[[0,0],[20,0],[20,20],[0,20]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    AnnotationSet segSet = store.ImportAnnotationJson(seg, "seg", false);
+                    Assert.AreEqual(4, store.GetSegRegions(segSet.Id, image.Id).Single().Points.Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Json_annotation_import_rejects_unknown_nested_fields_until_explicitly_allowed()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "sample.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    store.ImportFiles(new[] { source });
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2,\"futureField\":true}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJson(json, "strict", false));
+                    Assert.AreEqual(0, store.GetAnnotationSets().Count);
+                    AnnotationSet set = store.ImportAnnotationJson(json, "allowed", true);
+                    Assert.AreEqual(1, store.GetObdAnnotations(set.Id, store.GetImages().Single().Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Provided_annotation_json_samples_parse_for_all_annotation_types()
+        {
+            string labelsDirectory = FindRepositoryLabelsDirectory();
+            ImportedAnnotationSet cla = JsonAnnotationImport.Parse(File.ReadAllText(Path.Combine(labelsDirectory, "cla_labels.json")));
+            ImportedAnnotationSet obd = JsonAnnotationImport.Parse(File.ReadAllText(Path.Combine(labelsDirectory, "obd_labels.json")));
+            ImportedAnnotationSet seg = JsonAnnotationImport.Parse(File.ReadAllText(Path.Combine(labelsDirectory, "seg_labels.json")));
+            Assert.AreEqual(AnnotationSetType.Cla, cla.Type);
+            Assert.AreEqual(AnnotationSetType.Obd, obd.Type);
+            Assert.AreEqual(AnnotationSetType.Seg, seg.Type);
+            Assert.IsTrue(seg.Data.Any(image => image.Regions.Any(region => region.Type == SegRegionType.PolyLine)));
+        }
+
+        [TestMethod]
         public void Dataset_split_planner_stratifies_annotated_images_before_empty_images()
         {
             DatasetSplitCandidate[] values = Enumerable.Range(1, 12).Select(index => new DatasetSplitCandidate("a" + index, new[] { "a" }, true))
@@ -1658,6 +1764,16 @@ namespace Neurocle.Tests
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        private static string FindRepositoryLabelsDirectory()
+        {
+            for (DirectoryInfo directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory); directory != null; directory = directory.Parent)
+            {
+                string labelsDirectory = Path.Combine(directory.FullName, "labels");
+                if (File.Exists(Path.Combine(labelsDirectory, "cla_labels.json"))) return labelsDirectory;
+            }
+            throw new DirectoryNotFoundException("The repository labels directory was not found.");
         }
 
         private static string TemporaryProjectPath()

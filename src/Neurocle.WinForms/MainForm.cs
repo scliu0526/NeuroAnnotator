@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
+using Neurocle.Infrastructure.Persistence;
 using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
@@ -43,6 +44,7 @@ namespace Neurocle.WinForms
             projectMenu.DropDownItems.Add(Strings.SaveProjectAs, null, (sender, args) => RunProjectCommand(SaveProjectAs));
             projectMenu.DropDownItems.Add(Strings.ImportImages, null, async (sender, args) => await ImportFilesAsync());
             projectMenu.DropDownItems.Add(Strings.ImportFolder, null, async (sender, args) => await ImportFolderAsync());
+            projectMenu.DropDownItems.Add(Strings.ImportAnnotationJson, null, (sender, args) => RunProjectCommand(ImportAnnotationJson));
             projectMenu.DropDownItems.Add(Strings.ManageMissingImages, null, (sender, args) => ManageMissingImages());
             projectMenu.DropDownItems.Add(Strings.ManageBackups, null, (sender, args) => ManageBackups());
             menu.Items.Add(projectMenu);
@@ -363,6 +365,24 @@ namespace Neurocle.WinForms
             DatasetSplitPlan plan = project.AutoSplitDataset(selected.Id, trainPercent);
             RefreshDatasetAssignments();
             if (plan.Warnings.Count > 0) MessageBox.Show(Strings.DatasetSplitCannotMeet, Strings.DatasetSplitWarning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private void ImportAnnotationJson()
+        {
+            if (project == null) return;
+            using (var dialog = new OpenFileDialog { Filter = "JSON (*.json)|*.json", Multiselect = false })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                string json = File.ReadAllText(dialog.FileName);
+                string name = Path.GetFileNameWithoutExtension(dialog.FileName);
+                try { project.ImportAnnotationJson(json, name, false); }
+                catch (JsonAnnotationImportException exception)
+                {
+                    if (exception.Message != "JSON contains unknown fields." || MessageBox.Show(Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) throw;
+                    project.ImportAnnotationJson(json, name, true);
+                }
+                RefreshAnnotationSets();
+            }
         }
 
         private void CreateObdRectangle(Rectangle rectangle)

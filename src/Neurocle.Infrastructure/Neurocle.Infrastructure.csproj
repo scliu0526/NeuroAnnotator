@@ -43,6 +43,7 @@
   <ItemGroup>
     <PackageReference Include="Clipper2" Version="1.5.4" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.12" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="InfrastructureAssembly.cs" />
@@ -51,6 +52,7 @@
     <Compile Include="Persistence\ProjectStore.cs" />
     <Compile Include="Persistence\ProjectLifecycle.cs" />
     <Compile Include="Persistence\ProjectImageImporter.cs" />
+    <Compile Include="Persistence\JsonAnnotationImport.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

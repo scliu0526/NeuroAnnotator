@@ -178,7 +178,6 @@ namespace Neurocle.Application.Projects
         public int UnprocessedCount { get; }
         public bool WasCancelledDuringScan { get; }
     }
-
     public interface IProjectSession : IDisposable
     {
         string ProjectPath { get; }
@@ -187,6 +186,7 @@ namespace Neurocle.Application.Projects
         IReadOnlyList<ProjectImage> ImportFiles(IEnumerable<string> filePaths);
         ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested);
         ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested);
+        AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields);
         IReadOnlyList<ProjectImage> GetImages();
         IReadOnlyList<ProjectImage> GetMissingImages();
         void RelinkImage(string imageId, string sourcePath);
