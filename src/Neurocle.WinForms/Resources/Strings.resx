@@ -103,6 +103,12 @@
   <data name="DatasetClassColumn" xml:space="preserve"><value>類別</value></data>
   <data name="DatasetAnnotatedColumn" xml:space="preserve"><value>標註</value></data>
   <data name="DatasetRetestColumn" xml:space="preserve"><value>Retest</value></data>
+  <data name="DatasetTrainPercent" xml:space="preserve"><value>訓練：</value></data>
+  <data name="DatasetTestPercent" xml:space="preserve"><value>測試：</value></data>
+  <data name="DatasetAutoSplit" xml:space="preserve"><value>自動切分</value></data>
+  <data name="DatasetSplitWarning" xml:space="preserve"><value>資料集切分警告</value></data>
+  <data name="DatasetSplitCannotMeet" xml:space="preserve"><value>無法同時滿足訓練每類至少 10 張或測試集至少 3 張的條件；已依可行結果切分。</value></data>
+  <data name="DatasetAutoSplitConfirm" xml:space="preserve"><value>這會覆寫所有可用圖片的資料集分配。是否繼續？</value></data>
   <data name="ExportPage" xml:space="preserve"><value>完成與匯出</value></data>
   <data name="FitToWindow" xml:space="preserve"><value>適合視窗</value></data>
   <data name="NewClaSet" xml:space="preserve"><value>新增 CLA</value></data>

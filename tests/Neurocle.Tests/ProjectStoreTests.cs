@@ -1388,6 +1388,72 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Dataset_split_planner_preserves_ten_train_images_per_class_when_possible()
+        {
+            DatasetSplitCandidate[] values = Enumerable.Range(1, 15).Select(index => new DatasetSplitCandidate(index.ToString(), new[] { "class" }, true)).ToArray();
+            DatasetSplitPlan plan = DatasetSplitPlanner.Create(values, 80, maximum => 0);
+            Assert.AreEqual(12, plan.TrainImageIds.Count);
+            Assert.AreEqual(3, plan.TestImageIds.Count);
+            Assert.AreEqual(0, plan.Warnings.Count);
+        }
+
+        [TestMethod]
+        public void Dataset_split_planner_stratifies_annotated_images_before_empty_images()
+        {
+            DatasetSplitCandidate[] values = Enumerable.Range(1, 12).Select(index => new DatasetSplitCandidate("a" + index, new[] { "a" }, true))
+                .Concat(Enumerable.Range(1, 2).Select(index => new DatasetSplitCandidate("b" + index, new[] { "b" }, true)))
+                .Concat(Enumerable.Range(1, 5).Select(index => new DatasetSplitCandidate("empty" + index, new string[0], true))).ToArray();
+            DatasetSplitPlan plan = DatasetSplitPlanner.Create(values, 80, maximum => 0);
+            Assert.AreEqual(4, plan.TestImageIds.Count);
+            Assert.IsTrue(plan.TestImageIds.Any(value => value.StartsWith("b", StringComparison.Ordinal)));
+            Assert.IsFalse(plan.TestImageIds.Any(value => value.StartsWith("empty", StringComparison.Ordinal)));
+            Assert.IsTrue(plan.Warnings.Count > 0);
+        }
+
+        [TestMethod]
+        public void Auto_split_preserves_retest_and_missing_image_assignment()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(Enumerable.Range(1, 4).Select(index => source)).ToArray();
+                    AnnotationSet set = store.CreateAnnotationSet("set", AnnotationSetType.Cla);
+                    store.SetRetest(set.Id, new[] { images[0].Id }, true);
+                    store.SetDatasetAssignments(set.Id, new[] { images[3].Id }, DatasetAssignmentStatus.NotUsed);
+                    File.Delete(Path.Combine(store.ImagesDirectory, images[3].ManagedFileName));
+                    DatasetAssignment[] before = store.GetDatasetAssignments(set.Id).ToArray();
+                    Func<int, int> original = ProjectStore.NextRandom;
+                    try { ProjectStore.NextRandom = maximum => 0; store.AutoSplitDataset(set.Id, 80); }
+                    finally { ProjectStore.NextRandom = original; }
+                    DatasetAssignment[] assignments = store.GetDatasetAssignments(set.Id).ToArray();
+                    Assert.IsTrue(assignments.Single(value => value.ImageId == images[0].Id).Retest);
+                    Assert.AreEqual(DatasetAssignmentStatus.NotUsed, assignments.Single(value => value.ImageId == images[3].Id).Status);
+                    Assert.IsTrue(assignments.Where(value => value.ImageId != images[3].Id).All(value => value.Status == DatasetAssignmentStatus.Train || value.Status == DatasetAssignmentStatus.Test));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    AssertDatasetAssignments(before, store.GetDatasetAssignments(set.Id));
+                    Assert.IsTrue(store.Redo(set.Id));
+                    AssertDatasetAssignments(assignments, store.GetDatasetAssignments(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        private static void AssertDatasetAssignments(IEnumerable<DatasetAssignment> expected, IEnumerable<DatasetAssignment> actual)
+        {
+            DatasetAssignment[] values = actual.ToArray();
+            foreach (DatasetAssignment value in expected)
+            {
+                DatasetAssignment match = values.Single(item => item.ImageId == value.ImageId);
+                Assert.AreEqual(value.Status, match.Status);
+                Assert.AreEqual(value.Retest, match.Retest);
+            }
+        }
+
+        [TestMethod]
         public void Clear_annotations_only_affects_requested_images_in_the_current_annotation_set()
         {
             string path = TemporaryProjectPath();

@@ -14,6 +14,9 @@ namespace Neurocle.WinForms
         private readonly ComboBox classFilter;
         private readonly ComboBox annotationFilter;
         private readonly ComboBox retestFilter;
+        private readonly NumericUpDown trainPercent;
+        private readonly NumericUpDown testPercent;
+        private bool synchronizingPercentages;
         private readonly List<DatasetRow> rows = new List<DatasetRow>();
         private readonly List<DatasetRow> visibleRows = new List<DatasetRow>();
 
@@ -25,6 +28,15 @@ namespace Neurocle.WinForms
             AddButton(actions, Strings.DatasetUnassigned, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned));
             AddButton(actions, Strings.DatasetNotUsed, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed));
             AddButton(actions, Strings.DatasetRetest, () => RetestRequested?.Invoke(SelectedImageIds, true));
+            actions.Controls.Add(new Label { Text = Strings.DatasetTrainPercent, AutoSize = true, Margin = new Padding(6, 8, 2, 2) });
+            trainPercent = new NumericUpDown { Minimum = 1, Maximum = 99, Value = 80, Width = 48 };
+            actions.Controls.Add(trainPercent);
+            actions.Controls.Add(new Label { Text = Strings.DatasetTestPercent, AutoSize = true, Margin = new Padding(2, 8, 2, 2) });
+            testPercent = new NumericUpDown { Minimum = 1, Maximum = 99, Value = 20, Width = 48 };
+            trainPercent.ValueChanged += (sender, args) => SynchronizePercentages(trainPercent, testPercent);
+            testPercent.ValueChanged += (sender, args) => SynchronizePercentages(testPercent, trainPercent);
+            actions.Controls.Add(testPercent);
+            AddButton(actions, Strings.DatasetAutoSplit, () => { if (MessageBox.Show(Strings.DatasetAutoSplitConfirm, Strings.DatasetAutoSplit, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK) AutoSplitRequested?.Invoke((int)trainPercent.Value); });
             var filters = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
             setFilter = AddFilter(filters, Strings.DatasetFilterSet, new[] { Strings.DatasetFilterAll, Strings.DatasetTrain, Strings.DatasetTest, Strings.DatasetUnassigned, Strings.DatasetNotUsed });
             classFilter = AddFilter(filters, Strings.DatasetFilterClass, new[] { Strings.DatasetFilterAll });
@@ -51,6 +63,15 @@ namespace Neurocle.WinForms
         public event Action<IReadOnlyList<string>, DatasetAssignmentStatus> DatasetRequested;
         public event Action<IReadOnlyList<string>, bool> RetestRequested;
         public event Action<IReadOnlyList<string>> ClearClassRequested;
+        public event Action<int> AutoSplitRequested;
+
+        private void SynchronizePercentages(NumericUpDown source, NumericUpDown target)
+        {
+            if (synchronizingPercentages) return;
+            synchronizingPercentages = true;
+            target.Value = 100 - source.Value;
+            synchronizingPercentages = false;
+        }
 
         public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visibleRows[index].Image.Id).ToArray(); } }
 

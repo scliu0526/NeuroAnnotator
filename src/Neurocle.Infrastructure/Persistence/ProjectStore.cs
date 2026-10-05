@@ -14,6 +14,7 @@ namespace Neurocle.Infrastructure.Persistence
     {
         private const int CurrentSchemaVersion = 7;
         private const int MaximumBackupCount = 5;
+        private static readonly Random random = new Random();
         private readonly FileStream lockStream;
         private readonly SqliteConnection connection;
         private readonly Dictionary<string, AnnotationHistory> histories = new Dictionary<string, AnnotationHistory>();
@@ -22,6 +23,7 @@ namespace Neurocle.Infrastructure.Persistence
 
         internal static Func<DateTime> UtcNow = () => DateTime.UtcNow;
         internal static Action<string, string> ReplaceFile = (source, destination) => File.Replace(source, destination, null);
+        internal static Func<int, int> NextRandom = maximum => random.Next(maximum);
 
         private ProjectStore(string path, FileStream lockStream, SqliteConnection connection)
         {
@@ -398,6 +400,25 @@ namespace Neurocle.Infrastructure.Persistence
             if (regions.Length == 0) return;
             CompleteOperation((db, transaction) => { foreach (string imageId in ids) Execute(db, transaction, "DELETE FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); });
             Record(annotationSetId, () => { foreach (SegRegion value in regions) InsertSegRegionRaw(value); }, () => { foreach (string imageId in ids) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); }, EstimateHistoryBytes(regions));
+        }
+
+        public DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent)
+        {
+            IReadOnlyList<ImageAnnotationSummary> summaries = GetImageAnnotationSummaries(annotationSetId);
+            var classes = summaries.ToDictionary(value => value.ImageId, value => value.ClassIds, StringComparer.Ordinal);
+            ProjectImage[] images = GetImages().ToArray();
+            DatasetSplitPlan plan = DatasetSplitPlanner.Create(images.Select(image => new DatasetSplitCandidate(image.Id, classes.ContainsKey(image.Id) ? classes[image.Id] : new string[0], !image.IsMissing)), trainPercent, NextRandom);
+            var train = new HashSet<string>(plan.TrainImageIds, StringComparer.Ordinal);
+            var test = new HashSet<string>(plan.TestImageIds, StringComparer.Ordinal);
+            var availableImageIds = new HashSet<string>(images.Where(image => !image.IsMissing).Select(image => image.Id), StringComparer.Ordinal);
+            DatasetAssignment[] previous = GetDatasetAssignments(annotationSetId).Where(value => availableImageIds.Contains(value.ImageId)).ToArray();
+            DatasetAssignment[] next = previous.Select(value => new DatasetAssignment(annotationSetId, value.ImageId, train.Contains(value.ImageId) ? DatasetAssignmentStatus.Train : test.Contains(value.ImageId) ? DatasetAssignmentStatus.Test : DatasetAssignmentStatus.Unassigned, value.Retest)).ToArray();
+            if (previous.Where((value, index) => value.Status != next[index].Status).Any())
+            {
+                CompleteOperation((db, transaction) => { foreach (DatasetAssignment value in next) SetDatasetAssignmentRaw(db, transaction, value); });
+                Record(annotationSetId, () => { foreach (DatasetAssignment value in previous) SetDatasetAssignmentRaw(connection, historyTransaction, value); }, () => { foreach (DatasetAssignment value in next) SetDatasetAssignmentRaw(connection, historyTransaction, value); }, EstimateHistoryBytes(next.Select(value => value.ImageId).ToArray()));
+            }
+            return plan;
         }
 
         private void UpdateDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, Func<DatasetAssignment, DatasetAssignment> transform)

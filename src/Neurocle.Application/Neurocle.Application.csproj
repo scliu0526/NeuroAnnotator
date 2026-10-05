@@ -37,6 +37,7 @@
   <ItemGroup>
     <Compile Include="ApplicationAssembly.cs" />
     <Compile Include="Projects\ProjectLifecycle.cs" />
+    <Compile Include="Projects\DatasetSplitPlanner.cs" />
     <Compile Include="Projects\ImageListProjection.cs" />
     <Compile Include="Projects\CanvasViewport.cs" />
   </ItemGroup>

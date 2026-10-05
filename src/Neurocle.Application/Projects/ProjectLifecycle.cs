@@ -221,6 +221,7 @@ namespace Neurocle.Application.Projects
         void SetDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, DatasetAssignmentStatus status);
         void SetRetest(string annotationSetId, IEnumerable<string> imageIds, bool retest);
         void ClearAnnotations(string annotationSetId, IEnumerable<string> imageIds);
+        DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent);
         bool Undo(string annotationSetId);
         bool Redo(string annotationSetId);
         bool CanUndo(string annotationSetId);

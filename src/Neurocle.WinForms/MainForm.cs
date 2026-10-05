@@ -59,6 +59,7 @@ namespace Neurocle.WinForms
             datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
             datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
             datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ClearDatasetClasses(ids));
+            datasetAssignments.AutoSplitRequested += value => RunAnnotationCommand(() => AutoSplitDataset(value));
             canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
             canvas.ObdRectanglesChanged += rectangles => RunAnnotationCommand(() => UpdateObdRectangles(rectangles));
             canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
@@ -353,6 +354,15 @@ namespace Neurocle.WinForms
             project.ClearAnnotations(selected.Id, imageIds);
             RefreshAnnotationClasses();
             RefreshDatasetAssignments();
+        }
+
+        private void AutoSplitDataset(int trainPercent)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || selected == null) return;
+            DatasetSplitPlan plan = project.AutoSplitDataset(selected.Id, trainPercent);
+            RefreshDatasetAssignments();
+            if (plan.Warnings.Count > 0) MessageBox.Show(Strings.DatasetSplitCannotMeet, Strings.DatasetSplitWarning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         private void CreateObdRectangle(Rectangle rectangle)

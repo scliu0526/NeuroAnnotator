@@ -89,6 +89,12 @@ namespace Neurocle.WinForms.Resources
         internal static string DatasetClassColumn { get { return ResourceManager.GetString("DatasetClassColumn", CultureInfo.CurrentUICulture); } }
         internal static string DatasetAnnotatedColumn { get { return ResourceManager.GetString("DatasetAnnotatedColumn", CultureInfo.CurrentUICulture); } }
         internal static string DatasetRetestColumn { get { return ResourceManager.GetString("DatasetRetestColumn", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetTrainPercent { get { return ResourceManager.GetString("DatasetTrainPercent", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetTestPercent { get { return ResourceManager.GetString("DatasetTestPercent", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetAutoSplit { get { return ResourceManager.GetString("DatasetAutoSplit", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitWarning { get { return ResourceManager.GetString("DatasetSplitWarning", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitCannotMeet { get { return ResourceManager.GetString("DatasetSplitCannotMeet", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetAutoSplitConfirm { get { return ResourceManager.GetString("DatasetAutoSplitConfirm", CultureInfo.CurrentUICulture); } }
         internal static string ExportPage { get { return ResourceManager.GetString("ExportPage", CultureInfo.CurrentUICulture); } }
         internal static string FitToWindow { get { return ResourceManager.GetString("FitToWindow", CultureInfo.CurrentUICulture); } }
         internal static string NewClaSet { get { return ResourceManager.GetString("NewClaSet", CultureInfo.CurrentUICulture); } }
