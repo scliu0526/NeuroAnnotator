@@ -1274,6 +1274,40 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Restore_falls_back_from_native_replace_and_recovers_the_original_database_when_the_second_move_fails()
+        {
+            string path = TemporaryProjectPath();
+            Action<string, string> originalNativeReplace = ProjectStore.NativeReplaceFile;
+            Action<string, string> originalMove = ProjectStore.MoveFile;
+            try
+            {
+                using (ProjectStore created = ProjectStore.Create(path)) { }
+                string backup;
+                using (ProjectStore store = ProjectStore.Open(path)) backup = store.GetBackups().Single().Path;
+                ProjectStore.NativeReplaceFile = (source, destination) => { throw new UnauthorizedAccessException("Native replacement is unavailable."); };
+
+                using (ProjectStore restored = ProjectStore.Restore(path, backup)) Assert.IsNotNull(restored);
+
+                int moves = 0;
+                ProjectStore.MoveFile = (source, destination) =>
+                {
+                    moves++;
+                    if (moves == 2) throw new IOException("Simulated second move failure.");
+                    originalMove(source, destination);
+                };
+                Assert.ThrowsException<IOException>(() => ProjectStore.Restore(path, backup));
+                using (ProjectStore recovered = ProjectStore.Open(path)) Assert.IsNotNull(recovered);
+                Assert.IsFalse(File.Exists(path + ".restore-original"));
+            }
+            finally
+            {
+                ProjectStore.NativeReplaceFile = originalNativeReplace;
+                ProjectStore.MoveFile = originalMove;
+                DeleteTemporaryProject(path);
+            }
+        }
+
+        [TestMethod]
         public void Seg_geometry_at_the_right_and_bottom_edges_keeps_its_outer_boundary_after_union_and_erase()
         {
             string path = TemporaryProjectPath();

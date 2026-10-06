@@ -23,7 +23,9 @@ namespace Neurocle.Infrastructure.Persistence
         private SqliteTransaction historyTransaction;
 
         internal static Func<DateTime> UtcNow = () => DateTime.UtcNow;
-        internal static Action<string, string> ReplaceFile = (source, destination) => File.Replace(source, destination, null);
+        internal static Action<string, string> ReplaceFile = ReplaceFileSafely;
+        internal static Action<string, string> NativeReplaceFile = (source, destination) => File.Replace(source, destination, null);
+        internal static Action<string, string> MoveFile = File.Move;
         internal static Func<int, int> NextRandom = maximum => random.Next(maximum);
 
         private ProjectStore(string path, FileStream lockStream, SqliteConnection connection)
@@ -1408,6 +1410,7 @@ namespace Neurocle.Infrastructure.Persistence
         {
             ProjectLocationValidator.EnsureSupported(projectPath);
             string fullPath = Path.GetFullPath(projectPath);
+            RecoverPendingReplacement(fullPath);
             if (mustExist && !File.Exists(fullPath)) throw new FileNotFoundException("The project file does not exist.", fullPath);
             if (!mustExist && File.Exists(fullPath)) throw new IOException("The project file already exists.");
             string imagesDirectory = Path.Combine(Path.GetDirectoryName(fullPath), Path.GetFileNameWithoutExtension(fullPath) + ".images");
@@ -1426,6 +1429,44 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 throw new InvalidOperationException("This project is already open in another application instance.", exception);
             }
+        }
+
+        private static void ReplaceFileSafely(string source, string destination)
+        {
+            try { NativeReplaceFile(source, destination); }
+            catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is NotSupportedException)
+            {
+                string original = PendingReplacementPath(destination);
+                if (File.Exists(original)) throw new IOException("A previous database replacement has not been recovered.");
+                MoveFile(destination, original);
+                try
+                {
+                    MoveFile(source, destination);
+                    File.Delete(original);
+                }
+                catch
+                {
+                    if (!File.Exists(destination) && File.Exists(original)) MoveFile(original, destination);
+                    throw;
+                }
+            }
+        }
+
+        private static void RecoverPendingReplacement(string projectPath)
+        {
+            string original = PendingReplacementPath(projectPath);
+            if (!File.Exists(original)) return;
+            if (!File.Exists(projectPath))
+            {
+                MoveFile(original, projectPath);
+                return;
+            }
+            File.Delete(original);
+        }
+
+        private static string PendingReplacementPath(string projectPath)
+        {
+            return projectPath + ".restore-original";
         }
 
         private static SqliteConnection OpenConnection(string path)
