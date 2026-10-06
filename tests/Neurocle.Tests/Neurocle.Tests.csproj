@@ -59,6 +59,7 @@
     <Compile Include="SqliteRuntimeProbeTests.cs" />
     <Compile Include="ProjectStoreTests.cs" />
     <Compile Include="MainFormLayoutTests.cs" />
+    <Compile Include="DiagnosticLogTests.cs" />
     <Compile Include="SegGeometryPrototypeTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.WinForms;
@@ -42,6 +43,15 @@ namespace Neurocle.Tests
                         Assert.IsTrue(control.Bottom <= form.ClientSize.Height, "Control exceeds viewport height at {0:P0} DPI.", scale);
                     }
                 }
+            }
+        }
+
+        [TestMethod]
+        public void Project_menu_exposes_diagnostics_usage_and_log_folder_commands()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                Assert.IsTrue(form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single().DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "診斷資訊"));
             }
         }
     }

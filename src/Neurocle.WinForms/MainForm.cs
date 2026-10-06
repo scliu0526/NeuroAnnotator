@@ -14,6 +14,7 @@ namespace Neurocle.WinForms
     public sealed class MainForm : Form
     {
         private readonly IProjectLifecycle projectLifecycle;
+        private readonly DiagnosticLog diagnosticLog;
         private IProjectSession project;
         private readonly Label status;
         private readonly ToolStripMenuItem projectMenu;
@@ -29,8 +30,14 @@ namespace Neurocle.WinForms
         private bool exportInProgress;
 
         public MainForm(IProjectLifecycle projectLifecycle)
+            : this(projectLifecycle, DiagnosticLog.CreateDefault())
+        {
+        }
+
+        public MainForm(IProjectLifecycle projectLifecycle, DiagnosticLog diagnosticLog)
         {
             this.projectLifecycle = projectLifecycle ?? throw new ArgumentNullException(nameof(projectLifecycle));
+            this.diagnosticLog = diagnosticLog ?? throw new ArgumentNullException(nameof(diagnosticLog));
             AutoScaleMode = AutoScaleMode.Dpi;
             MinimumSize = new Size(640, 360);
             StartPosition = FormStartPosition.CenterScreen;
@@ -48,6 +55,7 @@ namespace Neurocle.WinForms
             projectMenu.DropDownItems.Add(Strings.ImportAnnotationJson, null, (sender, args) => RunProjectCommand(ImportAnnotationJson));
             projectMenu.DropDownItems.Add(Strings.ManageMissingImages, null, (sender, args) => ManageMissingImages());
             projectMenu.DropDownItems.Add(Strings.ManageBackups, null, (sender, args) => ManageBackups());
+            projectMenu.DropDownItems.Add(Strings.Diagnostics, null, (sender, args) => ManageDiagnostics());
             menu.Items.Add(projectMenu);
 
             status = new Label
@@ -219,6 +227,7 @@ namespace Neurocle.WinForms
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 ReplaceProject(projectLifecycle.Create(dialog.FileName));
+                WriteDiagnostic(DiagnosticEvent.ProjectCreated);
             }
         }
 
@@ -230,6 +239,7 @@ namespace Neurocle.WinForms
                 try
                 {
                     ReplaceProject(projectLifecycle.Open(dialog.FileName));
+                    WriteDiagnostic(DiagnosticEvent.ProjectOpened);
                 }
                 catch (ProjectOpenException exception)
                 {
@@ -241,6 +251,7 @@ namespace Neurocle.WinForms
         private void SaveProject()
         {
             project?.Save();
+            if (project != null) WriteDiagnostic(DiagnosticEvent.ProjectSaved);
         }
 
         private void SaveProjectAs()
@@ -251,6 +262,7 @@ namespace Neurocle.WinForms
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 IProjectSession copy = project.SaveAs(dialog.FileName);
                 ReplaceProject(copy);
+                WriteDiagnostic(DiagnosticEvent.ProjectSaved);
             }
         }
 
@@ -261,6 +273,11 @@ namespace Neurocle.WinForms
             UpdateProjectStatus();
             imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
             RefreshAnnotationSets();
+        }
+
+        private void ManageDiagnostics()
+        {
+            using (var dialog = new DiagnosticsForm(diagnosticLog)) dialog.ShowDialog(this);
         }
 
         private void CreateAnnotationSet(AnnotationSetType type)
@@ -393,6 +410,7 @@ namespace Neurocle.WinForms
                     project.ImportAnnotationJson(json, name, true);
                 }
                 RefreshAnnotationSets();
+                WriteDiagnostic(DiagnosticEvent.AnnotationJsonImported);
             }
         }
 
@@ -407,9 +425,14 @@ namespace Neurocle.WinForms
                 exportInProgress = true;
                 Enabled = false;
                 UseWaitCursor = true;
-                try { await Task.Run(() => session.ExportImagesZip(dialog.FileName, selected)); }
+                try
+                {
+                    await Task.Run(() => session.ExportImagesZip(dialog.FileName, selected));
+                    WriteDiagnostic(DiagnosticEvent.ImagesExported);
+                }
                 catch (Exception exception)
                 {
+                    WriteDiagnostic(DiagnosticEvent.OperationFailed);
                     Enabled = true;
                     MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
@@ -433,8 +456,17 @@ namespace Neurocle.WinForms
                 exportInProgress = true;
                 Enabled = false;
                 UseWaitCursor = true;
-                try { await Task.Run(() => session.ExportAnnotationJson(set.Id, dialog.FileName)); }
-                catch (Exception exception) { Enabled = true; MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                try
+                {
+                    await Task.Run(() => session.ExportAnnotationJson(set.Id, dialog.FileName));
+                    WriteDiagnostic(DiagnosticEvent.AnnotationJsonExported);
+                }
+                catch (Exception exception)
+                {
+                    WriteDiagnostic(DiagnosticEvent.OperationFailed);
+                    Enabled = true;
+                    MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
                 finally { UseWaitCursor = false; Enabled = true; exportInProgress = false; }
             }
         }
@@ -691,10 +723,12 @@ namespace Neurocle.WinForms
                 try
                 {
                     ImageImportReport report = await Task.Run(() => import(progress));
+                    WriteDiagnostic(DiagnosticEvent.ImageImportCompleted);
                     MessageBox.Show(this, FormatImportReport(report), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 catch (Exception exception)
                 {
+                    WriteDiagnostic(DiagnosticEvent.OperationFailed);
                     MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 finally
@@ -742,7 +776,19 @@ namespace Neurocle.WinForms
             }
             catch (Exception exception)
             {
+                WriteDiagnostic(DiagnosticEvent.OperationFailed);
                 MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void WriteDiagnostic(DiagnosticEvent diagnosticEvent)
+        {
+            try { diagnosticLog.Write(diagnosticEvent); }
+            catch (DiagnosticLogException exception)
+            {
+                string message = DiagnosticLogMessages.GetFailureMessage(exception);
+                status.Text = message;
+                MessageBox.Show(this, message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

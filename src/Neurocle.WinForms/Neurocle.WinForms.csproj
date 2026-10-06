@@ -46,6 +46,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="DiagnosticLog.cs" />
+    <Compile Include="DiagnosticLogMessages.cs" />
+    <Compile Include="DiagnosticsForm.cs" />
     <Compile Include="MainForm.cs" />
     <Compile Include="ImportProgressForm.cs" />
     <Compile Include="MissingImagesForm.cs" />

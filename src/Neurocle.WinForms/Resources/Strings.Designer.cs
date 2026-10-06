@@ -130,5 +130,12 @@ namespace Neurocle.WinForms.Resources
         internal static string DeleteAnnotationClassPrompt { get { return ResourceManager.GetString("DeleteAnnotationClassPrompt", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationValidationFailed { get { return ResourceManager.GetString("AnnotationValidationFailed", CultureInfo.CurrentUICulture); } }
         internal static string Ok { get { return ResourceManager.GetString("Ok", CultureInfo.CurrentUICulture); } }
+        internal static string Diagnostics { get { return ResourceManager.GetString("Diagnostics", CultureInfo.CurrentUICulture); } }
+        internal static string DiagnosticsTitle { get { return ResourceManager.GetString("DiagnosticsTitle", CultureInfo.CurrentUICulture); } }
+        internal static string DiagnosticLogUsage { get { return ResourceManager.GetString("DiagnosticLogUsage", CultureInfo.CurrentUICulture); } }
+        internal static string OpenLogsFolder { get { return ResourceManager.GetString("OpenLogsFolder", CultureInfo.CurrentUICulture); } }
+        internal static string DiagnosticLogIoFailure { get { return ResourceManager.GetString("DiagnosticLogIoFailure", CultureInfo.CurrentUICulture); } }
+        internal static string DiagnosticLogAccessDenied { get { return ResourceManager.GetString("DiagnosticLogAccessDenied", CultureInfo.CurrentUICulture); } }
+        internal static string DiagnosticLogUnsupportedPath { get { return ResourceManager.GetString("DiagnosticLogUnsupportedPath", CultureInfo.CurrentUICulture); } }
     }
 }
