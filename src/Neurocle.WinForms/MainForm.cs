@@ -61,7 +61,8 @@ namespace Neurocle.WinForms
             status = new Label
             {
                 AutoSize = true,
-                Location = new Point(24, 56),
+                Dock = DockStyle.Top,
+                Padding = new Padding(24, 8, 0, 8),
                 Text = Strings.OfflineStatus
             };
             imageBrowser = new ImageBrowserControl { Dock = DockStyle.Bottom, Height = 272 };
@@ -188,9 +189,9 @@ namespace Neurocle.WinForms
             };
 
             MainMenuStrip = menu;
-            Controls.Add(menu);
-            Controls.Add(status);
             Controls.Add(pages);
+            Controls.Add(status);
+            Controls.Add(menu);
             FormClosing += (sender, args) =>
             {
                 if (importInProgress || exportInProgress) args.Cancel = true;

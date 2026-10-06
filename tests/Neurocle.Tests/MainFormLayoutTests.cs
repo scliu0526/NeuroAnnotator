@@ -54,5 +54,23 @@ namespace Neurocle.Tests
                 Assert.IsTrue(form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single().DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "診斷資訊"));
             }
         }
+
+        [TestMethod]
+        public void Page_tabs_are_below_the_menu_and_status()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                form.ClientSize = new Size(576, 325);
+                form.CreateControl();
+                form.PerformLayout();
+
+                var pages = form.Controls.OfType<TabControl>().Single();
+                var status = form.Controls.OfType<Label>().Single();
+                Assert.AreEqual(4, pages.TabPages.Count);
+                Assert.IsTrue(status.Top >= form.MainMenuStrip.Bottom, "Status overlaps the menu.");
+                Assert.IsTrue(pages.Top >= status.Bottom, "Page tabs overlap the menu or status.");
+                Assert.IsTrue(pages.Height > pages.GetTabRect(0).Bottom, "Page tabs do not fit in the viewport.");
+            }
+        }
     }
 }
