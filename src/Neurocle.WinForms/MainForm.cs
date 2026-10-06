@@ -158,12 +158,15 @@ namespace Neurocle.WinForms
             datasetPage.Controls.Add(datasetAssignments);
             pages.TabPages.Add(datasetPage);
             var exportPage = new TabPage(Strings.ExportPage);
+            var exportJson = new Button { Dock = DockStyle.Top, Text = Strings.ExportAnnotationJson };
+            exportJson.Click += async (sender, args) => await ExportAnnotationJsonAsync();
             var exportSelected = new Button { Dock = DockStyle.Top, Text = Strings.ExportSelectedImages };
             exportSelected.Click += async (sender, args) => await ExportImagesAsync(imageBrowser.SelectedImageIds);
             var exportAll = new Button { Dock = DockStyle.Top, Text = Strings.ExportAllImages };
             exportAll.Click += async (sender, args) => await ExportImagesAsync(null);
             exportPage.Controls.Add(exportSelected);
             exportPage.Controls.Add(exportAll);
+            exportPage.Controls.Add(exportJson);
             pages.TabPages.Add(exportPage);
             pages.SelectedIndexChanged += (sender, args) =>
             {
@@ -416,6 +419,23 @@ namespace Neurocle.WinForms
                     Enabled = true;
                     exportInProgress = false;
                 }
+            }
+        }
+
+        private async Task ExportAnnotationJsonAsync()
+        {
+            AnnotationSet set = annotationSets.SelectedItem as AnnotationSet;
+            if (project == null || set == null) return;
+            using (var dialog = new SaveFileDialog { DefaultExt = "json", AddExtension = true, Filter = Strings.AnnotationJsonFileFilter, OverwritePrompt = false, FileName = set.Name })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                IProjectSession session = project;
+                exportInProgress = true;
+                Enabled = false;
+                UseWaitCursor = true;
+                try { await Task.Run(() => session.ExportAnnotationJson(set.Id, dialog.FileName)); }
+                catch (Exception exception) { Enabled = true; MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                finally { UseWaitCursor = false; Enabled = true; exportInProgress = false; }
             }
         }
 

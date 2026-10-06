@@ -54,6 +54,7 @@
     <Compile Include="Persistence\ProjectLifecycle.cs" />
     <Compile Include="Persistence\ProjectImageImporter.cs" />
     <Compile Include="Persistence\JsonAnnotationImport.cs" />
+    <Compile Include="Persistence\JsonAnnotationExport.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

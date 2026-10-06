@@ -1540,6 +1540,91 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Annotation_json_export_round_trips_a_selected_set_and_skips_missing_images()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "sample.png");
+            string output = Path.Combine(Path.GetDirectoryName(path), "labels.json");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    store.AddObdAnnotation(set.Id, image.Id, value.Id, 1, 2, 3, 4);
+                    store.SetDatasetAssignments(set.Id, new[] { image.Id }, DatasetAssignmentStatus.Test);
+                    store.SetRetest(set.Id, new[] { image.Id }, true);
+                    string exported = store.ExportAnnotationJson(set.Id, output);
+                    AnnotationSet imported = store.ImportAnnotationJson(File.ReadAllText(exported), "roundtrip", false);
+                    Assert.AreEqual(1, store.GetObdAnnotations(imported.Id, image.Id).Count);
+                    Assert.AreEqual(DatasetAssignmentStatus.Test, store.GetDatasetAssignments(imported.Id).Single().Status);
+                    Assert.IsTrue(store.GetDatasetAssignments(imported.Id).Single().Retest);
+                    store.SetDatasetAssignments(set.Id, new[] { image.Id }, DatasetAssignmentStatus.Train);
+                    AnnotationSet train = store.ImportAnnotationJson(File.ReadAllText(store.ExportAnnotationJson(set.Id, Path.Combine(Path.GetDirectoryName(path), "train.json"))), "train", false);
+                    Assert.AreEqual(DatasetAssignmentStatus.Train, store.GetDatasetAssignments(train.Id).Single().Status);
+                    File.Delete(Path.Combine(store.ImagesDirectory, image.ManagedFileName));
+                    string skipped = store.ExportAnnotationJson(set.Id, output);
+                    Assert.AreEqual(Path.Combine(Path.GetDirectoryName(output), "labels (1).json"), skipped);
+                    Assert.AreEqual(0, JsonAnnotationImport.Parse(File.ReadAllText(skipped)).Data.Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Annotation_json_export_rejects_duplicate_original_file_names()
+        {
+            string path = TemporaryProjectPath();
+            string first = Path.Combine(Path.GetDirectoryName(path), "one", "same.png");
+            string second = Path.Combine(Path.GetDirectoryName(path), "two", "same.png");
+            try
+            {
+                CreateBitmap(first, Color.Red, ImageFormat.Png); CreateBitmap(second, Color.Blue, ImageFormat.Png);
+                using (var store = ProjectStore.Create(path))
+                {
+                    store.ImportFiles(new[] { first, second });
+                    AnnotationSet set = store.CreateAnnotationSet("set", AnnotationSetType.Cla);
+                    Assert.ThrowsException<InvalidOperationException>(() => store.ExportAnnotationJson(set.Id, Path.Combine(Path.GetDirectoryName(path), "labels.json")));
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Annotation_json_export_round_trips_cla_and_seg_shapes()
+        {
+            string path = TemporaryProjectPath(); string source = Path.Combine(Path.GetDirectoryName(path), "sample.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet cla = store.CreateAnnotationSet("cla", AnnotationSetType.Cla); AnnotationClass claClass = store.GetClasses(cla.Id).Single();
+                    store.SetClaClass(cla.Id, image.Id, claClass.Id); store.SetDatasetAssignments(cla.Id, new[] { image.Id }, DatasetAssignmentStatus.NotUsed);
+                    AnnotationSet claCopy = store.ImportAnnotationJson(File.ReadAllText(store.ExportAnnotationJson(cla.Id, Path.Combine(Path.GetDirectoryName(path), "cla.json"))), "cla copy", false);
+                    Assert.AreEqual(claClass.Name, store.GetClasses(claCopy.Id).Single(value => value.Id == store.GetClaClassId(claCopy.Id, image.Id)).Name);
+                    Assert.AreEqual(DatasetAssignmentStatus.NotUsed, store.GetDatasetAssignments(claCopy.Id).Single().Status);
+                    AnnotationSet seg = store.CreateAnnotationSet("seg", AnnotationSetType.Seg); AnnotationClass segClass = store.GetClasses(seg.Id).Single();
+                    store.AddSegRegion(seg.Id, image.Id, segClass.Id, SegRegionType.Rect, 1, 1, 2, 2); store.AddSegRegion(seg.Id, image.Id, segClass.Id, SegRegionType.Ellipse, 10, 10, 2, 3);
+                    store.AddSegPath(seg.Id, image.Id, segClass.Id, SegRegionType.PolyLine, new[] { new SegPoint(3, 3), new SegPoint(5, 5) }, 1);
+                    store.AddSegPath(seg.Id, image.Id, segClass.Id, SegRegionType.PolyGon, new[] { new SegPoint(1, 10), new SegPoint(3, 10), new SegPoint(2, 12) }, 0);
+                    AnnotationSet segCopy = store.ImportAnnotationJson(File.ReadAllText(store.ExportAnnotationJson(seg.Id, Path.Combine(Path.GetDirectoryName(path), "seg.json"))), "seg copy", false);
+                    CollectionAssert.AreEquivalent(new[] { SegRegionType.Rect, SegRegionType.Ellipse, SegRegionType.PolyLine, SegRegionType.PolyGon }, store.GetSegRegions(segCopy.Id, image.Id).Select(value => value.Type).ToArray());
+                    SegRegion[] copied = store.GetSegRegions(segCopy.Id, image.Id).ToArray();
+                    SegRegion rectangle = copied.Single(value => value.Type == SegRegionType.Rect); Assert.AreEqual(1, rectangle.X); Assert.AreEqual(2, rectangle.Width);
+                    SegRegion ellipse = copied.Single(value => value.Type == SegRegionType.Ellipse); Assert.AreEqual(2, ellipse.Width); Assert.AreEqual(3, ellipse.Height);
+                    SegRegion line = copied.Single(value => value.Type == SegRegionType.PolyLine); Assert.AreEqual(1, line.StrokeWidth); CollectionAssert.AreEqual(new[] { 3, 5 }, line.Points.Select(value => value.X).ToArray());
+                    SegRegion polygon = copied.Single(value => value.Type == SegRegionType.PolyGon); CollectionAssert.AreEqual(new[] { 10, 10, 12 }, polygon.Points.Select(value => value.Y).ToArray());
+                    Assert.AreEqual(DatasetAssignmentStatus.Unassigned, store.GetDatasetAssignments(segCopy.Id).Single().Status); Assert.IsFalse(store.GetDatasetAssignments(segCopy.Id).Single().Retest);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Dataset_split_planner_stratifies_annotated_images_before_empty_images()
         {
             DatasetSplitCandidate[] values = Enumerable.Range(1, 12).Select(index => new DatasetSplitCandidate("a" + index, new[] { "a" }, true))

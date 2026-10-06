@@ -332,6 +332,12 @@ namespace Neurocle.Infrastructure.Persistence
             return set;
         }
 
+        public string ExportAnnotationJson(string annotationSetId, string outputPath)
+        {
+            AnnotationSet set = GetAnnotationSets().Single(value => value.Id == annotationSetId);
+            return JsonAnnotationExport.Write(this, set, outputPath);
+        }
+
         private static void InsertImportedSegRegion(SqliteConnection db, SqliteTransaction transaction, string setId, string imageId, string classId, ImportedRegion region, int zOrder)
         {
             string id = Guid.NewGuid().ToString("D");
@@ -854,6 +860,18 @@ namespace Neurocle.Infrastructure.Persistence
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
         }
 
+        internal IReadOnlyDictionary<string, string> GetClaClassIds(string annotationSetId)
+        {
+            var result = new Dictionary<string, string>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT ImageId, ClassId FROM ClaAnnotation WHERE AnnotationSetId = $set;";
+                command.Parameters.AddWithValue("$set", annotationSetId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(reader.GetString(0), reader.GetString(1));
+            }
+            return result;
+        }
+
         public IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId, string imageId)
         {
             var result = new List<ObdAnnotation>();
@@ -862,6 +880,18 @@ namespace Neurocle.Infrastructure.Persistence
                 command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image ORDER BY ZOrder;";
                 command.Parameters.AddWithValue("$set", annotationSetId);
                 command.Parameters.AddWithValue("$image", imageId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(ReadObdAnnotation(reader));
+            }
+            return result;
+        }
+
+        internal IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId)
+        {
+            var result = new List<ObdAnnotation>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder FROM ObdAnnotation WHERE AnnotationSetId = $set ORDER BY ImageId, ZOrder;";
+                command.Parameters.AddWithValue("$set", annotationSetId);
                 using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(ReadObdAnnotation(reader));
             }
             return result;
@@ -886,6 +916,25 @@ namespace Neurocle.Infrastructure.Persistence
                 command.Parameters.AddWithValue("$set", annotationSetId);
                 command.Parameters.AddWithValue("$image", imageId);
                 using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) result.Add(ReadSegRegion(reader));
+            }
+            return result;
+        }
+
+        internal IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId)
+        {
+            var points = new Dictionary<string, List<SegPoint>>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT point.RegionId, point.X, point.Y FROM SegRegionPoint point INNER JOIN SegRegion region ON region.Id = point.RegionId WHERE region.AnnotationSetId = $set ORDER BY point.RegionId, point.Ordinal;";
+                command.Parameters.AddWithValue("$set", annotationSetId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) { string id = reader.GetString(0); if (!points.ContainsKey(id)) points.Add(id, new List<SegPoint>()); points[id].Add(new SegPoint(reader.GetInt32(1), reader.GetInt32(2))); }
+            }
+            var result = new List<SegRegion>();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth FROM SegRegion WHERE AnnotationSetId = $set ORDER BY ImageId, ZOrder;";
+                command.Parameters.AddWithValue("$set", annotationSetId);
+                using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read()) { string id = reader.GetString(0); result.Add(new SegRegion(id, reader.GetString(1), reader.GetString(2), reader.GetString(3), (SegRegionType)reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8), reader.GetInt32(9), points.ContainsKey(id) ? points[id] : new SegPoint[0], reader.IsDBNull(10) ? 0 : reader.GetInt32(10))); }
             }
             return result;
         }

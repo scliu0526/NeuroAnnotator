@@ -187,6 +187,7 @@ namespace Neurocle.Application.Projects
         ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested);
         ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested);
         AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields);
+        string ExportAnnotationJson(string annotationSetId, string outputPath);
         string ExportImagesZip(string outputPath, IEnumerable<string> imageIds);
         IReadOnlyList<ProjectImage> GetImages();
         IReadOnlyList<ProjectImage> GetMissingImages();

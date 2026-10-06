@@ -114,6 +114,8 @@
   <data name="ExportPage" xml:space="preserve"><value>完成與匯出</value></data>
   <data name="ExportSelectedImages" xml:space="preserve"><value>匯出選取圖片 ZIP</value></data>
   <data name="ExportAllImages" xml:space="preserve"><value>匯出全部圖片 ZIP</value></data>
+  <data name="ExportAnnotationJson" xml:space="preserve"><value>匯出目前標註集 JSON</value></data>
+  <data name="AnnotationJsonFileFilter" xml:space="preserve"><value>JSON 標註檔 (*.json)|*.json</value></data>
   <data name="ImageZipFileFilter" xml:space="preserve"><value>ZIP 壓縮檔 (*.zip)|*.zip</value></data>
   <data name="FitToWindow" xml:space="preserve"><value>適合視窗</value></data>
   <data name="NewClaSet" xml:space="preserve"><value>新增 CLA</value></data>
