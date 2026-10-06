@@ -48,14 +48,30 @@
     <Compile Include="Program.cs" />
     <Compile Include="DiagnosticLog.cs" />
     <Compile Include="DiagnosticLogMessages.cs" />
-    <Compile Include="DiagnosticsForm.cs" />
-    <Compile Include="MainForm.cs" />
-    <Compile Include="ImportProgressForm.cs" />
-    <Compile Include="MissingImagesForm.cs" />
-    <Compile Include="BackupManagementForm.cs" />
-    <Compile Include="ImageBrowserControl.cs" />
-    <Compile Include="DatasetAssignmentControl.cs" />
-    <Compile Include="ImageCanvasControl.cs" />
+    <Compile Include="DiagnosticsForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="MainForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ImportProgressForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="MissingImagesForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="BackupManagementForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ImageBrowserControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DatasetAssignmentControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="ImageCanvasControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Resources\Strings.Designer.cs" />
     <EmbeddedResource Include="Resources\Strings.resx">
       <Generator>ResXFileCodeGenerator</Generator>
