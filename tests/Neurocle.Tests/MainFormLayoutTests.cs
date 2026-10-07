@@ -1,5 +1,9 @@
+using System;
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.WinForms;
@@ -70,6 +74,79 @@ namespace Neurocle.Tests
                 Assert.IsTrue(status.Top >= form.MainMenuStrip.Bottom, "Status overlaps the menu.");
                 Assert.IsTrue(pages.Top >= status.Bottom, "Page tabs overlap the menu or status.");
                 Assert.IsTrue(pages.Height > pages.GetTabRect(0).Bottom, "Page tabs do not fit in the viewport.");
+            }
+        }
+
+        [TestMethod]
+        public void Image_and_annotation_pages_share_the_persistent_image_workspace_and_view()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                form.CreateControl();
+                form.ClientSize = new Size(1200, 800);
+                form.PerformLayout();
+
+                var pages = form.Controls.OfType<TabControl>().Single();
+                Assert.IsTrue(form.Controls.Contains(form.ImageBrowser));
+                Assert.IsTrue(pages.TabPages[0].Controls.Contains(form.ImageCanvas));
+                Assert.IsTrue(pages.TabPages[1].Controls.Contains(form.AnnotationCanvas));
+
+                form.AnnotationCanvas.SetZoomPercent(150);
+                Assert.AreEqual(form.AnnotationCanvas.Zoom, form.ImageCanvas.Zoom, 0.0001d);
+
+                var view = form.AnnotationCanvas.ViewState;
+                form.AnnotationCanvas.SetViewState(new ImageCanvasControl.CanvasViewState(view.Zoom, new PointF(32f, 48f), false));
+                Assert.AreEqual(32f, form.ImageCanvas.ViewState.Origin.X, 0.001f);
+                Assert.AreEqual(48f, form.ImageCanvas.ViewState.Origin.Y, 0.001f);
+
+                form.AnnotationCanvas.SetViewState(new ImageCanvasControl.CanvasViewState(0.75d, new PointF(21f, 34f), true));
+                Assert.AreEqual(0.75d, form.ImageCanvas.ViewState.Zoom, 0.0001d);
+                Assert.AreEqual(21f, form.ImageCanvas.ViewState.Origin.X, 0.001f);
+                Assert.IsTrue(form.ImageCanvas.ViewState.IsFitted);
+            }
+        }
+
+        [STATestMethod]
+        public void Rapid_image_switch_and_missing_image_clear_the_previous_canvas_content()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string first = Path.Combine(directory, "first.png");
+            string second = Path.Combine(directory, "second.png");
+            try
+            {
+                Directory.CreateDirectory(directory);
+                CreateSolidImage(first, Color.Red);
+                CreateSolidImage(second, Color.Blue);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(first);
+                    canvas.LoadImage(second);
+
+                    DateTime timeout = DateTime.UtcNow.AddSeconds(5);
+                    while (canvas.LoadedImagePath != second && DateTime.UtcNow < timeout)
+                    {
+                        System.Windows.Forms.Application.DoEvents();
+                        Thread.Sleep(1);
+                    }
+
+                    Assert.AreEqual(second, canvas.LoadedImagePath);
+                    canvas.LoadImage(null);
+                    Assert.IsNull(canvas.LoadedImagePath);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        private static void CreateSolidImage(string path, Color color)
+        {
+            using (var bitmap = new Bitmap(10, 10))
+            {
+                bitmap.SetPixel(0, 0, color);
+                bitmap.Save(path, ImageFormat.Png);
             }
         }
     }

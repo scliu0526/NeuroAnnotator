@@ -16,6 +16,7 @@ namespace Neurocle.WinForms
         private readonly CanvasViewport viewport = new CanvasViewport(Size.Empty, Size.Empty);
         private readonly SemaphoreSlim imageLoadGate = new SemaphoreSlim(1, 1);
         private Image image;
+        private string loadedImagePath;
         private CancellationTokenSource imageLoad;
         private bool panning;
         private Point previousPoint;
@@ -100,6 +101,16 @@ namespace Neurocle.WinForms
 
         public double Zoom { get { return viewport.Zoom; } }
         public event EventHandler ZoomChanged;
+        public event EventHandler ViewChanged;
+        internal string LoadedImagePath { get { return loadedImagePath; } }
+        internal CanvasViewState ViewState { get { return new CanvasViewState(viewport.Zoom, viewport.Origin, viewport.IsFitted); } }
+
+        internal void SetViewState(CanvasViewState state)
+        {
+            viewport.SetView(state.Zoom, state.Origin, state.IsFitted);
+            Invalidate();
+            RaiseViewChanged();
+        }
 
         public void LoadImage(string path)
         {
@@ -118,9 +129,10 @@ namespace Neurocle.WinForms
                 CanvasImage loaded = await Task.Run(() => LoadCanvasImage(path, cancellation.Token), cancellation.Token);
                 if (cancellation.IsCancellationRequested) { loaded.Preview.Dispose(); return; }
                 image = loaded.Preview;
+                loadedImagePath = path;
                 viewport.SetImageSize(loaded.OriginalSize);
                 Invalidate();
-                ZoomChanged?.Invoke(this, EventArgs.Empty);
+                RaiseViewChanged();
             }
             catch (OperationCanceledException) { }
             catch { if (!cancellation.IsCancellationRequested) ClearImage(); }
@@ -153,19 +165,20 @@ namespace Neurocle.WinForms
         {
             Image previous = image;
             image = null;
+            loadedImagePath = null;
             previous?.Dispose();
             viewport.SetImageSize(Size.Empty);
             Invalidate();
-            ZoomChanged?.Invoke(this, EventArgs.Empty);
+            RaiseViewChanged();
         }
 
         private void CancelImageLoad() { imageLoad?.Cancel(); imageLoad = null; }
-        public void FitToWindow() { viewport.FitToWindow(); Invalidate(); ZoomChanged?.Invoke(this, EventArgs.Empty); }
+        public void FitToWindow() { viewport.FitToWindow(); Invalidate(); RaiseViewChanged(); }
         public void SetZoomPercent(double percent)
         {
             viewport.SetZoomAt(percent / 100d, new PointF(ClientSize.Width / 2f, ClientSize.Height / 2f));
             Invalidate();
-            ZoomChanged?.Invoke(this, EventArgs.Empty);
+            RaiseViewChanged();
         }
 
         public void DiscardUnfinishedShape()
@@ -306,10 +319,11 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseWheel(MouseEventArgs args)
         {
-            if ((ModifierKeys & Keys.Control) == Keys.Control) { viewport.SetZoomAt(viewport.Zoom * (args.Delta > 0 ? 1.1d : 1d / 1.1d), args.Location); ZoomChanged?.Invoke(this, EventArgs.Empty); }
+            if ((ModifierKeys & Keys.Control) == Keys.Control) viewport.SetZoomAt(viewport.Zoom * (args.Delta > 0 ? 1.1d : 1d / 1.1d), args.Location);
             else if ((ModifierKeys & Keys.Shift) == Keys.Shift) viewport.Pan(args.Delta / 120f * 48f, 0f);
             else viewport.Pan(0f, args.Delta / 120f * 48f);
             Invalidate();
+            RaiseViewChanged();
             base.OnMouseWheel(args);
         }
 
@@ -462,6 +476,7 @@ namespace Neurocle.WinForms
                 viewport.Pan(args.X - previousPoint.X, args.Y - previousPoint.Y);
                 previousPoint = args.Location;
                 Invalidate();
+                RaiseViewChanged();
             }
             else if (obdDrag != ObdDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
@@ -813,6 +828,11 @@ namespace Neurocle.WinForms
         }
 
         private PointF ClampPoint(PointF value) { return new PointF(Math.Max(0f, Math.Min(value.X, viewport.ImageSize.Width)), Math.Max(0f, Math.Min(value.Y, viewport.ImageSize.Height))); }
+        private void RaiseViewChanged()
+        {
+            ZoomChanged?.Invoke(this, EventArgs.Empty);
+            ViewChanged?.Invoke(this, EventArgs.Empty);
+        }
         private RectangleF Clamp(RectangleF value)
         {
             float left = Math.Max(0f, Math.Min(value.Left, viewport.ImageSize.Width));
@@ -853,6 +873,20 @@ namespace Neurocle.WinForms
             public CanvasImage(Image preview, Size originalSize) { Preview = preview; OriginalSize = originalSize; }
             public Image Preview { get; private set; }
             public Size OriginalSize { get; private set; }
+        }
+
+        internal struct CanvasViewState
+        {
+            public CanvasViewState(double zoom, PointF origin, bool isFitted)
+            {
+                Zoom = zoom;
+                Origin = origin;
+                IsFitted = isFitted;
+            }
+
+            public double Zoom { get; private set; }
+            public PointF Origin { get; private set; }
+            public bool IsFitted { get; private set; }
         }
     }
 }

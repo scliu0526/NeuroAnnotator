@@ -62,6 +62,13 @@ namespace Neurocle.Application.Projects
             Origin = new PointF(Origin.X + horizontal, Origin.Y + vertical);
         }
 
+        public void SetView(double zoom, PointF origin, bool fitted)
+        {
+            isFitted = fitted;
+            Zoom = Clamp(zoom);
+            Origin = origin;
+        }
+
         public PointF ScreenToImage(PointF screenPoint)
         {
             return new PointF((float)((screenPoint.X - Origin.X) / Zoom), (float)((screenPoint.Y - Origin.Y) / Zoom));

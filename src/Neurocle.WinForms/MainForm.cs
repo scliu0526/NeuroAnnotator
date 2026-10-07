@@ -19,7 +19,9 @@ namespace Neurocle.WinForms
         private readonly Label status;
         private readonly ToolStripMenuItem projectMenu;
         private readonly ImageBrowserControl imageBrowser;
+        private readonly ImageCanvasControl imageCanvas;
         private readonly ImageCanvasControl canvas;
+        private ImageCanvasControl activeCanvas;
         private readonly DatasetAssignmentControl datasetAssignments;
         private readonly ComboBox annotationSets;
         private readonly FlowLayoutPanel annotationClasses;
@@ -29,6 +31,11 @@ namespace Neurocle.WinForms
         private bool importInProgress;
         private bool exportInProgress;
         private bool annotationOperationInProgress;
+        private bool synchronizingCanvasView;
+
+        internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
+        internal ImageCanvasControl ImageCanvas { get { return imageCanvas; } }
+        internal ImageCanvasControl AnnotationCanvas { get { return canvas; } }
 
         public MainForm(IProjectLifecycle projectLifecycle)
             : this(projectLifecycle, DiagnosticLog.CreateDefault())
@@ -66,8 +73,12 @@ namespace Neurocle.WinForms
                 Padding = new Padding(24, 8, 0, 8),
                 Text = Strings.OfflineStatus
             };
-            imageBrowser = new ImageBrowserControl { Dock = DockStyle.Bottom, Height = 272 };
+            imageBrowser = new ImageBrowserControl { Dock = DockStyle.Left, Width = 300 };
+            imageCanvas = new ImageCanvasControl { Dock = DockStyle.Fill };
             canvas = new ImageCanvasControl { Dock = DockStyle.Fill };
+            activeCanvas = imageCanvas;
+            imageCanvas.ViewChanged += (sender, args) => SynchronizeCanvasView(imageCanvas, canvas);
+            canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
             datasetAssignments = new DatasetAssignmentControl { Dock = DockStyle.Fill };
             datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
             datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
@@ -85,12 +96,13 @@ namespace Neurocle.WinForms
             {
                 selectedImagePath = args.Image.IsMissing ? null : args.Path;
                 selectedImageId = args.Image.Id;
-                if (selectedImagePath == null) canvas.LoadImage(null);
+                imageCanvas.LoadImage(selectedImagePath);
+                canvas.LoadImage(selectedImagePath);
                 RefreshAnnotationClasses();
             };
             var pages = new TabControl { Dock = DockStyle.Fill };
             var imagesPage = new TabPage(Strings.ImagesPage);
-            imagesPage.Controls.Add(imageBrowser);
+            imagesPage.Controls.Add(imageCanvas);
             var annotationPage = new TabPage(Strings.AnnotationPage);
             annotationSets = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
             annotationSets.SelectedIndexChanged += (sender, args) => { canvas.DiscardUnfinishedShape(); RefreshAnnotationClasses(); RefreshDatasetAssignments(); };
@@ -180,17 +192,19 @@ namespace Neurocle.WinForms
             pages.TabPages.Add(exportPage);
             pages.SelectedIndexChanged += (sender, args) =>
             {
-                canvas.DiscardUnfinishedShape();
-                if (pages.SelectedTab == annotationPage && selectedImagePath != null)
+                ImageCanvasControl selectedCanvas = pages.SelectedTab == imagesPage ? imageCanvas : pages.SelectedTab == annotationPage ? canvas : null;
+                if (selectedCanvas != null && !ReferenceEquals(activeCanvas, selectedCanvas))
                 {
-                    try { canvas.LoadImage(selectedImagePath); }
-                    catch { }
+                    SynchronizeCanvasView(activeCanvas, selectedCanvas);
+                    activeCanvas = selectedCanvas;
                 }
+                canvas.DiscardUnfinishedShape();
                 if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
             };
 
             MainMenuStrip = menu;
             Controls.Add(pages);
+            Controls.Add(imageBrowser);
             Controls.Add(status);
             Controls.Add(menu);
             FormClosing += (sender, args) =>
@@ -215,6 +229,17 @@ namespace Neurocle.WinForms
             value.ValueChanged += (sender, args) => apply((int)value.Value);
             container.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left }, 0, row);
             container.Controls.Add(value, 1, row);
+        }
+
+        private void SynchronizeCanvasView(ImageCanvasControl source, ImageCanvasControl target)
+        {
+            if (synchronizingCanvasView) return;
+            try
+            {
+                synchronizingCanvasView = true;
+                target.SetViewState(source.ViewState);
+            }
+            finally { synchronizingCanvasView = false; }
         }
 
         private void SelectSegTool(ImageCanvasControl.SegToolKind tool)
