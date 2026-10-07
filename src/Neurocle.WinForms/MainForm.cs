@@ -312,14 +312,19 @@ namespace Neurocle.WinForms
             if (project == null) return;
             string name = Prompt(Strings.AnnotationSetNamePrompt);
             if (name == null) return;
-            project.CreateAnnotationSet(name, type);
-            RefreshAnnotationSets();
+            CreateAnnotationSet(type, name);
         }
 
-        private void RefreshAnnotationSets()
+        private void CreateAnnotationSet(AnnotationSetType type, string name)
+        {
+            AnnotationSet created = project.CreateAnnotationSet(name, type);
+            RefreshAnnotationSets(created.Id);
+        }
+
+        private void RefreshAnnotationSets(string selectedId = null)
         {
             if (annotationSets == null) return;
-            string selectedId = (annotationSets.SelectedItem as AnnotationSet)?.Id;
+            if (selectedId == null) selectedId = (annotationSets.SelectedItem as AnnotationSet)?.Id;
             annotationSets.Items.Clear();
             if (project != null) annotationSets.Items.AddRange(project.GetAnnotationSets().ToArray());
             annotationSets.DisplayMember = "DisplayName";

@@ -3,9 +3,11 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Neurocle.Application.Projects;
 using Neurocle.WinForms;
 using Neurocle.Infrastructure.Persistence;
 
@@ -141,6 +143,40 @@ namespace Neurocle.Tests
             }
         }
 
+        [TestMethod]
+        public void Creating_an_annotation_set_selects_the_new_internal_id_even_when_names_match()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(path);
+                AnnotationSet original = store.CreateAnnotationSet("same", AnnotationSetType.Cla);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    foreach (AnnotationSetType type in new[] { AnnotationSetType.Cla, AnnotationSetType.Obd, AnnotationSetType.Seg })
+                    {
+                        string[] before = store.GetAnnotationSets().Select(item => item.Id).ToArray();
+                        Invoke(form, "CreateAnnotationSet", type, "same");
+                        AnnotationSet created = store.GetAnnotationSets().Single(item => !before.Contains(item.Id));
+                        var annotationSets = (ComboBox)typeof(MainForm).GetField("annotationSets", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                        Assert.AreEqual(created.Id, ((AnnotationSet)annotationSets.SelectedItem).Id);
+                        Assert.AreEqual(1, store.GetClasses(created.Id).Count);
+                    }
+
+                    Assert.AreNotEqual(original.Id, ((AnnotationSet)((ComboBox)typeof(MainForm).GetField("annotationSets", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form)).SelectedItem).Id);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         private static void CreateSolidImage(string path, Color color)
         {
             using (var bitmap = new Bitmap(10, 10))
@@ -148,6 +184,13 @@ namespace Neurocle.Tests
                 bitmap.SetPixel(0, 0, color);
                 bitmap.Save(path, ImageFormat.Png);
             }
+        }
+
+        private static void Invoke(object target, string methodName, params object[] arguments)
+        {
+            MethodInfo method = target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+                .Single(candidate => candidate.Name == methodName && candidate.GetParameters().Length == arguments.Length);
+            method.Invoke(target, arguments);
         }
     }
 }
