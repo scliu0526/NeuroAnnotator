@@ -962,6 +962,33 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Canvas_viewport_clamps_pan_per_axis_and_centers_small_images_after_every_view_change()
+        {
+            var viewport = new CanvasViewport(new Size(2000, 1000), new Size(1000, 500));
+            viewport.SetZoomAt(1d, new PointF(500f, 250f));
+            viewport.Pan(10000f, 10000f);
+            Assert.AreEqual(0f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(0f, viewport.Origin.Y, 0.001f);
+            viewport.Pan(-10000f, -10000f);
+            Assert.AreEqual(-1000f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(-500f, viewport.Origin.Y, 0.001f);
+
+            viewport.SetView(1d, new PointF(-9000f, 9000f), false);
+            Assert.AreEqual(-1000f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(0f, viewport.Origin.Y, 0.001f);
+
+            viewport.SetImageSize(new Size(400, 1000));
+            viewport.SetZoomAt(1d, new PointF(500f, 250f));
+            viewport.Pan(-10000f, -10000f);
+            Assert.AreEqual(300f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(-500f, viewport.Origin.Y, 0.001f);
+
+            viewport.SetViewportSize(new Size(800, 500));
+            Assert.AreEqual(200f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(-500f, viewport.Origin.Y, 0.001f);
+        }
+
+        [TestMethod]
         public void Annotation_sets_classes_and_cla_assignments_are_isolated_and_persist_after_reopen()
         {
             string path = TemporaryProjectPath();

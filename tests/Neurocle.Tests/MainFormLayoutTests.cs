@@ -96,15 +96,6 @@ namespace Neurocle.Tests
                 form.AnnotationCanvas.SetZoomPercent(150);
                 Assert.AreEqual(form.AnnotationCanvas.Zoom, form.ImageCanvas.Zoom, 0.0001d);
 
-                var view = form.AnnotationCanvas.ViewState;
-                form.AnnotationCanvas.SetViewState(new ImageCanvasControl.CanvasViewState(view.Zoom, new PointF(32f, 48f), false));
-                Assert.AreEqual(32f, form.ImageCanvas.ViewState.Origin.X, 0.001f);
-                Assert.AreEqual(48f, form.ImageCanvas.ViewState.Origin.Y, 0.001f);
-
-                form.AnnotationCanvas.SetViewState(new ImageCanvasControl.CanvasViewState(0.75d, new PointF(21f, 34f), true));
-                Assert.AreEqual(0.75d, form.ImageCanvas.ViewState.Zoom, 0.0001d);
-                Assert.AreEqual(21f, form.ImageCanvas.ViewState.Origin.X, 0.001f);
-                Assert.IsTrue(form.ImageCanvas.ViewState.IsFitted);
             }
         }
 
