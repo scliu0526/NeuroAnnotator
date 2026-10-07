@@ -16,6 +16,7 @@ namespace Neurocle.WinForms
         private readonly ComboBox retestFilter;
         private readonly NumericUpDown trainPercent;
         private readonly NumericUpDown testPercent;
+        private readonly ColumnHeader annotationCountColumn;
         private bool synchronizingPercentages;
         private readonly List<DatasetRow> rows = new List<DatasetRow>();
         private readonly List<DatasetRow> visibleRows = new List<DatasetRow>();
@@ -49,6 +50,7 @@ namespace Neurocle.WinForms
             list.Columns.Add(Strings.DatasetColumn, 100);
             list.Columns.Add(Strings.DatasetClassColumn, 180);
             list.Columns.Add(Strings.DatasetAnnotatedColumn, 80);
+            annotationCountColumn = new ColumnHeader { Text = Strings.DatasetAnnotationCountColumn, Width = 80 };
             list.Columns.Add(Strings.DatasetRetestColumn, 70);
             var menu = new ContextMenuStrip();
             menu.Items.Add(Strings.DatasetClearRetest, null, (sender, args) => RetestRequested?.Invoke(SelectedImageIds, false));
@@ -65,6 +67,8 @@ namespace Neurocle.WinForms
         public event Action<IReadOnlyList<string>> ClearClassRequested;
         public event Action<int> AutoSplitRequested;
 
+        internal IReadOnlyList<DatasetRow> Rows { get { return rows; } }
+
         private void SynchronizePercentages(NumericUpDown source, NumericUpDown target)
         {
             if (synchronizingPercentages) return;
@@ -75,8 +79,10 @@ namespace Neurocle.WinForms
 
         public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visibleRows[index].Image.Id).ToArray(); } }
 
-        public void LoadRows(IEnumerable<DatasetRow> values)
+        public void LoadRows(IEnumerable<DatasetRow> values, bool showAnnotationCount = false)
         {
+            if (showAnnotationCount && !list.Columns.Contains(annotationCountColumn)) list.Columns.Insert(5, annotationCountColumn);
+            if (!showAnnotationCount && list.Columns.Contains(annotationCountColumn)) list.Columns.Remove(annotationCountColumn);
             rows.Clear();
             rows.AddRange(values ?? Enumerable.Empty<DatasetRow>());
             string selectedClass = classFilter.SelectedItem as string;
@@ -130,6 +136,7 @@ namespace Neurocle.WinForms
             item.SubItems.Add(DatasetText(row.Assignment.Status));
             item.SubItems.Add(string.Join(", ", row.ClassNames));
             item.SubItems.Add(row.HasAnnotation ? Strings.DatasetFilterAnnotated : Strings.DatasetFilterEmpty);
+            if (list.Columns.Contains(annotationCountColumn)) item.SubItems.Add(row.AnnotationCount.ToString());
             item.SubItems.Add(row.Assignment.Retest ? Strings.DatasetFilterRetest : Strings.DatasetFilterNoRetest);
             return item;
         }
@@ -145,13 +152,14 @@ namespace Neurocle.WinForms
 
     internal sealed class DatasetRow
     {
-        public DatasetRow(ProjectImage image, DatasetAssignment assignment, IReadOnlyList<string> classNames)
+        public DatasetRow(ProjectImage image, DatasetAssignment assignment, IReadOnlyList<string> classNames, int annotationCount)
         {
-            Image = image; Assignment = assignment; ClassNames = classNames ?? throw new ArgumentNullException(nameof(classNames));
+            Image = image; Assignment = assignment; ClassNames = classNames ?? throw new ArgumentNullException(nameof(classNames)); AnnotationCount = annotationCount;
         }
         public ProjectImage Image { get; private set; }
         public DatasetAssignment Assignment { get; private set; }
         public IReadOnlyList<string> ClassNames { get; private set; }
-        public bool HasAnnotation { get { return ClassNames.Count > 0; } }
+        public int AnnotationCount { get; private set; }
+        public bool HasAnnotation { get { return AnnotationCount > 0; } }
     }
 }

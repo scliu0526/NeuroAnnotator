@@ -1594,7 +1594,49 @@ namespace Neurocle.Tests
 
                     ImageAnnotationSummary summary = store.GetImageAnnotationSummaries(obd.Id).Single();
                     CollectionAssert.AreEquivalent(new[] { first.Id, second.Id }, summary.ClassIds.ToArray());
+                    Assert.AreEqual(3, summary.AnnotationCount);
                     Assert.IsFalse(store.GetImageAnnotationSummaries(store.CreateAnnotationSet("empty", AnnotationSetType.Seg).Id).Any());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Image_annotation_summary_count_matches_obd_and_seg_objects_through_history_and_import()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet obd = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    string obdClassId = store.GetClasses(obd.Id).Single().Id;
+                    store.AddObdAnnotation(obd.Id, image.Id, obdClassId, 1, 1, 10, 10);
+                    store.AddObdAnnotation(obd.Id, image.Id, obdClassId, 20, 20, 10, 10);
+                    Assert.AreEqual(store.GetObdAnnotations(obd.Id, image.Id).Count, store.GetImageAnnotationSummaries(obd.Id).Single().AnnotationCount);
+                    store.DeleteObdAnnotation(store.GetObdAnnotations(obd.Id, image.Id)[0].Id);
+                    Assert.AreEqual(store.GetObdAnnotations(obd.Id, image.Id).Count, store.GetImageAnnotationSummaries(obd.Id).Single().AnnotationCount);
+                    Assert.IsTrue(store.Undo(obd.Id));
+                    Assert.AreEqual(store.GetObdAnnotations(obd.Id, image.Id).Count, store.GetImageAnnotationSummaries(obd.Id).Single().AnnotationCount);
+                    Assert.IsTrue(store.Redo(obd.Id));
+                    Assert.AreEqual(store.GetObdAnnotations(obd.Id, image.Id).Count, store.GetImageAnnotationSummaries(obd.Id).Single().AnnotationCount);
+
+                    AnnotationSet seg = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    string segClassId = store.GetClasses(seg.Id).Single().Id;
+                    store.AddSegRegion(seg.Id, image.Id, segClassId, SegRegionType.Rect, 1, 1, 20, 20);
+                    store.AddSegRegion(seg.Id, image.Id, segClassId, SegRegionType.Rect, 10, 1, 20, 20);
+                    Assert.AreEqual(store.GetSegRegions(seg.Id, image.Id).Count, store.GetImageAnnotationSummaries(seg.Id).Single().AnnotationCount);
+                    store.EraseSegPath(seg.Id, image.Id, segClassId, new[] { new SegPoint(15, 2), new SegPoint(15, 11), new SegPoint(15, 20) }, 4);
+                    Assert.AreEqual(store.GetSegRegions(seg.Id, image.Id).Count, store.GetImageAnnotationSummaries(seg.Id).Single().AnnotationCount);
+                    Assert.IsTrue(store.Undo(seg.Id));
+                    Assert.AreEqual(store.GetSegRegions(seg.Id, image.Id).Count, store.GetImageAnnotationSummaries(seg.Id).Single().AnnotationCount);
+
+                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"source.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":100,\"height\":100}]}";
+                    AnnotationSet imported = store.ImportAnnotationJson(json, "imported", false);
+                    Assert.AreEqual(store.GetSegRegions(imported.Id, image.Id).Count, store.GetImageAnnotationSummaries(imported.Id).Single().AnnotationCount);
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }

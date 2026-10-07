@@ -59,6 +59,7 @@
     <Compile Include="SqliteRuntimeProbeTests.cs" />
     <Compile Include="ProjectStoreTests.cs" />
     <Compile Include="MainFormLayoutTests.cs" />
+    <Compile Include="MainFormDatasetTests.cs" />
     <Compile Include="DiagnosticLogTests.cs" />
     <Compile Include="SegGeometryPrototypeTests.cs" />
     <Compile Include="SegCompletionPerformanceTests.cs" />

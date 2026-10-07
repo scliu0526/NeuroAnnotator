@@ -454,6 +454,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (set == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
             string table = set.Type == AnnotationSetType.Cla ? "ClaAnnotation" : set.Type == AnnotationSetType.Obd ? "ObdAnnotation" : "SegRegion";
             var grouped = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = "SELECT ImageId, ClassId FROM " + table + " WHERE AnnotationSetId = $set ORDER BY ImageId;";
@@ -465,12 +466,13 @@ namespace Neurocle.Infrastructure.Persistence
                         string imageId = reader.GetString(0);
                         List<string> classIds;
                         if (!grouped.TryGetValue(imageId, out classIds)) { classIds = new List<string>(); grouped.Add(imageId, classIds); }
+                        counts[imageId] = counts.ContainsKey(imageId) ? counts[imageId] + 1 : 1;
                         string classId = reader.GetString(1);
                         if (!classIds.Contains(classId)) classIds.Add(classId);
                     }
                 }
             }
-            return grouped.Select(value => new ImageAnnotationSummary(value.Key, value.Value)).ToArray();
+            return grouped.Select(value => new ImageAnnotationSummary(value.Key, value.Value, counts[value.Key])).ToArray();
         }
 
         public void SetDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, DatasetAssignmentStatus status)

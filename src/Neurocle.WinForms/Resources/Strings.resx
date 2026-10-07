@@ -104,6 +104,7 @@
   <data name="DatasetColumn" xml:space="preserve"><value>資料集</value></data>
   <data name="DatasetClassColumn" xml:space="preserve"><value>類別</value></data>
   <data name="DatasetAnnotatedColumn" xml:space="preserve"><value>標註</value></data>
+  <data name="DatasetAnnotationCountColumn" xml:space="preserve"><value>標註數量</value></data>
   <data name="DatasetRetestColumn" xml:space="preserve"><value>Retest</value></data>
   <data name="DatasetTrainPercent" xml:space="preserve"><value>訓練：</value></data>
   <data name="DatasetTestPercent" xml:space="preserve"><value>測試：</value></data>

@@ -62,6 +62,21 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Dataset_assignment_count_column_is_visible_only_for_obd_and_seg_sets()
+        {
+            using (var control = new DatasetAssignmentControl())
+            {
+                ListView list = control.Controls.OfType<ListView>().Single();
+                control.LoadRows(Enumerable.Empty<DatasetRow>(), false);
+                Assert.IsFalse(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+                control.LoadRows(Enumerable.Empty<DatasetRow>(), true);
+                Assert.IsTrue(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+                control.LoadRows(Enumerable.Empty<DatasetRow>(), false);
+                Assert.IsFalse(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+            }
+        }
+
+        [TestMethod]
         public void Page_tabs_are_below_the_menu_and_status()
         {
             using (var form = new MainForm(new ProjectLifecycle()))

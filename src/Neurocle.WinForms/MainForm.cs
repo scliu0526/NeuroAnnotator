@@ -36,6 +36,7 @@ namespace Neurocle.WinForms
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
         internal ImageCanvasControl ImageCanvas { get { return imageCanvas; } }
         internal ImageCanvasControl AnnotationCanvas { get { return canvas; } }
+        internal DatasetAssignmentControl DatasetAssignments { get { return datasetAssignments; } }
 
         public MainForm(IProjectLifecycle projectLifecycle)
             : this(projectLifecycle, DiagnosticLog.CreateDefault())
@@ -380,17 +381,17 @@ namespace Neurocle.WinForms
             if (project == null || selected == null) { datasetAssignments.LoadRows(new DatasetRow[0]); return; }
             var images = project.GetImages().ToDictionary(value => value.Id, StringComparer.Ordinal);
             var classes = project.GetClasses(selected.Id).ToDictionary(value => value.Id, value => value.Name, StringComparer.Ordinal);
-            var summaries = project.GetImageAnnotationSummaries(selected.Id).ToDictionary(value => value.ImageId, value => value.ClassIds, StringComparer.Ordinal);
+            var summaries = project.GetImageAnnotationSummaries(selected.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
             var rows = new List<DatasetRow>();
             foreach (DatasetAssignment assignment in project.GetDatasetAssignments(selected.Id))
             {
                 ProjectImage image = images[assignment.ImageId];
-                IReadOnlyList<string> classIds;
-                summaries.TryGetValue(image.Id, out classIds);
-                string[] classNames = (classIds ?? new string[0]).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
-                rows.Add(new DatasetRow(image, assignment, classNames));
+                ImageAnnotationSummary summary;
+                summaries.TryGetValue(image.Id, out summary);
+                string[] classNames = (summary == null ? new string[0] : summary.ClassIds).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
+                rows.Add(new DatasetRow(image, assignment, classNames, summary == null ? 0 : summary.AnnotationCount));
             }
-            datasetAssignments.LoadRows(rows);
+            datasetAssignments.LoadRows(rows, selected.Type != AnnotationSetType.Cla);
         }
 
         private void SetDatasetAssignments(IReadOnlyList<string> imageIds, DatasetAssignmentStatus status)
@@ -705,6 +706,7 @@ namespace Neurocle.WinForms
             {
                 if (redo) project.Redo(selected.Id); else project.Undo(selected.Id);
                 RefreshAnnotationClasses();
+                RefreshDatasetAssignments();
             });
         }
 
