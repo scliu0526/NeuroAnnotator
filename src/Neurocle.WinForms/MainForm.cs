@@ -28,6 +28,7 @@ namespace Neurocle.WinForms
         private string selectedSegClassId;
         private bool importInProgress;
         private bool exportInProgress;
+        private bool annotationOperationInProgress;
 
         public MainForm(IProjectLifecycle projectLifecycle)
             : this(projectLifecycle, DiagnosticLog.CreateDefault())
@@ -75,9 +76,9 @@ namespace Neurocle.WinForms
             canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
             canvas.ObdRectanglesChanged += rectangles => RunAnnotationCommand(() => UpdateObdRectangles(rectangles));
             canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
-            canvas.SegRegionCreated += (type, rectangle) => RunAnnotationCommand(() => CreateSegRegion(type, rectangle));
-            canvas.SegPathCreated += (type, points, width) => RunAnnotationCommand(() => CreateSegPath(type, points, width));
-            canvas.SegEraseRequested += (points, width) => RunAnnotationCommand(() => EraseSegPath(points, width));
+            canvas.SegRegionCreated += async (type, rectangle) => await CreateSegRegionAsync(type, rectangle);
+            canvas.SegPathCreated += async (type, points, width) => await CreateSegPathAsync(type, points, width);
+            canvas.SegEraseRequested += async (points, width) => await EraseSegPathAsync(points, width);
             canvas.SegRegionsChanged += regions => RunAnnotationCommand(() => UpdateSegRegions(regions));
             canvas.SegRegionsDeleteRequested += ids => RunAnnotationCommand(() => DeleteSegRegions(ids));
             imageBrowser.ImageSelected += (sender, args) =>
@@ -194,7 +195,7 @@ namespace Neurocle.WinForms
             Controls.Add(menu);
             FormClosing += (sender, args) =>
             {
-                if (importInProgress || exportInProgress) args.Cancel = true;
+                if (importInProgress || exportInProgress || annotationOperationInProgress) args.Cancel = true;
             };
             FormClosed += (sender, args) => project?.Dispose();
             KeyDown += (sender, args) =>
@@ -482,40 +483,76 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
-        private void CreateSegRegion(SegRegionType type, Rectangle rectangle)
+        private async Task CreateSegRegionAsync(SegRegionType type, Rectangle rectangle)
         {
             AnnotationSet selected = SelectedAnnotationSet;
-            if (project == null || selected == null || selected.Type != AnnotationSetType.Seg || selectedImageId == null) return;
-            AnnotationClass value = project.GetClasses(selected.Id).FirstOrDefault(item => item.Id == selectedSegClassId);
+            IProjectSession session = project;
+            string imageId = selectedImageId;
+            if (annotationOperationInProgress || session == null || selected == null || selected.Type != AnnotationSetType.Seg || imageId == null) return;
+            AnnotationClass value = session.GetClasses(selected.Id).FirstOrDefault(item => item.Id == selectedSegClassId);
             if (value == null) return;
-            if (type == SegRegionType.Rect) project.AddSegRegion(selected.Id, selectedImageId, value.Id, type, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            string annotationSetId = selected.Id;
+            if (type == SegRegionType.Rect)
+                await RunSegOperationAsync(session, annotationSetId, imageId, () => session.AddSegRegion(annotationSetId, imageId, value.Id, type, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height));
             else
             {
                 int radiusX = rectangle.Width / 2;
                 int radiusY = rectangle.Height / 2;
                 int centerX = rectangle.X + radiusX;
                 int centerY = rectangle.Y + radiusY;
-                project.AddSegRegion(selected.Id, selectedImageId, value.Id, type, centerX, centerY, radiusX, radiusY);
+                await RunSegOperationAsync(session, annotationSetId, imageId, () => session.AddSegRegion(annotationSetId, imageId, value.Id, type, centerX, centerY, radiusX, radiusY));
             }
-            RefreshAnnotationClasses();
         }
 
-        private void CreateSegPath(SegRegionType type, IReadOnlyList<SegPoint> points, int width)
+        private async Task CreateSegPathAsync(SegRegionType type, IReadOnlyList<SegPoint> points, int width)
         {
             AnnotationSet selected = SelectedAnnotationSet;
-            if (project == null || selected == null || selected.Type != AnnotationSetType.Seg || selectedImageId == null) return;
-            AnnotationClass value = project.GetClasses(selected.Id).FirstOrDefault(item => item.Id == selectedSegClassId);
+            IProjectSession session = project;
+            string imageId = selectedImageId;
+            if (annotationOperationInProgress || session == null || selected == null || selected.Type != AnnotationSetType.Seg || imageId == null) return;
+            AnnotationClass value = session.GetClasses(selected.Id).FirstOrDefault(item => item.Id == selectedSegClassId);
             if (value == null) return;
-            project.AddSegPath(selected.Id, selectedImageId, value.Id, type, points, width);
-            RefreshAnnotationClasses();
+            string annotationSetId = selected.Id;
+            await RunSegOperationAsync(session, annotationSetId, imageId, () => session.AddSegPath(annotationSetId, imageId, value.Id, type, points, width));
         }
 
-        private void EraseSegPath(IReadOnlyList<SegPoint> points, int width)
+        private async Task EraseSegPathAsync(IReadOnlyList<SegPoint> points, int width)
         {
             AnnotationSet selected = SelectedAnnotationSet;
-            if (project == null || selected == null || selected.Type != AnnotationSetType.Seg || selectedImageId == null || selectedSegClassId == null) return;
-            project.EraseSegPath(selected.Id, selectedImageId, selectedSegClassId, points, width);
-            RefreshAnnotationClasses();
+            IProjectSession session = project;
+            string imageId = selectedImageId;
+            string classId = selectedSegClassId;
+            if (annotationOperationInProgress || session == null || selected == null || selected.Type != AnnotationSetType.Seg || imageId == null || classId == null) return;
+            string annotationSetId = selected.Id;
+            await RunSegOperationAsync(session, annotationSetId, imageId, () => session.EraseSegPath(annotationSetId, imageId, classId, points, width));
+        }
+
+        private async Task RunSegOperationAsync(IProjectSession session, string annotationSetId, string imageId, Action command)
+        {
+            Exception failure = null;
+            annotationOperationInProgress = true;
+            Enabled = false;
+            UseWaitCursor = true;
+            try
+            {
+                await Task.Run(command);
+            }
+            catch (Exception exception) { failure = exception; }
+            finally
+            {
+                UseWaitCursor = false;
+                Enabled = true;
+                annotationOperationInProgress = false;
+            }
+            if (failure is ArgumentException || failure is InvalidOperationException)
+                MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            else if (failure != null)
+                MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            else if (ReferenceEquals(project, session) && SelectedAnnotationSet?.Id == annotationSetId && selectedImageId == imageId)
+            {
+                RefreshAnnotationClasses();
+                canvas.Refresh();
+            }
         }
 
         private void UpdateSegRegions(IReadOnlyList<SegRegion> regions)

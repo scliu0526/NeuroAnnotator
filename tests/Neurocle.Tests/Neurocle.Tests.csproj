@@ -61,6 +61,7 @@
     <Compile Include="MainFormLayoutTests.cs" />
     <Compile Include="DiagnosticLogTests.cs" />
     <Compile Include="SegGeometryPrototypeTests.cs" />
+    <Compile Include="SegCompletionPerformanceTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
