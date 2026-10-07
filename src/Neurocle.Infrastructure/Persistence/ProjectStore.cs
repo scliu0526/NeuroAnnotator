@@ -1102,17 +1102,18 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 Path64 outer = remaining[0];
                 remaining.RemoveAt(0);
-                var polygon = new Path64(outer);
                 int orientation = Math.Sign(Clipper.Area(outer));
+                var holes = new List<Path64>();
                 for (int index = remaining.Count - 1; index >= 0; index--)
                 {
                     Path64 possibleHole = remaining[index];
                     if (Math.Sign(Clipper.Area(possibleHole)) != orientation && PointInPath(possibleHole[0], outer))
                     {
-                        polygon = SegGeometryPrototype.BridgeHole(polygon, possibleHole);
+                        holes.Add(possibleHole);
                         remaining.RemoveAt(index);
                     }
                 }
+                Path64 polygon = holes.Count == 0 ? new Path64(outer) : SegGeometryPrototype.BridgeHoles(outer, holes);
                 SegPoint[] points = polygon.Select(point => new SegPoint((int)Math.Max(0, Math.Min(imageSize.Width, point.X)), (int)Math.Max(0, Math.Min(imageSize.Height, point.Y)))).ToArray();
                 if (points.Distinct(new SegPointComparer()).Count() >= 3) result.Add(new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, SegRegionType.PolyGon, 0, 0, 0, 0, zOrder++, points));
             }
