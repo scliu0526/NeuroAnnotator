@@ -48,6 +48,7 @@ namespace Neurocle.WinForms
         private RectangleF segOriginalBounds;
 
         public bool ObdEnabled { get; set; }
+        public bool ObdSelectMode { get; set; }
         public bool SegEnabled { get; set; }
         public SegToolKind? SegTool { get; set; }
         public int BrushWidth { get; set; } = 15;
@@ -333,48 +334,60 @@ namespace Neurocle.WinForms
             panning = args.Button == MouseButtons.Left && (ModifierKeys & Keys.Space) == Keys.Space;
             if (args.Button == MouseButtons.Left && ObdEnabled && !panning && image != null)
             {
-                ObdDragKind handle = HitHandle(args.Location);
                 PointF point = viewport.ScreenToImage(args.Location);
-                if (handle != ObdDragKind.None)
+                if (!ObdSelectMode)
                 {
-                    activeObd = obdAnnotations.FirstOrDefault(item => item.Id == selectedObdId);
-                    if (activeObd != null) BeginObdDrag(handle, point, activeObd);
+                    ClearObdSelection();
+                    obdStart = ClampPoint(point);
+                    obdPreview = new RectangleF(obdStart, SizeF.Empty);
+                    obdDrag = ObdDragKind.Create;
+                    Capture = true;
+                    Invalidate();
                 }
                 else
                 {
-                    ObdAnnotation hit = TopmostObdAt(point);
-                    if (hit == null)
+                    ObdDragKind handle = HitHandle(args.Location);
+                    if (handle != ObdDragKind.None)
                     {
-                        ClearObdSelection();
-                        obdStart = ClampPoint(point);
-                        obdPreview = new RectangleF(obdStart, SizeF.Empty);
-                        obdDrag = ObdDragKind.Create;
-                    }
-                    else if ((ModifierKeys & Keys.Control) == Keys.Control)
-                    {
-                        if (!selectedObdIds.Add(hit.Id))
-                        {
-                            selectedObdIds.Remove(hit.Id);
-                            if (selectedObdId == hit.Id) selectedObdId = selectedObdIds.FirstOrDefault();
-                        }
-                        else selectedObdId = hit.Id;
-                        Invalidate();
-                        base.OnMouseDown(args);
-                        return;
+                        activeObd = obdAnnotations.FirstOrDefault(item => item.Id == selectedObdId);
+                        if (activeObd != null) BeginObdDrag(handle, point, activeObd);
                     }
                     else
                     {
-                        if (!selectedObdIds.Contains(hit.Id))
+                        ObdAnnotation hit = TopmostObdAt(point);
+                        if (hit == null)
                         {
                             ClearObdSelection();
-                            selectedObdIds.Add(hit.Id);
-                            selectedObdId = hit.Id;
+                            Invalidate();
+                            base.OnMouseDown(args);
+                            return;
                         }
-                        BeginObdDrag(ObdDragKind.Move, point, hit);
+                        else if ((ModifierKeys & Keys.Control) == Keys.Control)
+                        {
+                            if (!selectedObdIds.Add(hit.Id))
+                            {
+                                selectedObdIds.Remove(hit.Id);
+                                if (selectedObdId == hit.Id) selectedObdId = selectedObdIds.FirstOrDefault();
+                            }
+                            else selectedObdId = hit.Id;
+                            Invalidate();
+                            base.OnMouseDown(args);
+                            return;
+                        }
+                        else
+                        {
+                            if (!selectedObdIds.Contains(hit.Id))
+                            {
+                                ClearObdSelection();
+                                selectedObdIds.Add(hit.Id);
+                                selectedObdId = hit.Id;
+                            }
+                            BeginObdDrag(ObdDragKind.Move, point, hit);
+                        }
                     }
+                    Capture = true;
+                    Invalidate();
                 }
-                Capture = true;
-                Invalidate();
             }
             else if (args.Button == MouseButtons.Left && SegEnabled && SegTool.HasValue && !panning && image != null)
             {

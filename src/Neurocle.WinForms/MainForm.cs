@@ -24,7 +24,20 @@ namespace Neurocle.WinForms
         private ImageCanvasControl activeCanvas;
         private readonly DatasetAssignmentControl datasetAssignments;
         private readonly ComboBox annotationSets;
+        private readonly Panel annotationSidebar;
         private readonly FlowLayoutPanel annotationClasses;
+        private readonly FlowLayoutPanel annotationTools;
+        private readonly ToolTip annotationToolTips;
+        private readonly Button addClass;
+        private readonly Button obdSelect;
+        private readonly Button obdRectangle;
+        private readonly Button segSelect;
+        private readonly Button segRectangle;
+        private readonly Button segEllipse;
+        private readonly Button segPolygon;
+        private readonly Button segBrush;
+        private readonly Button segLine;
+        private readonly Button segEraser;
         private string selectedImagePath;
         private string selectedImageId;
         private string selectedSegClassId;
@@ -32,6 +45,7 @@ namespace Neurocle.WinForms
         private bool exportInProgress;
         private bool annotationOperationInProgress;
         private bool synchronizingCanvasView;
+        private string displayedAnnotationSetId;
 
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
         internal ImageCanvasControl ImageCanvas { get { return imageCanvas; } }
@@ -107,7 +121,10 @@ namespace Neurocle.WinForms
             var annotationPage = new TabPage(Strings.AnnotationPage);
             annotationSets = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
             annotationSets.SelectedIndexChanged += (sender, args) => { canvas.DiscardUnfinishedShape(); RefreshAnnotationClasses(); RefreshDatasetAssignments(); };
-            annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 180, AutoScroll = true };
+            annotationSidebar = new Panel { Dock = DockStyle.Right, Width = 180 };
+            annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+            annotationTools = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
+            annotationToolTips = new ToolTip();
             var newCla = new Button { Dock = DockStyle.Top, Text = Strings.NewClaSet };
             newCla.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Cla));
             var newObd = new Button { Dock = DockStyle.Top, Text = Strings.NewObdSet };
@@ -118,21 +135,25 @@ namespace Neurocle.WinForms
             renameSet.Click += (sender, args) => RunAnnotationCommand(RenameSelectedAnnotationSet);
             var deleteSet = new Button { Dock = DockStyle.Top, Text = Strings.DeleteAnnotationSet };
             deleteSet.Click += (sender, args) => RunAnnotationCommand(DeleteSelectedAnnotationSet);
-            var addClass = new Button { Dock = DockStyle.Top, Text = Strings.AddAnnotationClass };
+            addClass = new Button { Dock = DockStyle.Top, Name = "addClass", Text = Strings.AddAnnotationClass };
             addClass.Click += (sender, args) => RunAnnotationCommand(AddAnnotationClass);
-            var segRectangle = new Button { Dock = DockStyle.Top, Text = Strings.SegRectangleTool };
+            obdSelect = CreateAnnotationToolButton("obdSelect", "↖", "OBD 選取");
+            obdSelect.Click += (sender, args) => SelectObdTool(true);
+            obdRectangle = CreateAnnotationToolButton("obdRectangle", "□", "OBD 矩形");
+            obdRectangle.Click += (sender, args) => SelectObdTool(false);
+            segRectangle = CreateAnnotationToolButton("segRectangle", "□", Strings.SegRectangleTool);
             segRectangle.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Rect);
-            var segEllipse = new Button { Dock = DockStyle.Top, Text = Strings.SegEllipseTool };
+            segEllipse = CreateAnnotationToolButton("segEllipse", "○", Strings.SegEllipseTool);
             segEllipse.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Ellipse);
-            var segPolygon = new Button { Dock = DockStyle.Top, Text = Strings.SegPolygonTool };
+            segPolygon = CreateAnnotationToolButton("segPolygon", "✎", Strings.SegPolygonTool);
             segPolygon.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Polygon);
-            var segBrush = new Button { Dock = DockStyle.Top, Text = Strings.SegBrushTool };
+            segBrush = CreateAnnotationToolButton("segBrush", "●", Strings.SegBrushTool);
             segBrush.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Brush);
-            var segLine = new Button { Dock = DockStyle.Top, Text = Strings.SegLineTool };
+            segLine = CreateAnnotationToolButton("segLine", "╱", Strings.SegLineTool);
             segLine.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Line);
-            var segEraser = new Button { Dock = DockStyle.Top, Text = Strings.SegEraserTool };
+            segEraser = CreateAnnotationToolButton("segEraser", "⌫", Strings.SegEraserTool);
             segEraser.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Eraser);
-            var segSelect = new Button { Dock = DockStyle.Top, Text = Strings.SegSelectTool };
+            segSelect = CreateAnnotationToolButton("segSelect", "↖", Strings.SegSelectTool);
             segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
             var segWidths = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 3 };
             segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -155,18 +176,13 @@ namespace Neurocle.WinForms
                 else canvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
             };
             annotationPage.Controls.Add(canvas);
-            annotationPage.Controls.Add(annotationClasses);
+            annotationSidebar.Controls.Add(annotationClasses);
+            annotationSidebar.Controls.Add(annotationTools);
+            annotationSidebar.Controls.Add(addClass);
+            annotationPage.Controls.Add(annotationSidebar);
             annotationPage.Controls.Add(segWidths);
             annotationPage.Controls.Add(segOpacity);
             annotationPage.Controls.Add(segOpacityLabel);
-            annotationPage.Controls.Add(segSelect);
-            annotationPage.Controls.Add(segEraser);
-            annotationPage.Controls.Add(segLine);
-            annotationPage.Controls.Add(segBrush);
-            annotationPage.Controls.Add(segPolygon);
-            annotationPage.Controls.Add(segEllipse);
-            annotationPage.Controls.Add(segRectangle);
-            annotationPage.Controls.Add(addClass);
             annotationPage.Controls.Add(deleteSet);
             annotationPage.Controls.Add(renameSet);
             annotationPage.Controls.Add(newSeg);
@@ -247,6 +263,18 @@ namespace Neurocle.WinForms
         {
             canvas.DiscardUnfinishedShape();
             canvas.SegTool = tool;
+        }
+
+        private void SelectObdTool(bool select)
+        {
+            canvas.ObdSelectMode = select;
+        }
+
+        private Button CreateAnnotationToolButton(string name, string icon, string toolTip)
+        {
+            var button = new Button { Name = name, Text = icon, Size = new Size(32, 32), Margin = new Padding(2) };
+            annotationToolTips.SetToolTip(button, toolTip);
+            return button;
         }
 
         private void CreateProject()
@@ -339,10 +367,30 @@ namespace Neurocle.WinForms
             if (annotationClasses == null) return;
             annotationClasses.Controls.Clear();
             AnnotationSet selected = annotationSets.SelectedItem as AnnotationSet;
+            bool selectedSetChanged = displayedAnnotationSetId != (selected == null ? null : selected.Id);
+            displayedAnnotationSetId = selected == null ? null : selected.Id;
             canvas.ObdEnabled = project != null && selected != null && selected.Type == AnnotationSetType.Obd && selectedImageId != null;
             canvas.SegEnabled = project != null && selected != null && selected.Type == AnnotationSetType.Seg && selectedImageId != null;
-            if (!canvas.SegEnabled) canvas.SegTool = null;
-            else if (!canvas.SegTool.HasValue) canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
+            if (selected == null || selected.Type != AnnotationSetType.Obd) canvas.ObdSelectMode = false;
+            else if (selectedSetChanged) canvas.ObdSelectMode = true;
+            if (selected == null || selected.Type != AnnotationSetType.Seg) canvas.SegTool = null;
+            else if (selectedSetChanged || !canvas.SegTool.HasValue) canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+            annotationTools.Controls.Clear();
+            if (selected != null && selected.Type == AnnotationSetType.Obd)
+            {
+                annotationTools.Controls.Add(obdSelect);
+                annotationTools.Controls.Add(obdRectangle);
+            }
+            else if (selected != null && selected.Type == AnnotationSetType.Seg)
+            {
+                annotationTools.Controls.Add(segSelect);
+                annotationTools.Controls.Add(segRectangle);
+                annotationTools.Controls.Add(segEllipse);
+                annotationTools.Controls.Add(segPolygon);
+                annotationTools.Controls.Add(segBrush);
+                annotationTools.Controls.Add(segLine);
+                annotationTools.Controls.Add(segEraser);
+            }
             AnnotationClass[] classes = project == null || selected == null ? new AnnotationClass[0] : project.GetClasses(selected.Id).ToArray();
             if (selected == null || selected.Type != AnnotationSetType.Seg || !classes.Any(value => value.Id == selectedSegClassId)) selectedSegClassId = null;
             if (canvas.SegEnabled && selectedSegClassId == null) selectedSegClassId = classes.FirstOrDefault()?.Id;

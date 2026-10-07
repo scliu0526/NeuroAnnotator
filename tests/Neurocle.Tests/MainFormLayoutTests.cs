@@ -149,6 +149,41 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Obd_rectangle_mode_creates_over_existing_boxes_without_selecting_or_moving_them()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), ObdEnabled = true, ObdSelectMode = false })
+                {
+                    canvas.CreateControl();
+                    canvas.ObdAnnotations = new[] { new ObdAnnotation("existing", "set", "image", "class", 10, 10, 50, 50, 0) };
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    Rectangle? created = null;
+                    int changed = 0;
+                    canvas.ObdRectangleCreated += value => created = value;
+                    canvas.ObdRectanglesChanged += value => changed++;
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+
+                    Assert.IsTrue(created.HasValue);
+                    Assert.AreEqual(0, changed);
+                    Assert.AreEqual(0, canvas.SelectedObdIds.Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         [TestMethod]
         public void Creating_an_annotation_set_selects_the_new_internal_id_even_when_names_match()
         {
@@ -183,13 +218,91 @@ namespace Neurocle.Tests
             }
         }
 
-        private static void CreateSolidImage(string path, Color color)
+        [TestMethod]
+        public void Annotation_set_type_controls_the_right_side_tools_and_resets_to_selection()
         {
-            using (var bitmap = new Bitmap(10, 10))
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(path);
+                AnnotationSet cla = store.CreateAnnotationSet("classes", AnnotationSetType.Cla);
+                AnnotationSet obd = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                AnnotationSet seg = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    FlowLayoutPanel tools = Field<FlowLayoutPanel>(form, "annotationTools");
+
+                    sets.SelectedItem = AnnotationSet(sets, cla.Id);
+                    Assert.AreEqual(0, tools.Controls.Count);
+
+                    sets.SelectedItem = AnnotationSet(sets, obd.Id);
+                    CollectionAssert.AreEquivalent(new[] { "obdSelect", "obdRectangle" }, tools.Controls.Cast<Control>().Select(control => control.Name).ToArray());
+                    Assert.IsTrue(form.AnnotationCanvas.ObdSelectMode);
+                    Invoke(form, "SelectObdTool", false);
+                    Assert.IsFalse(form.AnnotationCanvas.ObdSelectMode);
+
+                    sets.SelectedItem = AnnotationSet(sets, seg.Id);
+                    CollectionAssert.AreEquivalent(new[] { "segSelect", "segRectangle", "segEllipse", "segPolygon", "segBrush", "segLine", "segEraser" }, tools.Controls.Cast<Control>().Select(control => control.Name).ToArray());
+                    Assert.AreEqual(ImageCanvasControl.SegToolKind.Select, form.AnnotationCanvas.SegTool);
+
+                    sets.SelectedItem = AnnotationSet(sets, obd.Id);
+                    Assert.IsTrue(form.AnnotationCanvas.ObdSelectMode);
+                    Assert.IsNull(form.AnnotationCanvas.SegTool);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Annotation_side_panel_places_add_class_above_classes_and_labels_icon_tools()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                form.CreateControl();
+                form.PerformLayout();
+                FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
+                Control side = Field<Control>(form, "annotationSidebar");
+                Control addClass = side.Controls.Cast<Control>().Single(control => control.Name == "addClass");
+                ToolTip toolTips = Field<ToolTip>(form, "annotationToolTips");
+
+                Assert.IsTrue(addClass.Bottom <= classes.Top);
+                Assert.AreEqual("SEG 矩形", toolTips.GetToolTip(Field<Control>(form, "segRectangle")));
+            }
+        }
+
+        private static void CreateSolidImage(string path, Color color, int size = 10)
+        {
+            using (var bitmap = new Bitmap(size, size))
             {
                 bitmap.SetPixel(0, 0, color);
                 bitmap.Save(path, ImageFormat.Png);
             }
+        }
+
+        private static void WaitForImage(ImageCanvasControl canvas, string path)
+        {
+            DateTime timeout = DateTime.UtcNow.AddSeconds(5);
+            while (canvas.LoadedImagePath != path && DateTime.UtcNow < timeout)
+            {
+                System.Windows.Forms.Application.DoEvents();
+                Thread.Sleep(1);
+            }
+
+            Assert.AreEqual(path, canvas.LoadedImagePath);
+        }
+
+        private static void RaiseMouse(Control control, string methodName, MouseEventArgs args)
+        {
+            typeof(ImageCanvasControl).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
         }
 
         private static void Invoke(object target, string methodName, params object[] arguments)
@@ -197,6 +310,16 @@ namespace Neurocle.Tests
             MethodInfo method = target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
                 .Single(candidate => candidate.Name == methodName && candidate.GetParameters().Length == arguments.Length);
             method.Invoke(target, arguments);
+        }
+
+        private static T Field<T>(object target, string fieldName) where T : class
+        {
+            return (T)target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
+        }
+
+        private static AnnotationSet AnnotationSet(ComboBox sets, string id)
+        {
+            return sets.Items.Cast<AnnotationSet>().Single(item => item.Id == id);
         }
     }
 }
