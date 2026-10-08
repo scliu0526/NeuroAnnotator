@@ -139,6 +139,76 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Full_hd_workspace_keeps_both_page_canvases_and_annotation_controls_operable()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(path);
+                AnnotationSet obd = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                AnnotationSet seg = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Size = new Size(1920, 1080);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    TabControl pages = form.Controls.OfType<TabControl>().Single();
+                    TabPage images = pages.TabPages[0];
+                    TabPage annotations = pages.TabPages[1];
+                    Panel imageHeader = images.Controls.OfType<Panel>().Single(panel => panel.Dock == DockStyle.Top);
+                    FlowLayoutPanel imageControls = imageHeader.Controls.OfType<FlowLayoutPanel>().Single();
+                    FlowLayoutPanel annotationHeader = annotations.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.Dock == DockStyle.Top);
+                    Control sidebar = Field<Control>(form, "annotationSidebar");
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+
+                    Assert.IsTrue(form.ClientSize.Height < form.Height, "The test must use a 1920x1080 window rather than a 1920x1080 client area.");
+                    Assert.AreEqual(form.ImageCanvas.Height, form.AnnotationCanvas.Height);
+                    Assert.IsTrue(form.AnnotationCanvas.Height >= annotations.ClientSize.Height * 0.75d);
+                    Assert.IsTrue(imageHeader.Bottom <= form.ImageCanvas.Top);
+                    Assert.IsTrue(annotationHeader.Bottom <= form.AnnotationCanvas.Top);
+                    Assert.IsTrue(sidebar.Right <= annotations.ClientSize.Width);
+                    Assert.IsTrue(form.AnnotationCanvas.Right <= sidebar.Left);
+                    pages.SelectedIndex = 0;
+                    System.Windows.Forms.Application.DoEvents();
+                    AssertControlsAreUsable(imageControls.Controls.Cast<Control>(), imageControls);
+                    AssertCanvasIsUsable(form.ImageCanvas, images);
+                    pages.SelectedIndex = 1;
+                    System.Windows.Forms.Application.DoEvents();
+                    AssertControlsAreUsable(annotationHeader.Controls.Cast<Control>(), annotationHeader);
+                    AssertCanvasIsUsable(form.AnnotationCanvas, annotations);
+
+                    sets.SelectedItem = AnnotationSet(sets, obd.Id);
+                    System.Windows.Forms.Application.DoEvents();
+                    FlowLayoutPanel tools = Field<FlowLayoutPanel>(form, "annotationTools");
+                    Control[] obdTools = tools.Controls.Cast<Control>().ToArray();
+                    CollectionAssert.AreEquivalent(new[] { "obdSelect", "obdRectangle" }, obdTools.Select(control => control.Name).ToArray());
+                    AssertControlsAreUsable(obdTools, sidebar);
+                    ((Button)obdTools.Single(control => control.Name == "obdRectangle")).PerformClick();
+                    Assert.IsFalse(form.AnnotationCanvas.ObdSelectMode);
+
+                    sets.SelectedItem = AnnotationSet(sets, seg.Id);
+                    System.Windows.Forms.Application.DoEvents();
+                    Control[] segTools = tools.Controls.Cast<Control>().ToArray();
+                    CollectionAssert.AreEquivalent(new[] { "segSelect", "segRectangle", "segEllipse", "segPolygon", "segBrush", "segLine", "segEraser" }, segTools.Select(control => control.Name).ToArray());
+                    AssertControlsAreUsable(segTools, sidebar);
+                    AssertControlsAreUsable(new Control[] { Field<TrackBar>(form, "annotationOpacity") }, annotationHeader);
+                    AssertControlsAreUsable(Descendants<TrackBar>(annotationHeader), annotationHeader);
+                    ((Button)segTools.Single(control => control.Name == "segLine")).PerformClick();
+                    Assert.AreEqual(ImageCanvasControl.SegToolKind.Line, form.AnnotationCanvas.SegTool);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         [TestMethod]
         public void Compact_annotation_header_keeps_canvas_and_sidebar_inside_narrow_high_dpi_pages()
         {
@@ -826,6 +896,23 @@ namespace Neurocle.Tests
         private static AnnotationSet AnnotationSet(ComboBox sets, string id)
         {
             return sets.Items.Cast<AnnotationSet>().Single(item => item.Id == id);
+        }
+
+        private static void AssertControlsAreUsable(IEnumerable<Control> controls, Control container)
+        {
+            Rectangle containerBounds = container.RectangleToScreen(container.ClientRectangle);
+            foreach (Control control in controls)
+            {
+                Assert.IsTrue(control.Visible, "{0} is hidden.", control.Name ?? control.Text);
+                Assert.IsTrue(control.Enabled, "{0} is disabled.", control.Name ?? control.Text);
+                Assert.IsTrue(containerBounds.Contains(control.RectangleToScreen(control.ClientRectangle)), "{0} is clipped by its container.", control.Name ?? control.Text);
+            }
+        }
+
+        private static void AssertCanvasIsUsable(Control canvas, TabPage page)
+        {
+            Assert.IsTrue(canvas.Width > 0, "The canvas has no horizontal working area.");
+            Assert.IsTrue(page.ClientRectangle.Contains(canvas.Bounds), "The canvas exceeds its page.");
         }
 
         private static IEnumerable<T> Descendants<T>(Control control) where T : Control
