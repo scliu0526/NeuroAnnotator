@@ -189,6 +189,7 @@ namespace Neurocle.WinForms
             var imageZoomText = new Label { AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
             Action updateZoomText = () =>
             {
+                if (IsDisposed || Disposing || annotationZoomText.IsDisposed || imageZoomText.IsDisposed) return;
                 string value = Math.Round(activeCanvas.Zoom * 100d).ToString() + "%";
                 annotationZoomText.Text = value;
                 imageZoomText.Text = value;

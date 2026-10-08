@@ -153,7 +153,7 @@ namespace Neurocle.WinForms
             try
             {
                 CanvasImage loaded = await Task.Run(() => LoadCanvasImage(path, cancellation.Token), cancellation.Token);
-                if (cancellation.IsCancellationRequested) { loaded.Preview.Dispose(); return; }
+                if (cancellation.IsCancellationRequested || IsDisposed || Disposing) { loaded.Preview.Dispose(); return; }
                 image = loaded.Preview;
                 loadedImagePath = path;
                 viewport.SetImageSize(loaded.OriginalSize);
@@ -874,6 +874,7 @@ namespace Neurocle.WinForms
         private PointF ClampPoint(PointF value) { return new PointF(Math.Max(0f, Math.Min(value.X, viewport.ImageSize.Width)), Math.Max(0f, Math.Min(value.Y, viewport.ImageSize.Height))); }
         private void RaiseViewChanged()
         {
+            if (IsDisposed || Disposing) return;
             ZoomChanged?.Invoke(this, EventArgs.Empty);
             ViewChanged?.Invoke(this, EventArgs.Empty);
         }
