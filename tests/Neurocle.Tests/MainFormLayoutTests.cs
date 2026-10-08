@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -208,6 +209,84 @@ namespace Neurocle.Tests
                 CollectionAssert.AreEquivalent(new[] { "first", "second" }, canvas.SelectedSegIds.ToArray());
                 canvas.SegRegions = new[] { new SegRegion("other", "next-set", "image", "class", SegRegionType.Rect, 1, 1, 3, 3, 0) };
                 Assert.AreEqual(0, canvas.SelectedSegIds.Count);
+            }
+        }
+
+        [TestMethod]
+        public void Seg_tools_share_one_stroke_width_with_a_single_one_to_one_hundred_control()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                NumericUpDown[] widths = Descendants<NumericUpDown>(form).Where(value => value.Minimum == 1 && value.Maximum == 100).ToArray();
+                Assert.AreEqual(1, widths.Length);
+                Assert.AreEqual(15, form.AnnotationCanvas.SegStrokeWidth);
+                foreach (decimal width in new[] { 1m, 15m, 100m })
+                {
+                    widths[0].Value = width;
+                    Assert.AreEqual((int)width, form.AnnotationCanvas.SegStrokeWidth);
+                }
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => form.AnnotationCanvas.SegStrokeWidth = 0);
+                Assert.ThrowsException<ArgumentOutOfRangeException>(() => form.AnnotationCanvas.SegStrokeWidth = 101);
+            }
+        }
+
+        [STATestMethod]
+        public void Shared_seg_stroke_width_is_submitted_by_brush_line_and_eraser()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 300);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    var submitted = new List<int>();
+                    canvas.SegPathCreated += (type, points, width) => submitted.Add(width);
+                    canvas.SegEraseRequested += (points, width) => submitted.Add(width);
+                    foreach (int width in new[] { 1, 15, 100 })
+                    {
+                        canvas.SegStrokeWidth = width;
+                        canvas.SegTool = ImageCanvasControl.SegToolKind.Line;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 30, 10, 0));
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 10, 0));
+                        canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 40, 20, 0));
+                        AssertPreviewStrokeThickness(canvas, 30, 20, Math.Max(1, width / 3));
+                        RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 40, 20, 0));
+                        canvas.SegTool = ImageCanvasControl.SegToolKind.Eraser;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 30, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 40, 30, 0));
+                        AssertPreviewStrokeThickness(canvas, 30, 30, Math.Max(1, width / 3));
+                        RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 40, 30, 0));
+                    }
+                    CollectionAssert.AreEqual(new[] { 1, 1, 1, 15, 15, 15, 100, 100, 100 }, submitted);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        private static void AssertPreviewStrokeThickness(ImageCanvasControl canvas, int x, int y, int expected)
+        {
+            using (var preview = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(preview, canvas.ClientRectangle);
+                int thickness = Enumerable.Range(0, preview.Height)
+                    .Count(row =>
+                    {
+                        Color pixel = preview.GetPixel(x, row);
+                        return pixel.R > 220 && pixel.G > 220 && pixel.B > 220;
+                    });
+                Assert.IsTrue(Math.Abs(thickness - expected) <= 2,
+                    $"Expected preview thickness near {expected}px at ({x}, {y}), but was {thickness}px.");
             }
         }
 
@@ -457,6 +536,11 @@ namespace Neurocle.Tests
         private static AnnotationSet AnnotationSet(ComboBox sets, string id)
         {
             return sets.Items.Cast<AnnotationSet>().Single(item => item.Id == id);
+        }
+
+        private static IEnumerable<T> Descendants<T>(Control control) where T : Control
+        {
+            return control.Controls.Cast<Control>().SelectMany(Descendants<T>).Concat(control is T ? new[] { (T)control } : Enumerable.Empty<T>());
         }
     }
 }

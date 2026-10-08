@@ -155,12 +155,10 @@ namespace Neurocle.WinForms
             segEraser.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Eraser);
             segSelect = CreateAnnotationToolButton("segSelect", "↖", Strings.SegSelectTool);
             segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
-            var segWidths = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 3 };
+            var segWidths = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1 };
             segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            AddSegWidthControl(segWidths, 0, Strings.SegBrushWidth, value => canvas.BrushWidth = value);
-            AddSegWidthControl(segWidths, 1, Strings.SegLineWidth, value => canvas.LineWidth = value);
-            AddSegWidthControl(segWidths, 2, Strings.SegEraserWidth, value => canvas.EraserWidth = value);
+            AddSegWidthControl(segWidths, 0, Strings.SegBrushWidth, value => canvas.SegStrokeWidth = value);
             var segOpacity = new NumericUpDown { Dock = DockStyle.Top, Minimum = 0, Maximum = 100, Value = 40 };
             segOpacity.ValueChanged += (sender, args) => { canvas.SegOpacity = (float)segOpacity.Value / 100f; canvas.Invalidate(); };
             var segOpacityLabel = new Label { Dock = DockStyle.Top, Text = Strings.SegOpacity, AutoSize = true };

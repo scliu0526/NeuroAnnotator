@@ -130,7 +130,7 @@
   <data name="SegEraserTool" xml:space="preserve"><value>SEG 橡皮擦</value></data>
   <data name="SegSelectTool" xml:space="preserve"><value>SEG 選取</value></data>
   <data name="SegOpacity" xml:space="preserve"><value>SEG 透明度 (%)</value></data>
-  <data name="SegBrushWidth" xml:space="preserve"><value>筆刷寬度</value></data>
+  <data name="SegBrushWidth" xml:space="preserve"><value>筆寬</value></data>
   <data name="SegLineWidth" xml:space="preserve"><value>線型寬度</value></data>
   <data name="SegEraserWidth" xml:space="preserve"><value>橡皮擦寬度</value></data>
   <data name="AnnotationSetNamePrompt" xml:space="preserve"><value>標註集名稱</value></data>
