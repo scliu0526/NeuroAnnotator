@@ -153,15 +153,22 @@ namespace Neurocle.WinForms
             try
             {
                 CanvasImage loaded = await Task.Run(() => LoadCanvasImage(path, cancellation.Token), cancellation.Token);
-                if (cancellation.IsCancellationRequested || IsDisposed || Disposing) { loaded.Preview.Dispose(); return; }
-                image = loaded.Preview;
-                loadedImagePath = path;
-                viewport.SetImageSize(loaded.OriginalSize);
-                Invalidate();
-                RaiseViewChanged();
+                if (!TryInvokeOnUiThread(() =>
+                {
+                    if (cancellation.IsCancellationRequested || IsDisposed || Disposing) { loaded.Preview.Dispose(); return; }
+                    image = loaded.Preview;
+                    loadedImagePath = path;
+                    viewport.SetImageSize(loaded.OriginalSize);
+                    Invalidate();
+                    RaiseViewChanged();
+                })) loaded.Preview.Dispose();
             }
             catch (OperationCanceledException) { }
-            catch { if (!cancellation.IsCancellationRequested) ClearImage(); }
+            catch
+            {
+                if (!cancellation.IsCancellationRequested)
+                    TryInvokeOnUiThread(() => { if (!IsDisposed && !Disposing) ClearImage(); });
+            }
             finally
             {
                 if (ReferenceEquals(imageLoad, cancellation)) imageLoad = null;
@@ -199,6 +206,18 @@ namespace Neurocle.WinForms
         }
 
         private void CancelImageLoad() { imageLoad?.Cancel(); imageLoad = null; }
+
+        private bool TryInvokeOnUiThread(Action action)
+        {
+            if (IsDisposed || Disposing) return false;
+            if (!InvokeRequired) { action(); return true; }
+            try
+            {
+                Invoke(new MethodInvoker(action.Invoke));
+                return true;
+            }
+            catch (InvalidOperationException) { return false; }
+        }
         public void FitToWindow() { viewport.FitToWindow(); Invalidate(); RaiseViewChanged(); }
         public void SetZoomPercent(double percent)
         {
@@ -875,6 +894,12 @@ namespace Neurocle.WinForms
         private void RaiseViewChanged()
         {
             if (IsDisposed || Disposing) return;
+            if (InvokeRequired)
+            {
+                try { BeginInvoke((MethodInvoker)RaiseViewChanged); }
+                catch (InvalidOperationException) { }
+                return;
+            }
             ZoomChanged?.Invoke(this, EventArgs.Empty);
             ViewChanged?.Invoke(this, EventArgs.Empty);
         }
