@@ -64,6 +64,7 @@ namespace Neurocle.WinForms
             }
         }
         private Keys CurrentModifierKeys { get { return ModifierKeysProvider == null ? ModifierKeys : ModifierKeysProvider(); } }
+        public float ObdOpacity { get; set; } = 0.4f;
         public float SegOpacity { get; set; } = 0.4f;
         public string SelectedSegId { get { return selectedSegId; } }
         public IReadOnlyCollection<string> SelectedSegIds { get { return selectedSegIds; } }
@@ -238,7 +239,7 @@ namespace Neurocle.WinForms
                 AnnotationClass annotationClass;
                 obdClasses.TryGetValue(annotation.ClassId, out annotationClass);
                 Color color = annotationClass == null ? Color.Red : ColorTranslator.FromHtml(annotationClass.Color);
-                using (var fill = new SolidBrush(Color.FromArgb(102, color))) args.Graphics.FillRectangle(fill, rectangle);
+                using (var fill = new SolidBrush(Color.FromArgb(ToAlpha(ObdOpacity), color))) args.Graphics.FillRectangle(fill, rectangle);
                 using (var pen = new Pen(color, selectedObdIds.Contains(annotation.Id) ? 3f : 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
                 if (annotationClass != null) using (var text = new SolidBrush(color)) args.Graphics.DrawString(annotationClass.Name, Font, text, rectangle.Left + 2f, rectangle.Top + 2f);
                 if (annotation.Id == selectedObdId) DrawHandles(args.Graphics, rectangle);
@@ -255,7 +256,7 @@ namespace Neurocle.WinForms
                 AnnotationClass annotationClass;
                 segClasses.TryGetValue(region.ClassId, out annotationClass);
                 Color color = annotationClass == null ? Color.Red : ColorTranslator.FromHtml(annotationClass.Color);
-                using (var fill = new SolidBrush(Color.FromArgb(Math.Max(0, Math.Min(255, (int)Math.Round(255f * SegOpacity))), color)))
+                using (var fill = new SolidBrush(Color.FromArgb(ToAlpha(SegOpacity), color)))
                 using (var pen = new Pen(color, 2f))
                 {
                     if (region.Type == SegRegionType.Rect)
@@ -280,7 +281,7 @@ namespace Neurocle.WinForms
                         }
                         else
                         {
-                            using (var stroke = new Pen(color, Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom)))) args.Graphics.DrawLines(stroke, points);
+                            using (var stroke = new Pen(Color.FromArgb(ToAlpha(SegOpacity), color), Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom)))) args.Graphics.DrawLines(stroke, points);
                         }
                     }
                 }
@@ -322,6 +323,11 @@ namespace Neurocle.WinForms
                 float diameter = Math.Max(1f, (float)(toolWidth * viewport.Zoom));
                 using (var pen = new Pen(Color.White, 1f)) args.Graphics.DrawEllipse(pen, cursor.X - diameter / 2f, cursor.Y - diameter / 2f, diameter, diameter);
             }
+        }
+
+        private static int ToAlpha(float opacity)
+        {
+            return Math.Max(0, Math.Min(255, (int)Math.Round(255f * opacity)));
         }
 
         private static void DrawHandles(Graphics graphics, RectangleF rectangle)

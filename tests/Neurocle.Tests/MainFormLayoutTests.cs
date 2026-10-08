@@ -650,6 +650,118 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Annotation_opacity_slider_applies_to_obd_seg_fills_and_seg_lines_then_resets_for_each_set()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string reopenedProjectPath = Path.Combine(directory, "reopened.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var image = new Bitmap(100, 100))
+                using (var graphics = Graphics.FromImage(image))
+                {
+                    graphics.Clear(Color.Black);
+                    image.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    var classes = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#FFFFFF") } };
+                    canvas.ObdClasses = classes;
+                    canvas.ObdAnnotations = new[] { new ObdAnnotation("obd", "set", "image", "class", 20, 20, 60, 60, 0) };
+                    AssertOpacity(canvas, value => canvas.ObdOpacity = value, 50, 50);
+                    canvas.ObdOpacity = 0f;
+                    canvas.SelectAllObd();
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 20, 50).ToArgb(), "OBD outline must remain visible at 0% opacity.");
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 20, 20).ToArgb(), "Selected OBD handle must remain visible at 0% opacity.");
+                    Assert.IsTrue(ContainsBrightPixel(canvas, new Rectangle(25, 22, 50, 16)), "OBD class text must remain visible at 0% opacity.");
+
+                    canvas.ObdAnnotations = null;
+                    canvas.SegClasses = classes;
+                    canvas.SegRegions = new[] { new SegRegion("rect", "set", "image", "class", SegRegionType.Rect, 20, 20, 60, 60, 0) };
+                    AssertOpacity(canvas, value => canvas.SegOpacity = value, 50, 50);
+
+                    canvas.SegRegions = new[] { new SegRegion("line", "set", "image", "class", SegRegionType.PolyLine, 0, 0, 0, 0, 0, new[] { new SegPoint(10, 50), new SegPoint(90, 50) }, 10) };
+                    AssertOpacity(canvas, value => canvas.SegOpacity = value, 50, 50);
+                }
+
+                store = ProjectStore.Create(projectPath);
+                AnnotationSet obd = store.CreateAnnotationSet("obd", AnnotationSetType.Obd);
+                AnnotationSet seg = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    TrackBar opacity = Field<TrackBar>(form, "annotationOpacity");
+                    sets.SelectedItem = AnnotationSet(sets, obd.Id);
+                    opacity.Value = 0;
+                    Assert.AreEqual(0f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
+
+                    Invoke(form, "RefreshAnnotationSets", new object[] { null });
+                    Assert.AreEqual(0, opacity.Value, "Refreshing the current annotation set must not reset opacity.");
+
+                    SetField(form.AnnotationCanvas, "segLineStart", new PointF(10, 10));
+                    Invoke(form, "RefreshAnnotationSets", new object[] { seg.Id });
+                    Assert.IsNull(form.AnnotationCanvas.GetType().GetField("segLineStart", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form.AnnotationCanvas), "A programmatic annotation-set switch must discard unfinished SEG shapes.");
+                    Assert.AreEqual(40, opacity.Value);
+                    Assert.AreEqual(0.4f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(0.4f, form.AnnotationCanvas.SegOpacity);
+
+                    opacity.Value = 100;
+                    ProjectStore reopened = ProjectStore.Create(reopenedProjectPath);
+                    Invoke(form, "ReplaceProject", reopened);
+                    store = reopened;
+                    Assert.AreEqual(40, opacity.Value, "Opening a project must reset opacity even when it has no annotation sets.");
+                    Assert.AreEqual(0.4f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(0.4f, form.AnnotationCanvas.SegOpacity);
+                }
+                store.Dispose();
+                store = null;
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        private static void AssertOpacity(ImageCanvasControl canvas, Action<float> setOpacity, int x, int y)
+        {
+            setOpacity(0f);
+            Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, x, y).ToArgb());
+            setOpacity(0.4f);
+            int fortyPercent = RenderPixel(canvas, x, y).R;
+            Assert.IsTrue(fortyPercent > 0 && fortyPercent < 255, "40% opacity must blend the annotation with the image.");
+            setOpacity(1f);
+            Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, x, y).ToArgb());
+        }
+
+        private static Color RenderPixel(ImageCanvasControl canvas, int x, int y)
+        {
+            using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                return rendered.GetPixel(x, y);
+            }
+        }
+
+        private static bool ContainsBrightPixel(ImageCanvasControl canvas, Rectangle area)
+        {
+            using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                return Enumerable.Range(area.Left, area.Width).Any(x => Enumerable.Range(area.Top, area.Height)
+                    .Any(y => rendered.GetPixel(x, y).R > 200));
+            }
+        }
+
         private static void CreateSolidImage(string path, Color color, int size = 10)
         {
             using (var bitmap = new Bitmap(size, size))
