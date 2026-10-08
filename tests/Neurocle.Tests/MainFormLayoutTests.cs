@@ -166,6 +166,36 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Zoom_controls_show_actual_shared_scale_and_f_fits_without_intercepting_text_input()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                var pages = form.Controls.OfType<TabControl>().Single();
+                ComboBox imageZoom = Descendants<ComboBox>(pages.TabPages[0]).Single();
+                imageZoom.SelectedItem = "125%";
+                Assert.AreEqual(1.25d, form.ImageCanvas.Zoom, 0.0001d);
+                Assert.AreEqual(1.25d, form.AnnotationCanvas.Zoom, 0.0001d);
+                Assert.IsTrue(Descendants<Label>(form).Count(label => label.Text == "125%") >= 2);
+
+                pages.SelectedIndex = 1;
+                RaiseKey(form, new KeyEventArgs(Keys.F));
+                Assert.IsTrue(form.AnnotationCanvas.ViewState.IsFitted);
+                Assert.AreEqual(form.AnnotationCanvas.Zoom, form.ImageCanvas.Zoom, 0.0001d);
+                string fitted = Math.Round(form.AnnotationCanvas.Zoom * 100d).ToString() + "%";
+                Assert.IsTrue(Descendants<Label>(form).Count(label => label.Text == fitted) >= 2);
+
+                form.AnnotationCanvas.SetZoomPercent(150);
+                TextBox search = Field<TextBox>(form.ImageBrowser, "search");
+                search.Focus();
+                Assert.IsTrue(search.Focused);
+                RaiseKey(form, new KeyEventArgs(Keys.F));
+                Assert.AreEqual(1.5d, form.AnnotationCanvas.Zoom, 0.0001d);
+            }
+        }
+
+        [STATestMethod]
         public void Up_and_down_select_images_in_visible_order_without_intercepting_text_input()
         {
             ProjectImage[] images =

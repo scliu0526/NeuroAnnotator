@@ -121,7 +121,7 @@ namespace Neurocle.WinForms
             DoubleBuffered = true;
             BackColor = Color.FromArgb(45, 45, 48);
             TabStop = true;
-            Resize += (sender, args) => viewport.SetViewportSize(ClientSize);
+            Resize += (sender, args) => { viewport.SetViewportSize(ClientSize); Invalidate(); RaiseViewChanged(); };
         }
 
         public double Zoom { get { return viewport.Zoom; } }

@@ -116,6 +116,8 @@ namespace Neurocle.WinForms
             var pages = new TabControl { Dock = DockStyle.Fill };
             var imagesPage = new TabPage(Strings.ImagesPage);
             var imageHeader = new Panel { Dock = DockStyle.Top, Height = 56 };
+            var imageControls = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
+            imageHeader.Controls.Add(imageControls);
             imagesPage.Controls.Add(imageCanvas);
             imagesPage.Controls.Add(imageHeader);
             var annotationPage = new TabPage(Strings.AnnotationPage);
@@ -165,16 +167,32 @@ namespace Neurocle.WinForms
             segOpacity.ValueChanged += (sender, args) => { canvas.SegOpacity = (float)segOpacity.Value / 100f; canvas.Invalidate(); };
             var segOpacityLabel = new Label { Text = Strings.SegOpacity, AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
             var fit = new Button { AutoSize = true, Text = Strings.FitToWindow };
-            fit.Click += (sender, args) => canvas.FitToWindow();
             var zoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
             zoom.Items.AddRange(new object[] { Strings.FitToWindow, "10%", "50%", "75%", "100%", "125%", "150%", "200%" });
             zoom.SelectedIndex = 0;
-            zoom.SelectedIndexChanged += (sender, args) =>
+            var imageFit = new Button { AutoSize = true, Text = Strings.FitToWindow };
+            var imageZoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
+            imageZoom.Items.AddRange(zoom.Items.Cast<object>().ToArray());
+            imageZoom.SelectedIndex = 0;
+            var annotationZoomText = new Label { AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
+            var imageZoomText = new Label { AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
+            Action updateZoomText = () =>
             {
-                string selected = zoom.SelectedItem as string;
-                if (selected == Strings.FitToWindow) canvas.FitToWindow();
-                else canvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
+                string value = Math.Round(activeCanvas.Zoom * 100d).ToString() + "%";
+                annotationZoomText.Text = value;
+                imageZoomText.Text = value;
             };
+            Action<string> setZoom = selected =>
+            {
+                if (selected == Strings.FitToWindow) activeCanvas.FitToWindow();
+                else activeCanvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
+            };
+            fit.Click += (sender, args) => activeCanvas.FitToWindow();
+            imageFit.Click += (sender, args) => activeCanvas.FitToWindow();
+            zoom.SelectedIndexChanged += (sender, args) => setZoom(zoom.SelectedItem as string);
+            imageZoom.SelectedIndexChanged += (sender, args) => setZoom(imageZoom.SelectedItem as string);
+            imageCanvas.ZoomChanged += (sender, args) => updateZoomText();
+            canvas.ZoomChanged += (sender, args) => updateZoomText();
             annotationPage.Controls.Add(canvas);
             annotationSidebar.Controls.Add(annotationClasses);
             annotationSidebar.Controls.Add(annotationTools);
@@ -191,7 +209,11 @@ namespace Neurocle.WinForms
             annotationHeader.Controls.Add(segWidths);
             annotationHeader.Controls.Add(fit);
             annotationHeader.Controls.Add(zoom);
+            annotationHeader.Controls.Add(annotationZoomText);
             annotationPage.Controls.Add(annotationHeader);
+            imageControls.Controls.Add(imageFit);
+            imageControls.Controls.Add(imageZoom);
+            imageControls.Controls.Add(imageZoomText);
             pages.TabPages.Add(imagesPage);
             pages.TabPages.Add(annotationPage);
             var datasetPage = new TabPage(Strings.DatasetPage);
@@ -215,6 +237,7 @@ namespace Neurocle.WinForms
                 {
                     SynchronizeCanvasView(activeCanvas, selectedCanvas);
                     activeCanvas = selectedCanvas;
+                    updateZoomText();
                 }
                 canvas.DiscardUnfinishedShape();
                 if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
@@ -243,6 +266,13 @@ namespace Neurocle.WinForms
             KeyDown += (sender, args) =>
             {
                 if (args.Control || HasTextInputFocus() || (pages.SelectedTab != imagesPage && pages.SelectedTab != annotationPage)) return;
+                if (args.KeyCode == Keys.F)
+                {
+                    activeCanvas.FitToWindow();
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                    return;
+                }
                 if (args.KeyCode != Keys.Up && args.KeyCode != Keys.Down) return;
                 imageBrowser.MoveSelection(args.KeyCode == Keys.Up ? -1 : 1);
                 args.Handled = true;
