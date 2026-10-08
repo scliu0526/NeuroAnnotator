@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.Application.Projects;
@@ -149,6 +150,50 @@ namespace Neurocle.Tests
                 search.Focus();
                 RaiseKey(form, new KeyEventArgs(Keys.Down));
                 CollectionAssert.AreEqual(new[] { "two" }, form.ImageBrowser.SelectedImageIds.ToArray());
+            }
+        }
+
+        [STATestMethod]
+        public void Seg_completion_applies_only_the_last_queued_image_selection()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(projectPath);
+                AnnotationSet set = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
+                ProjectImage[] images =
+                {
+                    new ProjectImage("one", "one.png", "one.png", "hash", 1, 1, 1),
+                    new ProjectImage("two", "two.png", "two.png", "hash", 1, 1, 2),
+                    new ProjectImage("three", "three.png", "three.png", "hash", 1, 1, 3)
+                };
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.ImageBrowser.LoadImages(images, directory);
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], null));
+                    SetField(form, "annotationOperationInProgress", true);
+                    form.ImageBrowser.SelectImage("two");
+                    form.ImageBrowser.SelectImage("three");
+                    SetField(form, "annotationOperationInProgress", false);
+
+                    Task completion = (Task)form.GetType().GetMethod("RunSegOperationAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                        .Invoke(form, new object[] { store, set.Id, "one", (Action)(() => { }) });
+                    WaitForTask(completion);
+
+                    Assert.AreEqual("three", Field<string>(form, "selectedImageId"));
+                    CollectionAssert.AreEqual(new[] { "three" }, form.ImageBrowser.SelectedImageIds.ToArray());
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
         }
 
@@ -547,6 +592,18 @@ namespace Neurocle.Tests
             Assert.AreEqual(path, canvas.LoadedImagePath);
         }
 
+        private static void WaitForTask(Task task)
+        {
+            DateTime timeout = DateTime.UtcNow.AddSeconds(5);
+            while (!task.IsCompleted && DateTime.UtcNow < timeout)
+            {
+                System.Windows.Forms.Application.DoEvents();
+                Thread.Sleep(1);
+            }
+            Assert.IsTrue(task.IsCompleted, "The asynchronous operation did not complete.");
+            task.GetAwaiter().GetResult();
+        }
+
         private static void RaiseMouse(Control control, string methodName, MouseEventArgs args)
         {
             typeof(ImageCanvasControl).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
@@ -568,6 +625,11 @@ namespace Neurocle.Tests
         private static T Field<T>(object target, string fieldName) where T : class
         {
             return (T)target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
+        }
+
+        private static void SetField(object target, string fieldName, object value)
+        {
+            target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(target, value);
         }
 
         private static AnnotationSet AnnotationSet(ComboBox sets, string id)

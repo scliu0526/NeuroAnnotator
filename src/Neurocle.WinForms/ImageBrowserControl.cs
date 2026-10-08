@@ -33,6 +33,13 @@ namespace Neurocle.WinForms
             list.EnsureVisible(target);
         }
 
+        internal void SelectImage(string imageId)
+        {
+            int index = visible.Select((image, current) => new { image, current }).Where(item => item.image.Id == imageId).Select(item => item.current).DefaultIfEmpty(-1).Single();
+            list.SelectedIndices.Clear();
+            if (index >= 0) list.SelectedIndices.Add(index);
+        }
+
         public ImageBrowserControl()
         {
             Dock = DockStyle.Fill;

@@ -44,6 +44,7 @@ namespace Neurocle.WinForms
         private bool importInProgress;
         private bool exportInProgress;
         private bool annotationOperationInProgress;
+        private ImageSelectedEventArgs pendingImageSelection;
         private bool synchronizingCanvasView;
         private string displayedAnnotationSetId;
 
@@ -109,11 +110,8 @@ namespace Neurocle.WinForms
             canvas.SegRegionsDeleteRequested += ids => RunAnnotationCommand(() => DeleteSegRegions(ids));
             imageBrowser.ImageSelected += (sender, args) =>
             {
-                selectedImagePath = args.Image.IsMissing ? null : args.Path;
-                selectedImageId = args.Image.Id;
-                imageCanvas.LoadImage(selectedImagePath);
-                canvas.LoadImage(selectedImagePath);
-                RefreshAnnotationClasses();
+                if (annotationOperationInProgress) pendingImageSelection = args;
+                else ApplyImageSelection(args);
             };
             var pages = new TabControl { Dock = DockStyle.Fill };
             var imagesPage = new TabPage(Strings.ImagesPage);
@@ -636,7 +634,7 @@ namespace Neurocle.WinForms
         {
             Exception failure = null;
             annotationOperationInProgress = true;
-            Enabled = false;
+            projectMenu.Enabled = false;
             UseWaitCursor = true;
             try
             {
@@ -646,7 +644,7 @@ namespace Neurocle.WinForms
             finally
             {
                 UseWaitCursor = false;
-                Enabled = true;
+                projectMenu.Enabled = true;
                 annotationOperationInProgress = false;
             }
             if (failure is ArgumentException || failure is InvalidOperationException)
@@ -658,6 +656,22 @@ namespace Neurocle.WinForms
                 RefreshAnnotationClasses();
                 canvas.Refresh();
             }
+            ImageSelectedEventArgs pending = pendingImageSelection;
+            pendingImageSelection = null;
+            if (failure != null) imageBrowser.SelectImage(imageId);
+            else if (ReferenceEquals(project, session) && pending != null)
+            {
+                ApplyImageSelection(pending);
+            }
+        }
+
+        private void ApplyImageSelection(ImageSelectedEventArgs args)
+        {
+            selectedImagePath = args.Image.IsMissing ? null : args.Path;
+            selectedImageId = args.Image.Id;
+            imageCanvas.LoadImage(selectedImagePath);
+            canvas.LoadImage(selectedImagePath);
+            RefreshAnnotationClasses();
         }
 
         private void UpdateSegRegions(IReadOnlyList<SegRegion> regions)
