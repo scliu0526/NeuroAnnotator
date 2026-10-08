@@ -116,6 +116,55 @@ namespace Neurocle.Tests
             }
         }
 
+        [TestMethod]
+        public void Annotation_canvas_uses_a_compact_wrapping_header_and_matches_image_canvas_height()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                form.ClientSize = new Size(1200, 800);
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                form.PerformLayout();
+                var pages = form.Controls.OfType<TabControl>().Single();
+                pages.SelectedIndex = 1;
+                System.Windows.Forms.Application.DoEvents();
+                form.PerformLayout();
+                TabPage images = pages.TabPages[0];
+                TabPage annotations = pages.TabPages[1];
+                FlowLayoutPanel header = annotations.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.Dock == DockStyle.Top);
+
+                Assert.AreEqual(form.ImageCanvas.Height, form.AnnotationCanvas.Height);
+                Assert.IsTrue(form.AnnotationCanvas.Height >= annotations.ClientSize.Height * 0.75d);
+                Assert.IsTrue(header.Bottom <= form.AnnotationCanvas.Top);
+            }
+        }
+
+        [TestMethod]
+        public void Compact_annotation_header_keeps_canvas_and_sidebar_inside_narrow_high_dpi_pages()
+        {
+            foreach (float scale in new[] { 1f, 1.25f, 1.5f, 1.75f, 2f })
+            {
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Scale(new SizeF(scale, scale));
+                    form.ClientSize = new Size(1366, 768);
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    System.Windows.Forms.Application.DoEvents();
+                    form.PerformLayout();
+                    TabPage annotations = form.Controls.OfType<TabControl>().Single().TabPages[1];
+                    Control sidebar = Field<Control>(form, "annotationSidebar");
+                    FlowLayoutPanel header = annotations.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.Dock == DockStyle.Top);
+
+                    Assert.IsTrue(header.Bottom <= annotations.ClientSize.Height, "Header exceeds page height at {0:P0} DPI.", scale);
+                    Assert.IsTrue(sidebar.Right <= annotations.ClientSize.Width, "Sidebar exceeds page width at {0:P0} DPI.", scale);
+                    Assert.IsTrue(form.AnnotationCanvas.Top >= header.Bottom, "Canvas overlaps header at {0:P0} DPI.", scale);
+                    Assert.IsTrue(form.AnnotationCanvas.Right <= sidebar.Left, "Canvas overlaps sidebar at {0:P0} DPI.", scale);
+                }
+            }
+        }
+
         [STATestMethod]
         public void Up_and_down_select_images_in_visible_order_without_intercepting_text_input()
         {
