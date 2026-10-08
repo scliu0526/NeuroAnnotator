@@ -116,6 +116,43 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Up_and_down_select_images_in_visible_order_without_intercepting_text_input()
+        {
+            ProjectImage[] images =
+            {
+                new ProjectImage("one", "alpha.png", "one.png", "hash", 1, 1, 1),
+                new ProjectImage("two", "bravo.png", "two.png", "hash", 1, 1, 2),
+                new ProjectImage("three", "charlie.png", "three.png", "hash", 1, 1, 3)
+            };
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                form.ImageBrowser.LoadImages(images, Path.GetTempPath());
+                var pages = form.Controls.OfType<TabControl>().Single();
+                pages.SelectedIndex = 1;
+
+                RaiseKey(form, new KeyEventArgs(Keys.Down));
+                CollectionAssert.AreEqual(new[] { "one" }, form.ImageBrowser.SelectedImageIds.ToArray());
+                RaiseKey(form, new KeyEventArgs(Keys.Down));
+                CollectionAssert.AreEqual(new[] { "two" }, form.ImageBrowser.SelectedImageIds.ToArray());
+                RaiseKey(form, new KeyEventArgs(Keys.Up));
+                CollectionAssert.AreEqual(new[] { "one" }, form.ImageBrowser.SelectedImageIds.ToArray());
+                RaiseKey(form, new KeyEventArgs(Keys.Up));
+                CollectionAssert.AreEqual(new[] { "one" }, form.ImageBrowser.SelectedImageIds.ToArray());
+
+                TextBox search = Field<TextBox>(form.ImageBrowser, "search");
+                search.Text = "bravo";
+                Assert.AreEqual(0, form.ImageBrowser.SelectedImageIds.Count);
+                RaiseKey(form, new KeyEventArgs(Keys.Down));
+                CollectionAssert.AreEqual(new[] { "two" }, form.ImageBrowser.SelectedImageIds.ToArray());
+                search.Focus();
+                RaiseKey(form, new KeyEventArgs(Keys.Down));
+                CollectionAssert.AreEqual(new[] { "two" }, form.ImageBrowser.SelectedImageIds.ToArray());
+            }
+        }
+
+        [STATestMethod]
         public void Rapid_image_switch_and_missing_image_clear_the_previous_canvas_content()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

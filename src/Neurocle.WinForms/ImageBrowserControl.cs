@@ -22,6 +22,17 @@ namespace Neurocle.WinForms
 
         public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visible[index].Id).ToArray(); } }
 
+        internal void MoveSelection(int direction)
+        {
+            if (visible.Count == 0) return;
+            int selected = list.SelectedIndices.Count == 0 ? (direction < 0 ? visible.Count : -1) : list.SelectedIndices[0];
+            int target = Math.Max(0, Math.Min(visible.Count - 1, selected + direction));
+            if (target == selected) return;
+            list.SelectedIndices.Clear();
+            list.SelectedIndices.Add(target);
+            list.EnsureVisible(target);
+        }
+
         public ImageBrowserControl()
         {
             Dock = DockStyle.Fill;
@@ -58,8 +69,12 @@ namespace Neurocle.WinForms
 
         private void RefreshList()
         {
+            string selectedId = list.SelectedIndices.Count == 0 ? null : visible[list.SelectedIndices[0]].Id;
             visible = ImageListProjection.FilterAndSort(source, search.Text, column, direction);
             list.VirtualListSize = visible.Count;
+            list.SelectedIndices.Clear();
+            int selectedIndex = selectedId == null ? -1 : visible.Select((image, index) => new { image, index }).Where(item => item.image.Id == selectedId).Select(item => item.index).DefaultIfEmpty(-1).Single();
+            if (selectedIndex >= 0) list.SelectedIndices.Add(selectedIndex);
             list.Invalidate();
         }
 

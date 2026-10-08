@@ -237,6 +237,14 @@ namespace Neurocle.WinForms
                 args.Handled = true;
                 args.SuppressKeyPress = true;
             };
+            KeyDown += (sender, args) =>
+            {
+                if (args.Control || HasTextInputFocus() || (pages.SelectedTab != imagesPage && pages.SelectedTab != annotationPage)) return;
+                if (args.KeyCode != Keys.Up && args.KeyCode != Keys.Down) return;
+                imageBrowser.MoveSelection(args.KeyCode == Keys.Up ? -1 : 1);
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+            };
         }
 
         private bool HasTextInputFocus()
