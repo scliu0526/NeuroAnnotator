@@ -49,16 +49,32 @@ namespace Neurocle.WinForms
 
         public bool ObdEnabled { get; set; }
         public bool ObdSelectMode { get; set; }
+        internal Func<Keys> ModifierKeysProvider { get; set; }
         public bool SegEnabled { get; set; }
         public SegToolKind? SegTool { get; set; }
         public int BrushWidth { get; set; } = 15;
         public int LineWidth { get; set; } = 15;
         public int EraserWidth { get; set; } = 15;
+        private Keys CurrentModifierKeys { get { return ModifierKeysProvider == null ? ModifierKeys : ModifierKeysProvider(); } }
         public float SegOpacity { get; set; } = 0.4f;
         public string SelectedSegId { get { return selectedSegId; } }
         public IReadOnlyCollection<string> SelectedSegIds { get { return selectedSegIds; } }
         public string SelectedObdId { get { return selectedObdId; } }
         public IReadOnlyCollection<string> SelectedObdIds { get { return selectedObdIds; } }
+        public void SelectAllObd()
+        {
+            selectedObdIds.Clear();
+            foreach (ObdAnnotation annotation in obdAnnotations) selectedObdIds.Add(annotation.Id);
+            selectedObdId = selectedObdIds.FirstOrDefault();
+            Invalidate();
+        }
+        public void SelectAllSeg()
+        {
+            selectedSegIds.Clear();
+            foreach (SegRegion region in segRegions) selectedSegIds.Add(region.Id);
+            selectedSegId = selectedSegIds.FirstOrDefault();
+            Invalidate();
+        }
         public IReadOnlyList<ObdAnnotation> ObdAnnotations
         {
             get { return obdAnnotations; }
@@ -331,7 +347,7 @@ namespace Neurocle.WinForms
         protected override void OnMouseDown(MouseEventArgs args)
         {
             Focus();
-            panning = args.Button == MouseButtons.Left && (ModifierKeys & Keys.Space) == Keys.Space;
+            panning = args.Button == MouseButtons.Left && (CurrentModifierKeys & Keys.Space) == Keys.Space;
             if (args.Button == MouseButtons.Left && ObdEnabled && !panning && image != null)
             {
                 PointF point = viewport.ScreenToImage(args.Location);
@@ -362,7 +378,7 @@ namespace Neurocle.WinForms
                             base.OnMouseDown(args);
                             return;
                         }
-                        else if ((ModifierKeys & Keys.Control) == Keys.Control)
+                        else if ((CurrentModifierKeys & Keys.Control) == Keys.Control)
                         {
                             if (!selectedObdIds.Add(hit.Id))
                             {
@@ -410,7 +426,7 @@ namespace Neurocle.WinForms
                     }
                     SegRegion hit = TopmostSegAt(selectionPoint);
                     if (hit == null) ClearSegSelection();
-                    else if ((ModifierKeys & Keys.Control) == Keys.Control)
+                    else if ((CurrentModifierKeys & Keys.Control) == Keys.Control)
                     {
                         if (!selectedSegIds.Add(hit.Id)) selectedSegIds.Remove(hit.Id);
                         selectedSegId = selectedSegIds.Contains(hit.Id) ? hit.Id : selectedSegIds.FirstOrDefault();

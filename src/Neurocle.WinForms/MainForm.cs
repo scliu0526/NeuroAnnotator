@@ -234,10 +234,30 @@ namespace Neurocle.WinForms
                 if (!args.Control) return;
                 if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
                 else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
+                else if (args.KeyCode == Keys.A && pages.SelectedTab == annotationPage && !HasTextInputFocus()) SelectAllAnnotations();
                 else return;
                 args.Handled = true;
                 args.SuppressKeyPress = true;
             };
+        }
+
+        private bool HasTextInputFocus()
+        {
+            return FindFocusedTextInput(this);
+        }
+
+        private static bool FindFocusedTextInput(Control control)
+        {
+            if (control is TextBoxBase && control.Focused) return true;
+            return control.Controls.Cast<Control>().Any(FindFocusedTextInput);
+        }
+
+        private void SelectAllAnnotations()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (selected == null) return;
+            if (selected.Type == AnnotationSetType.Obd && canvas.ObdEnabled) canvas.SelectAllObd();
+            else if (selected.Type == AnnotationSetType.Seg && canvas.SegEnabled) canvas.SelectAllSeg();
         }
 
         private static void AddSegWidthControl(TableLayoutPanel container, int row, string label, Action<int> apply)

@@ -185,6 +185,137 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Canvas_select_all_selects_only_current_obd_or_seg_annotations()
+        {
+            using (var canvas = new ImageCanvasControl())
+            {
+                canvas.ObdAnnotations = new[]
+                {
+                    new ObdAnnotation("one", "set", "image", "class", 1, 1, 3, 3, 0),
+                    new ObdAnnotation("two", "set", "image", "class", 5, 5, 3, 3, 1)
+                };
+                canvas.SelectAllObd();
+                CollectionAssert.AreEquivalent(new[] { "one", "two" }, canvas.SelectedObdIds.ToArray());
+                canvas.ObdAnnotations = new[] { new ObdAnnotation("other", "set", "next-image", "class", 1, 1, 3, 3, 0) };
+                Assert.AreEqual(0, canvas.SelectedObdIds.Count);
+
+                canvas.SegRegions = new[]
+                {
+                    new SegRegion("first", "set", "image", "class", SegRegionType.Rect, 1, 1, 3, 3, 0),
+                    new SegRegion("second", "set", "image", "class", SegRegionType.Ellipse, 5, 5, 3, 3, 1)
+                };
+                canvas.SelectAllSeg();
+                CollectionAssert.AreEquivalent(new[] { "first", "second" }, canvas.SelectedSegIds.ToArray());
+                canvas.SegRegions = new[] { new SegRegion("other", "next-set", "image", "class", SegRegionType.Rect, 1, 1, 3, 3, 0) };
+                Assert.AreEqual(0, canvas.SelectedSegIds.Count);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_a_selects_current_annotation_canvas_but_not_cla_pages_or_text_input()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(path);
+                AnnotationSet cla = store.CreateAnnotationSet("cla", AnnotationSetType.Cla);
+                AnnotationSet obd = store.CreateAnnotationSet("obd", AnnotationSetType.Obd);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    TabControl pages = form.Controls.OfType<TabControl>().Single();
+                    pages.SelectedIndex = 1;
+                    sets.SelectedItem = AnnotationSet(sets, obd.Id);
+                    form.AnnotationCanvas.ObdEnabled = true;
+                    form.AnnotationCanvas.ObdAnnotations = new[]
+                    {
+                        new ObdAnnotation("one", obd.Id, "image", "class", 1, 1, 3, 3, 0),
+                        new ObdAnnotation("two", obd.Id, "image", "class", 5, 5, 3, 3, 1)
+                    };
+
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.A));
+                    CollectionAssert.AreEquivalent(new[] { "one", "two" }, form.AnnotationCanvas.SelectedObdIds.ToArray());
+
+                    sets.SelectedItem = AnnotationSet(sets, cla.Id);
+                    form.AnnotationCanvas.ObdAnnotations = new[] { new ObdAnnotation("cla", cla.Id, "image", "class", 1, 1, 3, 3, 0) };
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.A));
+                    Assert.AreEqual(0, form.AnnotationCanvas.SelectedObdIds.Count);
+
+                    sets.SelectedItem = AnnotationSet(sets, obd.Id);
+                    form.AnnotationCanvas.ObdEnabled = true;
+                    form.AnnotationCanvas.ObdAnnotations = new[] { new ObdAnnotation("text", obd.Id, "image", "class", 1, 1, 3, 3, 0) };
+                    TextBox search = Field<TextBox>(form.ImageBrowser, "search");
+                    search.Focus();
+                    Assert.IsTrue(search.Focused);
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.A));
+                    Assert.AreEqual(0, form.AnnotationCanvas.SelectedObdIds.Count);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_click_adds_and_removes_annotations_only_in_selection_modes()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), ObdEnabled = true, ObdSelectMode = true })
+                {
+                    canvas.ModifierKeysProvider = () => Keys.Control;
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdAnnotations = new[] { new ObdAnnotation("obd", "set", "image", "class", 10, 10, 50, 50, 0) };
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    CollectionAssert.AreEquivalent(new[] { "obd" }, canvas.SelectedObdIds.ToArray());
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    Assert.AreEqual(0, canvas.SelectedObdIds.Count);
+
+                    canvas.ObdSelectMode = false;
+                    Rectangle? created = null;
+                    canvas.ObdRectangleCreated += rectangle => created = rectangle;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+                    Assert.IsTrue(created.HasValue);
+                    Assert.AreEqual(0, canvas.SelectedObdIds.Count);
+
+                    canvas.ObdEnabled = false;
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    canvas.SegRegions = new[] { new SegRegion("seg", "set", "image", "class", SegRegionType.Rect, 10, 10, 50, 50, 0) };
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    CollectionAssert.AreEquivalent(new[] { "seg" }, canvas.SelectedSegIds.ToArray());
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    Assert.AreEqual(0, canvas.SelectedSegIds.Count);
+
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    Assert.AreEqual(0, canvas.SelectedSegIds.Count);
+                    canvas.DiscardUnfinishedShape();
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
         public void Creating_an_annotation_set_selects_the_new_internal_id_even_when_names_match()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
@@ -304,6 +435,12 @@ namespace Neurocle.Tests
         {
             typeof(ImageCanvasControl).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
         }
+
+        private static void RaiseKey(Control control, KeyEventArgs args)
+        {
+            typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
+        }
+
 
         private static void Invoke(object target, string methodName, params object[] arguments)
         {
