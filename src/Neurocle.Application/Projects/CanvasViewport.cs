@@ -32,6 +32,7 @@ namespace Neurocle.Application.Projects
         {
             ViewportSize = viewportSize;
             if (isFitted) FitToWindow();
+            else ClampOrigin();
         }
 
         public void FitToWindow()
@@ -54,12 +55,22 @@ namespace Neurocle.Application.Projects
             PointF imagePoint = ScreenToImage(screenPoint);
             Zoom = Clamp(zoom);
             Origin = new PointF((float)(screenPoint.X - imagePoint.X * Zoom), (float)(screenPoint.Y - imagePoint.Y * Zoom));
+            ClampOrigin();
         }
 
         public void Pan(float horizontal, float vertical)
         {
             isFitted = false;
             Origin = new PointF(Origin.X + horizontal, Origin.Y + vertical);
+            ClampOrigin();
+        }
+
+        public void SetView(double zoom, PointF origin, bool fitted)
+        {
+            isFitted = fitted;
+            Zoom = Clamp(zoom);
+            Origin = origin;
+            ClampOrigin();
         }
 
         public PointF ScreenToImage(PointF screenPoint)
@@ -75,6 +86,19 @@ namespace Neurocle.Application.Projects
         private static double Clamp(double zoom)
         {
             return Math.Max(MinimumZoom, Math.Min(MaximumZoom, zoom));
+        }
+
+        private void ClampOrigin()
+        {
+            Origin = new PointF(
+                ClampOriginAxis(Origin.X, ImageSize.Width * Zoom, ViewportSize.Width),
+                ClampOriginAxis(Origin.Y, ImageSize.Height * Zoom, ViewportSize.Height));
+        }
+
+        private static float ClampOriginAxis(float origin, double imageLength, int viewportLength)
+        {
+            if (imageLength <= viewportLength) return (float)((viewportLength - imageLength) / 2d);
+            return Math.Max((float)(viewportLength - imageLength), Math.Min(0f, origin));
         }
     }
 }

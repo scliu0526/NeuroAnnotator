@@ -16,6 +16,7 @@ namespace Neurocle.WinForms
         private readonly CanvasViewport viewport = new CanvasViewport(Size.Empty, Size.Empty);
         private readonly SemaphoreSlim imageLoadGate = new SemaphoreSlim(1, 1);
         private Image image;
+        private string loadedImagePath;
         private CancellationTokenSource imageLoad;
         private bool panning;
         private Point previousPoint;
@@ -45,18 +46,44 @@ namespace Neurocle.WinForms
         private SegDragKind segDrag;
         private SegRegion segOriginal;
         private RectangleF segOriginalBounds;
+        private int segStrokeWidth = 15;
 
         public bool ObdEnabled { get; set; }
+        public bool ObdSelectMode { get; set; }
+        internal Func<Keys> ModifierKeysProvider { get; set; }
         public bool SegEnabled { get; set; }
         public SegToolKind? SegTool { get; set; }
-        public int BrushWidth { get; set; } = 15;
-        public int LineWidth { get; set; } = 15;
-        public int EraserWidth { get; set; } = 15;
+        public int SegStrokeWidth
+        {
+            get { return segStrokeWidth; }
+            set
+            {
+                if (value < 1 || value > 100) throw new ArgumentOutOfRangeException(nameof(value));
+                segStrokeWidth = value;
+                Invalidate();
+            }
+        }
+        private Keys CurrentModifierKeys { get { return ModifierKeysProvider == null ? ModifierKeys : ModifierKeysProvider(); } }
+        public float ObdOpacity { get; set; } = 0.4f;
         public float SegOpacity { get; set; } = 0.4f;
         public string SelectedSegId { get { return selectedSegId; } }
         public IReadOnlyCollection<string> SelectedSegIds { get { return selectedSegIds; } }
         public string SelectedObdId { get { return selectedObdId; } }
         public IReadOnlyCollection<string> SelectedObdIds { get { return selectedObdIds; } }
+        public void SelectAllObd()
+        {
+            selectedObdIds.Clear();
+            foreach (ObdAnnotation annotation in obdAnnotations) selectedObdIds.Add(annotation.Id);
+            selectedObdId = selectedObdIds.FirstOrDefault();
+            Invalidate();
+        }
+        public void SelectAllSeg()
+        {
+            selectedSegIds.Clear();
+            foreach (SegRegion region in segRegions) selectedSegIds.Add(region.Id);
+            selectedSegId = selectedSegIds.FirstOrDefault();
+            Invalidate();
+        }
         public IReadOnlyList<ObdAnnotation> ObdAnnotations
         {
             get { return obdAnnotations; }
@@ -95,11 +122,21 @@ namespace Neurocle.WinForms
             DoubleBuffered = true;
             BackColor = Color.FromArgb(45, 45, 48);
             TabStop = true;
-            Resize += (sender, args) => viewport.SetViewportSize(ClientSize);
+            Resize += (sender, args) => { viewport.SetViewportSize(ClientSize); Invalidate(); RaiseViewChanged(); };
         }
 
         public double Zoom { get { return viewport.Zoom; } }
         public event EventHandler ZoomChanged;
+        public event EventHandler ViewChanged;
+        internal string LoadedImagePath { get { return loadedImagePath; } }
+        internal CanvasViewState ViewState { get { return new CanvasViewState(viewport.Zoom, viewport.Origin, viewport.IsFitted); } }
+
+        internal void SetViewState(CanvasViewState state)
+        {
+            viewport.SetView(state.Zoom, state.Origin, state.IsFitted);
+            Invalidate();
+            RaiseViewChanged();
+        }
 
         public void LoadImage(string path)
         {
@@ -116,14 +153,22 @@ namespace Neurocle.WinForms
             try
             {
                 CanvasImage loaded = await Task.Run(() => LoadCanvasImage(path, cancellation.Token), cancellation.Token);
-                if (cancellation.IsCancellationRequested) { loaded.Preview.Dispose(); return; }
-                image = loaded.Preview;
-                viewport.SetImageSize(loaded.OriginalSize);
-                Invalidate();
-                ZoomChanged?.Invoke(this, EventArgs.Empty);
+                if (!TryInvokeOnUiThread(() =>
+                {
+                    if (cancellation.IsCancellationRequested || IsDisposed || Disposing) { loaded.Preview.Dispose(); return; }
+                    image = loaded.Preview;
+                    loadedImagePath = path;
+                    viewport.SetImageSize(loaded.OriginalSize);
+                    Invalidate();
+                    RaiseViewChanged();
+                })) loaded.Preview.Dispose();
             }
             catch (OperationCanceledException) { }
-            catch { if (!cancellation.IsCancellationRequested) ClearImage(); }
+            catch
+            {
+                if (!cancellation.IsCancellationRequested)
+                    TryInvokeOnUiThread(() => { if (!IsDisposed && !Disposing) ClearImage(); });
+            }
             finally
             {
                 if (ReferenceEquals(imageLoad, cancellation)) imageLoad = null;
@@ -153,19 +198,32 @@ namespace Neurocle.WinForms
         {
             Image previous = image;
             image = null;
+            loadedImagePath = null;
             previous?.Dispose();
             viewport.SetImageSize(Size.Empty);
             Invalidate();
-            ZoomChanged?.Invoke(this, EventArgs.Empty);
+            RaiseViewChanged();
         }
 
         private void CancelImageLoad() { imageLoad?.Cancel(); imageLoad = null; }
-        public void FitToWindow() { viewport.FitToWindow(); Invalidate(); ZoomChanged?.Invoke(this, EventArgs.Empty); }
+
+        private bool TryInvokeOnUiThread(Action action)
+        {
+            if (IsDisposed || Disposing) return false;
+            if (!InvokeRequired) { action(); return true; }
+            try
+            {
+                Invoke(new MethodInvoker(action.Invoke));
+                return true;
+            }
+            catch (InvalidOperationException) { return false; }
+        }
+        public void FitToWindow() { viewport.FitToWindow(); Invalidate(); RaiseViewChanged(); }
         public void SetZoomPercent(double percent)
         {
             viewport.SetZoomAt(percent / 100d, new PointF(ClientSize.Width / 2f, ClientSize.Height / 2f));
             Invalidate();
-            ZoomChanged?.Invoke(this, EventArgs.Empty);
+            RaiseViewChanged();
         }
 
         public void DiscardUnfinishedShape()
@@ -200,7 +258,7 @@ namespace Neurocle.WinForms
                 AnnotationClass annotationClass;
                 obdClasses.TryGetValue(annotation.ClassId, out annotationClass);
                 Color color = annotationClass == null ? Color.Red : ColorTranslator.FromHtml(annotationClass.Color);
-                using (var fill = new SolidBrush(Color.FromArgb(102, color))) args.Graphics.FillRectangle(fill, rectangle);
+                using (var fill = new SolidBrush(Color.FromArgb(ToAlpha(ObdOpacity), color))) args.Graphics.FillRectangle(fill, rectangle);
                 using (var pen = new Pen(color, selectedObdIds.Contains(annotation.Id) ? 3f : 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
                 if (annotationClass != null) using (var text = new SolidBrush(color)) args.Graphics.DrawString(annotationClass.Name, Font, text, rectangle.Left + 2f, rectangle.Top + 2f);
                 if (annotation.Id == selectedObdId) DrawHandles(args.Graphics, rectangle);
@@ -217,7 +275,7 @@ namespace Neurocle.WinForms
                 AnnotationClass annotationClass;
                 segClasses.TryGetValue(region.ClassId, out annotationClass);
                 Color color = annotationClass == null ? Color.Red : ColorTranslator.FromHtml(annotationClass.Color);
-                using (var fill = new SolidBrush(Color.FromArgb(Math.Max(0, Math.Min(255, (int)Math.Round(255f * SegOpacity))), color)))
+                using (var fill = new SolidBrush(Color.FromArgb(ToAlpha(SegOpacity), color)))
                 using (var pen = new Pen(color, 2f))
                 {
                     if (region.Type == SegRegionType.Rect)
@@ -242,7 +300,7 @@ namespace Neurocle.WinForms
                         }
                         else
                         {
-                            using (var stroke = new Pen(color, Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom)))) args.Graphics.DrawLines(stroke, points);
+                            using (var stroke = new Pen(Color.FromArgb(ToAlpha(SegOpacity), color), Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom)))) args.Graphics.DrawLines(stroke, points);
                         }
                     }
                 }
@@ -251,7 +309,7 @@ namespace Neurocle.WinForms
             if (segPreview.HasValue)
             {
                 RectangleF rectangle = ToScreenRectangle(segPreview.Value.X, segPreview.Value.Y, segPreview.Value.Width, segPreview.Value.Height);
-                float width = SegTool == SegToolKind.Brush ? Math.Max(1f, (float)(BrushWidth * viewport.Zoom)) : 1f;
+                float width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
                 using (var pen = new Pen(Color.White, width))
                 {
                     if (SegTool == SegToolKind.Ellipse) args.Graphics.DrawEllipse(pen, rectangle);
@@ -261,7 +319,8 @@ namespace Neurocle.WinForms
             if (segPath.Count > 0)
             {
                 PointF[] points = segPath.Select(viewport.ImageToScreen).ToArray();
-                using (var pen = new Pen(Color.White, 1f))
+                float width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
+                using (var pen = new Pen(Color.White, width))
                 {
                     if (points.Length > 1) args.Graphics.DrawLines(pen, points);
                     if (SegTool == SegToolKind.Polygon && points.Length > 2) args.Graphics.DrawLine(pen, points[points.Length - 1], points[0]);
@@ -274,15 +333,20 @@ namespace Neurocle.WinForms
             }
             if (segLineStart.HasValue && SegTool == SegToolKind.Line)
             {
-                using (var pen = new Pen(Color.White, Math.Max(1f, (float)(LineWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
+                using (var pen = new Pen(Color.White, Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
             }
             if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
             {
                 PointF cursor = viewport.ImageToScreen(segCursor);
-                int toolWidth = SegTool == SegToolKind.Eraser ? EraserWidth : BrushWidth;
+                int toolWidth = SegStrokeWidth;
                 float diameter = Math.Max(1f, (float)(toolWidth * viewport.Zoom));
                 using (var pen = new Pen(Color.White, 1f)) args.Graphics.DrawEllipse(pen, cursor.X - diameter / 2f, cursor.Y - diameter / 2f, diameter, diameter);
             }
+        }
+
+        private static int ToAlpha(float opacity)
+        {
+            return Math.Max(0, Math.Min(255, (int)Math.Round(255f * opacity)));
         }
 
         private static void DrawHandles(Graphics graphics, RectangleF rectangle)
@@ -306,61 +370,74 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseWheel(MouseEventArgs args)
         {
-            if ((ModifierKeys & Keys.Control) == Keys.Control) { viewport.SetZoomAt(viewport.Zoom * (args.Delta > 0 ? 1.1d : 1d / 1.1d), args.Location); ZoomChanged?.Invoke(this, EventArgs.Empty); }
+            if ((ModifierKeys & Keys.Control) == Keys.Control) viewport.SetZoomAt(viewport.Zoom * (args.Delta > 0 ? 1.1d : 1d / 1.1d), args.Location);
             else if ((ModifierKeys & Keys.Shift) == Keys.Shift) viewport.Pan(args.Delta / 120f * 48f, 0f);
             else viewport.Pan(0f, args.Delta / 120f * 48f);
             Invalidate();
+            RaiseViewChanged();
             base.OnMouseWheel(args);
         }
 
         protected override void OnMouseDown(MouseEventArgs args)
         {
             Focus();
-            panning = args.Button == MouseButtons.Left && (ModifierKeys & Keys.Space) == Keys.Space;
+            panning = args.Button == MouseButtons.Left && (CurrentModifierKeys & Keys.Space) == Keys.Space;
             if (args.Button == MouseButtons.Left && ObdEnabled && !panning && image != null)
             {
-                ObdDragKind handle = HitHandle(args.Location);
                 PointF point = viewport.ScreenToImage(args.Location);
-                if (handle != ObdDragKind.None)
+                if (!ObdSelectMode)
                 {
-                    activeObd = obdAnnotations.FirstOrDefault(item => item.Id == selectedObdId);
-                    if (activeObd != null) BeginObdDrag(handle, point, activeObd);
+                    ClearObdSelection();
+                    obdStart = ClampPoint(point);
+                    obdPreview = new RectangleF(obdStart, SizeF.Empty);
+                    obdDrag = ObdDragKind.Create;
+                    Capture = true;
+                    Invalidate();
                 }
                 else
                 {
-                    ObdAnnotation hit = TopmostObdAt(point);
-                    if (hit == null)
+                    ObdDragKind handle = HitHandle(args.Location);
+                    if (handle != ObdDragKind.None)
                     {
-                        ClearObdSelection();
-                        obdStart = ClampPoint(point);
-                        obdPreview = new RectangleF(obdStart, SizeF.Empty);
-                        obdDrag = ObdDragKind.Create;
-                    }
-                    else if ((ModifierKeys & Keys.Control) == Keys.Control)
-                    {
-                        if (!selectedObdIds.Add(hit.Id))
-                        {
-                            selectedObdIds.Remove(hit.Id);
-                            if (selectedObdId == hit.Id) selectedObdId = selectedObdIds.FirstOrDefault();
-                        }
-                        else selectedObdId = hit.Id;
-                        Invalidate();
-                        base.OnMouseDown(args);
-                        return;
+                        activeObd = obdAnnotations.FirstOrDefault(item => item.Id == selectedObdId);
+                        if (activeObd != null) BeginObdDrag(handle, point, activeObd);
                     }
                     else
                     {
-                        if (!selectedObdIds.Contains(hit.Id))
+                        ObdAnnotation hit = TopmostObdAt(point);
+                        if (hit == null)
                         {
                             ClearObdSelection();
-                            selectedObdIds.Add(hit.Id);
-                            selectedObdId = hit.Id;
+                            Invalidate();
+                            base.OnMouseDown(args);
+                            return;
                         }
-                        BeginObdDrag(ObdDragKind.Move, point, hit);
+                        else if ((CurrentModifierKeys & Keys.Control) == Keys.Control)
+                        {
+                            if (!selectedObdIds.Add(hit.Id))
+                            {
+                                selectedObdIds.Remove(hit.Id);
+                                if (selectedObdId == hit.Id) selectedObdId = selectedObdIds.FirstOrDefault();
+                            }
+                            else selectedObdId = hit.Id;
+                            Invalidate();
+                            base.OnMouseDown(args);
+                            return;
+                        }
+                        else
+                        {
+                            if (!selectedObdIds.Contains(hit.Id))
+                            {
+                                ClearObdSelection();
+                                selectedObdIds.Add(hit.Id);
+                                selectedObdId = hit.Id;
+                            }
+                            BeginObdDrag(ObdDragKind.Move, point, hit);
+                        }
                     }
+                    Capture = true;
+                    Invalidate();
                 }
-                Capture = true;
-                Invalidate();
             }
             else if (args.Button == MouseButtons.Left && SegEnabled && SegTool.HasValue && !panning && image != null)
             {
@@ -383,7 +460,7 @@ namespace Neurocle.WinForms
                     }
                     SegRegion hit = TopmostSegAt(selectionPoint);
                     if (hit == null) ClearSegSelection();
-                    else if ((ModifierKeys & Keys.Control) == Keys.Control)
+                    else if ((CurrentModifierKeys & Keys.Control) == Keys.Control)
                     {
                         if (!selectedSegIds.Add(hit.Id)) selectedSegIds.Remove(hit.Id);
                         selectedSegId = selectedSegIds.Contains(hit.Id) ? hit.Id : selectedSegIds.FirstOrDefault();
@@ -419,7 +496,7 @@ namespace Neurocle.WinForms
                     {
                         SegPoint first = ToSegPoint(segLineStart.Value);
                         SegPoint second = ToSegPoint(point);
-                        if (first.X != second.X || first.Y != second.Y) SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, LineWidth);
+                        if (first.X != second.X || first.Y != second.Y) SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, SegStrokeWidth);
                         segLineStart = null;
                     }
                 }
@@ -462,6 +539,7 @@ namespace Neurocle.WinForms
                 viewport.Pan(args.X - previousPoint.X, args.Y - previousPoint.Y);
                 previousPoint = args.Location;
                 Invalidate();
+                RaiseViewChanged();
             }
             else if (obdDrag != ObdDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
@@ -568,12 +646,12 @@ namespace Neurocle.WinForms
                 }
                 else if (SegTool == SegToolKind.Brush)
                 {
-                    if (segPath.Count >= 2) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), BrushWidth);
+                    if (segPath.Count >= 2) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
                     segPath.Clear();
                 }
                 else if (SegTool == SegToolKind.Eraser)
                 {
-                    if (segPath.Count >= 2) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), EraserWidth);
+                    if (segPath.Count >= 2) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
                     segPath.Clear();
                 }
                 segPathDragging = false;
@@ -813,6 +891,18 @@ namespace Neurocle.WinForms
         }
 
         private PointF ClampPoint(PointF value) { return new PointF(Math.Max(0f, Math.Min(value.X, viewport.ImageSize.Width)), Math.Max(0f, Math.Min(value.Y, viewport.ImageSize.Height))); }
+        private void RaiseViewChanged()
+        {
+            if (IsDisposed || Disposing) return;
+            if (InvokeRequired)
+            {
+                try { BeginInvoke((MethodInvoker)RaiseViewChanged); }
+                catch (InvalidOperationException) { }
+                return;
+            }
+            ZoomChanged?.Invoke(this, EventArgs.Empty);
+            ViewChanged?.Invoke(this, EventArgs.Empty);
+        }
         private RectangleF Clamp(RectangleF value)
         {
             float left = Math.Max(0f, Math.Min(value.Left, viewport.ImageSize.Width));
@@ -825,14 +915,14 @@ namespace Neurocle.WinForms
         private static Rectangle ToIntegerRectangle(RectangleF rectangle) { return Rectangle.FromLTRB((int)Math.Round(rectangle.Left), (int)Math.Round(rectangle.Top), (int)Math.Round(rectangle.Right), (int)Math.Round(rectangle.Bottom)); }
         private PointF ClampSegPathPoint(PointF point)
         {
-            int width = SegTool == SegToolKind.Brush ? BrushWidth : SegTool == SegToolKind.Eraser ? EraserWidth : SegTool == SegToolKind.Line ? LineWidth : 0;
+            int width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser || SegTool == SegToolKind.Line ? SegStrokeWidth : 0;
             int inset = width == 0 ? 0 : (width + 1) / 2;
             Size size = viewport.ImageSize;
             return new PointF(Math.Max(inset, Math.Min(size.Width - inset, point.X)), Math.Max(inset, Math.Min(size.Height - inset, point.Y)));
         }
         private bool CanFitSegPath()
         {
-            int width = SegTool == SegToolKind.Brush ? BrushWidth : SegTool == SegToolKind.Eraser ? EraserWidth : LineWidth;
+            int width = SegStrokeWidth;
             int inset = (width + 1) / 2;
             return viewport.ImageSize.Width >= inset * 2 && viewport.ImageSize.Height >= inset * 2;
         }
@@ -853,6 +943,20 @@ namespace Neurocle.WinForms
             public CanvasImage(Image preview, Size originalSize) { Preview = preview; OriginalSize = originalSize; }
             public Image Preview { get; private set; }
             public Size OriginalSize { get; private set; }
+        }
+
+        internal struct CanvasViewState
+        {
+            public CanvasViewState(double zoom, PointF origin, bool isFitted)
+            {
+                Zoom = zoom;
+                Origin = origin;
+                IsFitted = isFitted;
+            }
+
+            public double Zoom { get; private set; }
+            public PointF Origin { get; private set; }
+            public bool IsFitted { get; private set; }
         }
     }
 }

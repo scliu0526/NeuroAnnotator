@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Drawing;
@@ -961,6 +962,33 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Canvas_viewport_clamps_pan_per_axis_and_centers_small_images_after_every_view_change()
+        {
+            var viewport = new CanvasViewport(new Size(2000, 1000), new Size(1000, 500));
+            viewport.SetZoomAt(1d, new PointF(500f, 250f));
+            viewport.Pan(10000f, 10000f);
+            Assert.AreEqual(0f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(0f, viewport.Origin.Y, 0.001f);
+            viewport.Pan(-10000f, -10000f);
+            Assert.AreEqual(-1000f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(-500f, viewport.Origin.Y, 0.001f);
+
+            viewport.SetView(1d, new PointF(-9000f, 9000f), false);
+            Assert.AreEqual(-1000f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(0f, viewport.Origin.Y, 0.001f);
+
+            viewport.SetImageSize(new Size(400, 1000));
+            viewport.SetZoomAt(1d, new PointF(500f, 250f));
+            viewport.Pan(-10000f, -10000f);
+            Assert.AreEqual(300f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(-500f, viewport.Origin.Y, 0.001f);
+
+            viewport.SetViewportSize(new Size(800, 500));
+            Assert.AreEqual(200f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(-500f, viewport.Origin.Y, 0.001f);
+        }
+
+        [TestMethod]
         public void Annotation_sets_classes_and_cla_assignments_are_isolated_and_persist_after_reopen()
         {
             string path = TemporaryProjectPath();
@@ -1245,6 +1273,156 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        [TestCategory("ManualPerformance")]
+        public void Seventeen_thousand_point_seg_paths_complete_within_one_second_and_remain_undoable()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 1000, 1000);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("performance", AnnotationSetType.Seg);
+                    string classId = store.GetClasses(set.Id).Single().Id;
+                    SegPoint[] points = SegPerformanceFixture.CreateSeventeenThousandPointEllipse();
+
+                    AssertSegCompletionWithinOneSecond(() => store.AddSegPath(set.Id, image.Id, classId, SegRegionType.PolyGon, points, 0), "pen");
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count);
+
+                    AssertSegCompletionWithinOneSecond(() => store.AddSegPath(set.Id, image.Id, classId, SegRegionType.PolyLine, points, 15), "brush");
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.IsFalse(store.Undo(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Seg_point_insert_failure_rolls_back_region_points_and_undo_entry()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("rollback", AnnotationSetType.Seg);
+                    string classId = store.GetClasses(set.Id).Single().Id;
+                    using (var failureConnection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
+                    {
+                        failureConnection.Open();
+                        using (var command = failureConnection.CreateCommand())
+                        {
+                            command.CommandText = "CREATE TRIGGER FailSegPoint BEFORE INSERT ON SegRegionPoint WHEN NEW.Ordinal = 2 BEGIN SELECT RAISE(ABORT, 'simulated point failure'); END;";
+                            command.ExecuteNonQuery();
+                        }
+                    }
+
+                    Assert.ThrowsException<SqliteException>(() => store.AddSegPath(set.Id, image.Id, classId, SegRegionType.PolyGon,
+                        new[] { new SegPoint(10, 10), new SegPoint(30, 10), new SegPoint(30, 30), new SegPoint(10, 30) }, 0));
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.IsFalse(store.CanUndo(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        [TestCategory("ManualPerformance")]
+        public void Seg_overlap_hole_and_continuous_operations_each_complete_within_one_second()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 1000, 1000);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("performance", AnnotationSetType.Seg);
+                    string classId = store.GetClasses(set.Id).Single().Id;
+                    store.AddSegRegion(set.Id, image.Id, classId, SegRegionType.Rect, 100, 100, 700, 700);
+
+                    AssertSegCompletionWithinOneSecond(
+                        () => store.AddSegRegion(set.Id, image.Id, classId, SegRegionType.Rect, 700, 700, 200, 200),
+                        "overlap union");
+
+                    SegPoint[] closedEraser =
+                    {
+                        new SegPoint(300, 300), new SegPoint(600, 300), new SegPoint(600, 600),
+                        new SegPoint(300, 600), new SegPoint(300, 300)
+                    };
+                    AssertSegCompletionWithinOneSecond(
+                        () => store.EraseSegPath(set.Id, image.Id, classId, closedEraser, 30),
+                        "hole generation");
+
+                    string separateClassId = store.AddClass(set.Id, "continuous", "#123456").Id;
+                    for (int index = 0; index < 10; index++)
+                    {
+                        int y = 50 + index * 20;
+                        AssertSegCompletionWithinOneSecond(
+                            () => store.AddSegPath(set.Id, image.Id, separateClassId, SegRegionType.PolyLine,
+                                new[] { new SegPoint(20, y), new SegPoint(80, y) }, 5),
+                            "continuous brush " + (index + 1));
+                    }
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(9, store.GetSegRegions(set.Id, image.Id).Count(region => region.ClassId == separateClassId));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        [TestCategory("ManualPerformance")]
+        public void Largest_provided_seg_path_completes_within_one_second()
+        {
+            ImportedAnnotationSet imported = JsonAnnotationImport.Parse(
+                File.ReadAllText(Path.Combine(FindRepositoryLabelsDirectory(), "seg_SEG_labeling (5).json")));
+            ImportedImage sample = imported.Data
+                .Where(image => image.Regions.Any(region => region.Points.Count > 0))
+                .OrderByDescending(image => image.Regions.Max(region => region.Points.Count))
+                .First();
+            ImportedRegion pathRegion = sample.Regions.OrderByDescending(region => region.Points.Count).First();
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), sample.FileName);
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, sample.Width, sample.Height);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("provided sample", AnnotationSetType.Seg);
+                    string classId = store.GetClasses(set.Id).Single().Id;
+                    AssertSegCompletionWithinOneSecond(
+                        () => store.AddSegPath(set.Id, image.Id, classId, pathRegion.Type, pathRegion.Points, pathRegion.StrokeWidth),
+                        "provided " + pathRegion.Type);
+                    Assert.AreEqual(pathRegion.Points.Count, store.GetSegRegions(set.Id, image.Id).Single().Points.Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        private static void AssertSegCompletionWithinOneSecond(Action action, string operation)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            action();
+            stopwatch.Stop();
+            Console.WriteLine("{0}: {1:F3} ms", operation, stopwatch.Elapsed.TotalMilliseconds);
+            Assert.IsTrue(stopwatch.Elapsed <= TimeSpan.FromSeconds(1), "{0} completion took {1:F3} ms.", operation, stopwatch.Elapsed.TotalMilliseconds);
+        }
+
+        [TestMethod]
         public void New_same_class_seg_regions_union_only_when_their_areas_overlap()
         {
             string path = TemporaryProjectPath();
@@ -1416,7 +1594,49 @@ namespace Neurocle.Tests
 
                     ImageAnnotationSummary summary = store.GetImageAnnotationSummaries(obd.Id).Single();
                     CollectionAssert.AreEquivalent(new[] { first.Id, second.Id }, summary.ClassIds.ToArray());
+                    Assert.AreEqual(3, summary.AnnotationCount);
                     Assert.IsFalse(store.GetImageAnnotationSummaries(store.CreateAnnotationSet("empty", AnnotationSetType.Seg).Id).Any());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Image_annotation_summary_count_matches_obd_and_seg_objects_through_history_and_import()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet obd = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    string obdClassId = store.GetClasses(obd.Id).Single().Id;
+                    store.AddObdAnnotation(obd.Id, image.Id, obdClassId, 1, 1, 10, 10);
+                    store.AddObdAnnotation(obd.Id, image.Id, obdClassId, 20, 20, 10, 10);
+                    Assert.AreEqual(store.GetObdAnnotations(obd.Id, image.Id).Count, store.GetImageAnnotationSummaries(obd.Id).Single().AnnotationCount);
+                    store.DeleteObdAnnotation(store.GetObdAnnotations(obd.Id, image.Id)[0].Id);
+                    Assert.AreEqual(store.GetObdAnnotations(obd.Id, image.Id).Count, store.GetImageAnnotationSummaries(obd.Id).Single().AnnotationCount);
+                    Assert.IsTrue(store.Undo(obd.Id));
+                    Assert.AreEqual(store.GetObdAnnotations(obd.Id, image.Id).Count, store.GetImageAnnotationSummaries(obd.Id).Single().AnnotationCount);
+                    Assert.IsTrue(store.Redo(obd.Id));
+                    Assert.AreEqual(store.GetObdAnnotations(obd.Id, image.Id).Count, store.GetImageAnnotationSummaries(obd.Id).Single().AnnotationCount);
+
+                    AnnotationSet seg = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    string segClassId = store.GetClasses(seg.Id).Single().Id;
+                    store.AddSegRegion(seg.Id, image.Id, segClassId, SegRegionType.Rect, 1, 1, 20, 20);
+                    store.AddSegRegion(seg.Id, image.Id, segClassId, SegRegionType.Rect, 10, 1, 20, 20);
+                    Assert.AreEqual(store.GetSegRegions(seg.Id, image.Id).Count, store.GetImageAnnotationSummaries(seg.Id).Single().AnnotationCount);
+                    store.EraseSegPath(seg.Id, image.Id, segClassId, new[] { new SegPoint(15, 2), new SegPoint(15, 11), new SegPoint(15, 20) }, 4);
+                    Assert.AreEqual(store.GetSegRegions(seg.Id, image.Id).Count, store.GetImageAnnotationSummaries(seg.Id).Single().AnnotationCount);
+                    Assert.IsTrue(store.Undo(seg.Id));
+                    Assert.AreEqual(store.GetSegRegions(seg.Id, image.Id).Count, store.GetImageAnnotationSummaries(seg.Id).Single().AnnotationCount);
+
+                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"source.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":100,\"height\":100}]}";
+                    AnnotationSet imported = store.ImportAnnotationJson(json, "imported", false);
+                    Assert.AreEqual(store.GetSegRegions(imported.Id, image.Id).Count, store.GetImageAnnotationSummaries(imported.Id).Single().AnnotationCount);
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }

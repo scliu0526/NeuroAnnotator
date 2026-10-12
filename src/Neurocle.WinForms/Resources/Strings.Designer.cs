@@ -90,6 +90,7 @@ namespace Neurocle.WinForms.Resources
         internal static string DatasetColumn { get { return ResourceManager.GetString("DatasetColumn", CultureInfo.CurrentUICulture); } }
         internal static string DatasetClassColumn { get { return ResourceManager.GetString("DatasetClassColumn", CultureInfo.CurrentUICulture); } }
         internal static string DatasetAnnotatedColumn { get { return ResourceManager.GetString("DatasetAnnotatedColumn", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetAnnotationCountColumn { get { return ResourceManager.GetString("DatasetAnnotationCountColumn", CultureInfo.CurrentUICulture); } }
         internal static string DatasetRetestColumn { get { return ResourceManager.GetString("DatasetRetestColumn", CultureInfo.CurrentUICulture); } }
         internal static string DatasetTrainPercent { get { return ResourceManager.GetString("DatasetTrainPercent", CultureInfo.CurrentUICulture); } }
         internal static string DatasetTestPercent { get { return ResourceManager.GetString("DatasetTestPercent", CultureInfo.CurrentUICulture); } }

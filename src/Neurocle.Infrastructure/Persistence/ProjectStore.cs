@@ -454,6 +454,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (set == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
             string table = set.Type == AnnotationSetType.Cla ? "ClaAnnotation" : set.Type == AnnotationSetType.Obd ? "ObdAnnotation" : "SegRegion";
             var grouped = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = "SELECT ImageId, ClassId FROM " + table + " WHERE AnnotationSetId = $set ORDER BY ImageId;";
@@ -465,12 +466,13 @@ namespace Neurocle.Infrastructure.Persistence
                         string imageId = reader.GetString(0);
                         List<string> classIds;
                         if (!grouped.TryGetValue(imageId, out classIds)) { classIds = new List<string>(); grouped.Add(imageId, classIds); }
+                        counts[imageId] = counts.ContainsKey(imageId) ? counts[imageId] + 1 : 1;
                         string classId = reader.GetString(1);
                         if (!classIds.Contains(classId)) classIds.Add(classId);
                     }
                 }
             }
-            return grouped.Select(value => new ImageAnnotationSummary(value.Key, value.Value)).ToArray();
+            return grouped.Select(value => new ImageAnnotationSummary(value.Key, value.Value, counts[value.Key])).ToArray();
         }
 
         public void SetDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, DatasetAssignmentStatus status)
@@ -805,16 +807,35 @@ namespace Neurocle.Infrastructure.Persistence
 
         private void InsertSegRegionRaw(SegRegion value)
         {
-            InsertSegRegionRaw(connection, historyTransaction, value);
+            if (historyTransaction != null) InsertSegRegionRaw(connection, historyTransaction, value);
+            else CompleteOperation((db, transaction) => InsertSegRegionRaw(db, transaction, value));
         }
 
         private static void InsertSegRegionRaw(SqliteConnection db, SqliteTransaction transaction, SegRegion value)
         {
             Execute(db, transaction, "INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth) VALUES ($id, $set, $image, $class, $type, $x, $y, $width, $height, $order, $stroke);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$type", (int)value.Type), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$stroke", value.StrokeWidth == 0 ? (object)DBNull.Value : value.StrokeWidth));
-            for (int index = 0; index < value.Points.Count; index++)
+            InsertSegPointsRaw(db, transaction, value.Id, value.Points);
+        }
+
+        private static void InsertSegPointsRaw(SqliteConnection db, SqliteTransaction transaction, string regionId, IReadOnlyList<SegPoint> points)
+        {
+            using (var command = db.CreateCommand())
             {
-                SegPoint point = value.Points[index];
-                Execute(db, transaction, "INSERT INTO SegRegionPoint (RegionId, Ordinal, X, Y) VALUES ($region, $ordinal, $x, $y);", new SqliteParameter("$region", value.Id), new SqliteParameter("$ordinal", index), new SqliteParameter("$x", point.X), new SqliteParameter("$y", point.Y));
+                command.Transaction = transaction;
+                command.CommandText = "INSERT INTO SegRegionPoint (RegionId, Ordinal, X, Y) VALUES ($region, $ordinal, $x, $y);";
+                command.Parameters.AddWithValue("$region", regionId);
+                SqliteParameter ordinal = command.Parameters.Add("$ordinal", SqliteType.Integer);
+                SqliteParameter x = command.Parameters.Add("$x", SqliteType.Integer);
+                SqliteParameter y = command.Parameters.Add("$y", SqliteType.Integer);
+                command.Prepare();
+                for (int index = 0; index < points.Count; index++)
+                {
+                    SegPoint point = points[index];
+                    ordinal.Value = index;
+                    x.Value = point.X;
+                    y.Value = point.Y;
+                    command.ExecuteNonQuery();
+                }
             }
         }
 
@@ -853,7 +874,7 @@ namespace Neurocle.Infrastructure.Persistence
         {
             Execute(db, transaction, "DELETE FROM SegRegionPoint WHERE RegionId = $id;", new SqliteParameter("$id", value.Id));
             Execute(db, transaction, "UPDATE SegRegion SET ClassId = $class, Type = $type, X = $x, Y = $y, Width = $width, Height = $height, ZOrder = $order, StrokeWidth = $stroke WHERE Id = $id;", new SqliteParameter("$class", value.ClassId), new SqliteParameter("$type", (int)value.Type), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$stroke", value.StrokeWidth == 0 ? (object)DBNull.Value : value.StrokeWidth), new SqliteParameter("$id", value.Id));
-            for (int index = 0; index < value.Points.Count; index++) Execute(db, transaction, "INSERT INTO SegRegionPoint (RegionId, Ordinal, X, Y) VALUES ($id, $ordinal, $x, $y);", new SqliteParameter("$id", value.Id), new SqliteParameter("$ordinal", index), new SqliteParameter("$x", value.Points[index].X), new SqliteParameter("$y", value.Points[index].Y));
+            InsertSegPointsRaw(db, transaction, value.Id, value.Points);
         }
 
         public string GetClaClassId(string annotationSetId, string imageId)
@@ -1081,17 +1102,18 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 Path64 outer = remaining[0];
                 remaining.RemoveAt(0);
-                var polygon = new Path64(outer);
                 int orientation = Math.Sign(Clipper.Area(outer));
+                var holes = new List<Path64>();
                 for (int index = remaining.Count - 1; index >= 0; index--)
                 {
                     Path64 possibleHole = remaining[index];
                     if (Math.Sign(Clipper.Area(possibleHole)) != orientation && PointInPath(possibleHole[0], outer))
                     {
-                        polygon = SegGeometryPrototype.BridgeHole(polygon, possibleHole);
+                        holes.Add(possibleHole);
                         remaining.RemoveAt(index);
                     }
                 }
+                Path64 polygon = holes.Count == 0 ? new Path64(outer) : SegGeometryPrototype.BridgeHoles(outer, holes);
                 SegPoint[] points = polygon.Select(point => new SegPoint((int)Math.Max(0, Math.Min(imageSize.Width, point.X)), (int)Math.Max(0, Math.Min(imageSize.Height, point.Y)))).ToArray();
                 if (points.Distinct(new SegPointComparer()).Count() >= 3) result.Add(new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, SegRegionType.PolyGon, 0, 0, 0, 0, zOrder++, points));
             }

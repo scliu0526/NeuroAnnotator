@@ -104,6 +104,7 @@
   <data name="DatasetColumn" xml:space="preserve"><value>資料集</value></data>
   <data name="DatasetClassColumn" xml:space="preserve"><value>類別</value></data>
   <data name="DatasetAnnotatedColumn" xml:space="preserve"><value>標註</value></data>
+  <data name="DatasetAnnotationCountColumn" xml:space="preserve"><value>標註數量</value></data>
   <data name="DatasetRetestColumn" xml:space="preserve"><value>Retest</value></data>
   <data name="DatasetTrainPercent" xml:space="preserve"><value>訓練：</value></data>
   <data name="DatasetTestPercent" xml:space="preserve"><value>測試：</value></data>
@@ -128,8 +129,8 @@
   <data name="SegLineTool" xml:space="preserve"><value>SEG 線型</value></data>
   <data name="SegEraserTool" xml:space="preserve"><value>SEG 橡皮擦</value></data>
   <data name="SegSelectTool" xml:space="preserve"><value>SEG 選取</value></data>
-  <data name="SegOpacity" xml:space="preserve"><value>SEG 透明度 (%)</value></data>
-  <data name="SegBrushWidth" xml:space="preserve"><value>筆刷寬度</value></data>
+  <data name="SegOpacity" xml:space="preserve"><value>透明度 (%)</value></data>
+  <data name="SegBrushWidth" xml:space="preserve"><value>筆寬</value></data>
   <data name="SegLineWidth" xml:space="preserve"><value>線型寬度</value></data>
   <data name="SegEraserWidth" xml:space="preserve"><value>橡皮擦寬度</value></data>
   <data name="AnnotationSetNamePrompt" xml:space="preserve"><value>標註集名稱</value></data>

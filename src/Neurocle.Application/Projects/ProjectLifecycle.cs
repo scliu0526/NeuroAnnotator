@@ -250,14 +250,16 @@ namespace Neurocle.Application.Projects
 
     public sealed class ImageAnnotationSummary
     {
-        public ImageAnnotationSummary(string imageId, IReadOnlyList<string> classIds)
+        public ImageAnnotationSummary(string imageId, IReadOnlyList<string> classIds, int annotationCount)
         {
             ImageId = imageId;
             ClassIds = classIds ?? throw new ArgumentNullException(nameof(classIds));
+            AnnotationCount = annotationCount;
         }
 
         public string ImageId { get; private set; }
         public IReadOnlyList<string> ClassIds { get; private set; }
+        public int AnnotationCount { get; private set; }
     }
 
     public sealed class ProjectImage

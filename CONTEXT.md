@@ -17,6 +17,8 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 | CLA 標註 | 一張圖片在單一 CLA 標註集中的零或一個類別。 |
 | OBD 物件 | 一個帶類別的軸對齊矩形框。 |
 | SEG 區域 | 一個帶類別、可編輯且可有洞的填色區域；同類別由新繪製造成面積重疊時合併，既有物件經變形造成重疊時保持獨立。 |
+| 標註數量 | 一張圖片在單一 OBD 或 SEG 標註集中，目前實際存在的 OBD 物件或 SEG 區域總數；不計操作次數、類別數或面積。 |
+| 空洞橋接 | SEG 區域以單一路徑表示外圈與洞時，連接內外輪廓且往返重合的路徑段；它不增加填色面積。 |
 | 可用圖片（Available Image） | 受管理圖片檔仍存在且可讀取的圖片。缺失圖片不匯出。 |
 | 完成操作（Completed Operation） | 已通過有效性檢查且可形成單一 Undo/Redo 記錄的使用者動作。 |
 
@@ -50,7 +52,9 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 ## 參考文件
 
 - 正式產品規格：`docs/specs/ai-labeling-tool.md`
+- 標註介面與 SEG 增量規格：`docs/specs/annotation-ui-seg-performance.md`
 - 實作順序：`docs/plans/implementation-plan.md`
+- 標註介面與 SEG 增量計畫：`docs/plans/annotation-ui-seg-performance.md`
 - 測試與驗收：`docs/plans/test-and-acceptance-plan.md`
 - 已知風險：`docs/plans/known-risks.md`
 - 架構決策：`docs/adr/`
