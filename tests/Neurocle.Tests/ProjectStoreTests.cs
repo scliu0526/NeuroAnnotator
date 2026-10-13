@@ -19,6 +19,28 @@ namespace Neurocle.Tests
     public sealed class ProjectStoreTests
     {
         [TestMethod]
+        public void New_classes_use_unique_random_rgba_colors_within_each_annotation_set()
+        {
+            string path = TemporaryProjectPath();
+            Func<int, int> original = ProjectStore.NextRandom;
+            try
+            {
+                ProjectStore.NextRandom = maximum => 0;
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    AnnotationSet set = store.CreateAnnotationSet("colors", AnnotationSetType.Cla);
+                    store.AddClass(set.Id, "custom", "rgba(1, 1, 1, 1)-custom");
+                    ProjectStore.NextRandom = maximum => 1;
+                    store.AddClass(set.Id, "second", null);
+                    string[] colors = store.GetClasses(set.Id).Select(value => value.Color).ToArray();
+                    Assert.AreEqual(3, colors.Select(value => value.Replace("-custom", "")).Distinct(StringComparer.Ordinal).Count());
+                    Assert.IsTrue(colors.All(value => value.Replace("-custom", "").StartsWith("rgba(") && value.Replace("-custom", "").EndsWith(", 1)")));
+                }
+            }
+            finally { ProjectStore.NextRandom = original; DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
         public void Create_open_and_completed_operation_persist_atomically()
         {
             string path = TemporaryProjectPath();

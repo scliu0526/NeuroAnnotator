@@ -836,7 +836,7 @@ namespace Neurocle.WinForms
             if (project == null || selected == null) return;
             string name = Prompt(Strings.AnnotationClassNamePrompt);
             if (name == null) return;
-            project.AddClass(selected.Id, name, "rgba(255, 0, 0, 1)");
+            project.AddClass(selected.Id, name, null);
             RefreshAnnotationClasses();
         }
 

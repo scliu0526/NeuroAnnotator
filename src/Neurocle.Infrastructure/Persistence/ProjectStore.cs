@@ -297,7 +297,7 @@ namespace Neurocle.Infrastructure.Persistence
             CompleteOperation((db, transaction) =>
             {
                 Execute(db, transaction, "INSERT INTO AnnotationSet (Id, Name, Type) VALUES ($id, $name, $type);", new SqliteParameter("$id", set.Id), new SqliteParameter("$name", set.Name), new SqliteParameter("$type", (int)set.Type));
-                Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, 'class1', $color);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", set.Id), new SqliteParameter("$color", AnnotationColorFormat.Normalize("#FF0000")));
+                Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, 'class1', $color);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", set.Id), new SqliteParameter("$color", NextClassColor(new string[0])));
             });
             return set;
         }
@@ -402,7 +402,8 @@ namespace Neurocle.Infrastructure.Persistence
 
         public AnnotationClass AddClass(string annotationSetId, string name, string color)
         {
-            var value = new AnnotationClass(Guid.NewGuid().ToString("D"), annotationSetId, NormalizeName(name), AnnotationColorFormat.Normalize(color));
+            string nextColor = color == null ? NextClassColor(GetClasses(annotationSetId).Select(item => item.Color)) : AnnotationColorFormat.Normalize(color);
+            var value = new AnnotationClass(Guid.NewGuid().ToString("D"), annotationSetId, NormalizeName(name), nextColor);
             Execute(connection, null, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
             Record(annotationSetId, () => DeleteClassRaw(value.Id), () => InsertClassRaw(value), EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.Name, value.Color));
             return value;
@@ -1603,6 +1604,22 @@ namespace Neurocle.Infrastructure.Persistence
         private static List<string> OrderSources(IEnumerable<string> filePaths)
         {
             return filePaths.OrderBy(Path.GetFileName, NaturalFileNameComparer.Instance).ToList();
+        }
+
+        private static string NextClassColor(IEnumerable<string> existing)
+        {
+            var colors = new HashSet<string>(existing.Select(value => AnnotationColorFormat.Normalize(value).Replace("-custom", "")), StringComparer.Ordinal);
+            for (int attempt = 0; attempt < 100; attempt++)
+            {
+                string candidate = string.Format("rgba({0}, {1}, {2}, 1)", NextRandom(256), NextRandom(256), NextRandom(256));
+                if (colors.Add(candidate)) return candidate;
+            }
+            for (int value = 0; value <= 0xFFFFFF; value++)
+            {
+                string candidate = string.Format("rgba({0}, {1}, {2}, 1)", (value >> 16) & 255, (value >> 8) & 255, value & 255);
+                if (colors.Add(candidate)) return candidate;
+            }
+            throw new InvalidOperationException("No available RGB colors remain.");
         }
 
         private static void EnsureCurrentSchema(SqliteConnection db, string projectPath)
