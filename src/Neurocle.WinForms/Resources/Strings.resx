@@ -79,6 +79,8 @@
   <data name="ImageSearchPlaceholder" xml:space="preserve"><value>搜尋檔名</value></data>
   <data name="ImageSequenceColumn" xml:space="preserve"><value>序號</value></data>
   <data name="ImageFileNameColumn" xml:space="preserve"><value>檔名</value></data>
+  <data name="ImageClassColumn" xml:space="preserve"><value>類別</value></data>
+  <data name="ImageAnnotationCountColumn" xml:space="preserve"><value>標註數量</value></data>
   <data name="ImagePreviewEmpty" xml:space="preserve"><value>請從圖片清單選取圖片。</value></data>
   <data name="ImagePreviewLoading" xml:space="preserve"><value>正在載入預覽。</value></data>
   <data name="ImagePreviewMissing" xml:space="preserve"><value>這張圖片缺失或無法讀取。</value></data>

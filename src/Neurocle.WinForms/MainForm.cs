@@ -501,13 +501,21 @@ namespace Neurocle.WinForms
             canvas.ObdAnnotations = canvas.ObdEnabled ? project.GetObdAnnotations(selected.Id, selectedImageId) : null;
             canvas.SegClasses = classes.ToDictionary(value => value.Id);
             canvas.SegRegions = canvas.SegEnabled ? project.GetSegRegions(selected.Id, selectedImageId) : null;
-            if (project == null || selected == null) return;
+            if (project == null || selected == null)
+            {
+                RefreshImageBrowser();
+                return;
+            }
             foreach (AnnotationClass value in classes)
             {
                 var button = new Button { Text = value.Name, AutoSize = true, BackColor = AnnotationColorFormat.ToColor(value.Color) };
                 button.Click += (sender, args) =>
                 {
-                    if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() => project.SetClaClass(selected.Id, selectedImageId, value.Id));
+                    if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() =>
+                    {
+                        project.SetClaClass(selected.Id, selectedImageId, value.Id);
+                        RefreshAnnotationClasses();
+                    });
                     else if (selected.Type == AnnotationSetType.Obd && selectedImageId != null && canvas.SelectedObdId != null) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
                     else if (selected.Type == AnnotationSetType.Seg)
                     {
@@ -522,6 +530,7 @@ namespace Neurocle.WinForms
                 button.ContextMenuStrip = menu;
                 annotationClasses.Controls.Add(button);
             }
+            RefreshImageBrowser();
         }
 
         private AnnotationSet SelectedAnnotationSet { get { return annotationSets.SelectedItem as AnnotationSet; } }
@@ -543,6 +552,27 @@ namespace Neurocle.WinForms
                 rows.Add(new DatasetRow(image, assignment, classNames, summary == null ? 0 : summary.AnnotationCount));
             }
             datasetAssignments.LoadRows(rows, selected.Type != AnnotationSetType.Cla);
+        }
+
+        private void RefreshImageBrowser()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null) return;
+            if (selected == null)
+            {
+                imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
+                return;
+            }
+            var classes = project.GetClasses(selected.Id).ToDictionary(value => value.Id, value => value.Name, StringComparer.Ordinal);
+            var summaries = project.GetImageAnnotationSummaries(selected.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
+            var rows = project.GetImages().Select(image =>
+            {
+                ImageAnnotationSummary summary;
+                summaries.TryGetValue(image.Id, out summary);
+                string[] classNames = (summary == null ? new string[0] : summary.ClassIds).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
+                return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, selected.Type != AnnotationSetType.Cla);
+            });
+            imageBrowser.LoadRows(rows, GetImagesDirectory(project.ProjectPath));
         }
 
         private void SetDatasetAssignments(IReadOnlyList<string> imageIds, DatasetAssignmentStatus status)
@@ -973,7 +1003,7 @@ namespace Neurocle.WinForms
                     progress.Close();
                     projectMenu.Enabled = true;
                     importInProgress = false;
-                    if (project != null) imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
+                    if (project != null) RefreshImageBrowser();
                 }
             }
         }

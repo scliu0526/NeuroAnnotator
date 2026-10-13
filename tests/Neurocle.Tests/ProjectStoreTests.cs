@@ -1003,6 +1003,24 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Image_list_annotation_columns_sort_complete_class_lists_and_numeric_counts()
+        {
+            ImageListRow[] rows =
+            {
+                new ImageListRow(new ProjectImage("one", "one.png", "one.png", "hash", 1, 1, 1), new[] { "zeta", "alpha" }, 10, true),
+                new ImageListRow(new ProjectImage("two", "two.png", "two.png", "hash", 1, 1, 2), new[] { "beta" }, 2, true),
+                new ImageListRow(new ProjectImage("three", "three.png", "three.png", "hash", 1, 1, 3), new string[0], 0, true),
+                new ImageListRow(new ProjectImage("four", "four.png", "four.png", "hash", 1, 1, 4), new[] { "beta" }, 2, true)
+            };
+
+            CollectionAssert.AreEqual(new[] { "one", "two", "four", "three" }, ImageListProjection.FilterAndSort(rows, null, ImageListSortColumn.Classes, ImageListSortDirection.Ascending).Select(row => row.Image.Id).ToArray());
+            CollectionAssert.AreEqual(new[] { "two", "four", "one", "three" }, ImageListProjection.FilterAndSort(rows, null, ImageListSortColumn.Classes, ImageListSortDirection.Descending).Select(row => row.Image.Id).ToArray());
+            CollectionAssert.AreEqual(new[] { "three", "two", "four", "one" }, ImageListProjection.FilterAndSort(rows, null, ImageListSortColumn.AnnotationCount, ImageListSortDirection.Ascending).Select(row => row.Image.Id).ToArray());
+            CollectionAssert.AreEqual(new[] { "one", "two", "four", "three" }, ImageListProjection.FilterAndSort(rows, null, ImageListSortColumn.AnnotationCount, ImageListSortDirection.Descending).Select(row => row.Image.Id).ToArray());
+            Assert.AreEqual("alpha, zeta", rows[0].ClassDisplay);
+        }
+
+        [TestMethod]
         public void Canvas_viewport_keeps_cursor_image_coordinate_and_clamps_zoom_at_all_supported_dpi_sizes()
         {
             foreach (float dpiScale in new[] { 1f, 1.25f, 1.5f, 1.75f, 2f })

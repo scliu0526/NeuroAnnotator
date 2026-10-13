@@ -95,6 +95,20 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Image_browser_annotation_count_column_is_visible_only_for_obd_and_seg_rows()
+        {
+            using (var control = new ImageBrowserControl())
+            {
+                ListView list = control.Controls.OfType<ListView>().Single();
+                ProjectImage image = new ProjectImage("image", "image.png", "image.png", "hash", 1, 1, 1);
+                control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, false) }, Path.GetTempPath());
+                Assert.IsFalse(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+                control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, true) }, Path.GetTempPath());
+                Assert.IsTrue(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+            }
+        }
+
+        [TestMethod]
         public void Page_tabs_are_below_the_menu_and_status()
         {
             using (var form = new MainForm(new ProjectLifecycle()))

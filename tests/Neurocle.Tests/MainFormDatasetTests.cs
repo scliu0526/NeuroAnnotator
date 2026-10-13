@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Windows.Forms;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.Application.Projects;
 using Neurocle.Infrastructure.Persistence;
@@ -34,8 +36,48 @@ namespace Neurocle.Tests
                     Invoke(form, "ReplaceProject", store);
                     Invoke(form, "RefreshDatasetAssignments");
                     Assert.AreEqual(1, form.DatasetAssignments.Rows.Single().AnnotationCount);
+                    ImageListRow beforeUndo = form.ImageBrowser.Rows.Single();
+                    Assert.AreEqual(1, beforeUndo.AnnotationCount);
+                    Assert.IsTrue(beforeUndo.ShowAnnotationCount);
+                    CollectionAssert.AreEqual(new[] { "class1" }, beforeUndo.ClassNames.ToArray());
                     Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
                     Assert.AreEqual(0, form.DatasetAssignments.Rows.Single().AnnotationCount);
+                    Assert.AreEqual(0, form.ImageBrowser.Rows.Single().AnnotationCount);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Cla_edits_and_clear_refresh_image_browser_classes_immediately()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string source = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(source, Color.Red);
+                store = ProjectStore.Create(path);
+                ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                AnnotationSet set = store.CreateAnnotationSet("classes", AnnotationSetType.Cla);
+                AnnotationClass other = store.AddClass(set.Id, "other", "#123456");
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, null));
+                    FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
+                    Click(classes.Controls.OfType<Button>().Single(button => button.Text == "class1"));
+                    CollectionAssert.AreEqual(new[] { "class1" }, form.ImageBrowser.Rows.Single().ClassNames.ToArray());
+                    Click(classes.Controls.OfType<Button>().Single(button => button.Text == other.Name));
+                    CollectionAssert.AreEqual(new[] { other.Name }, form.ImageBrowser.Rows.Single().ClassNames.ToArray());
+                    Invoke(form, "ClearDatasetClasses", (IReadOnlyList<string>)new[] { image.Id });
+                    Assert.AreEqual(0, form.ImageBrowser.Rows.Single().ClassNames.Count);
                 }
             }
             finally
@@ -59,6 +101,16 @@ namespace Neurocle.Tests
             MethodInfo method = target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
                 .Single(candidate => candidate.Name == methodName && candidate.GetParameters().Length == arguments.Length);
             method.Invoke(target, arguments);
+        }
+
+        private static T Field<T>(object target, string fieldName) where T : class
+        {
+            return (T)target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
+        }
+
+        private static void Click(Button button)
+        {
+            typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(button, new object[] { EventArgs.Empty });
         }
     }
 }

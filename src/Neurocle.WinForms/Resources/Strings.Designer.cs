@@ -65,6 +65,8 @@ namespace Neurocle.WinForms.Resources
         internal static string ImageSearchPlaceholder { get { return ResourceManager.GetString("ImageSearchPlaceholder", CultureInfo.CurrentUICulture); } }
         internal static string ImageSequenceColumn { get { return ResourceManager.GetString("ImageSequenceColumn", CultureInfo.CurrentUICulture); } }
         internal static string ImageFileNameColumn { get { return ResourceManager.GetString("ImageFileNameColumn", CultureInfo.CurrentUICulture); } }
+        internal static string ImageClassColumn { get { return ResourceManager.GetString("ImageClassColumn", CultureInfo.CurrentUICulture); } }
+        internal static string ImageAnnotationCountColumn { get { return ResourceManager.GetString("ImageAnnotationCountColumn", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewEmpty { get { return ResourceManager.GetString("ImagePreviewEmpty", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewLoading { get { return ResourceManager.GetString("ImagePreviewLoading", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewMissing { get { return ResourceManager.GetString("ImagePreviewMissing", CultureInfo.CurrentUICulture); } }

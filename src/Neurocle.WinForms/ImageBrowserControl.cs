@@ -12,15 +12,18 @@ namespace Neurocle.WinForms
     {
         private readonly TextBox search;
         private readonly ListView list;
-        private readonly List<ProjectImage> source = new List<ProjectImage>();
-        private IReadOnlyList<ProjectImage> visible = new List<ProjectImage>();
+        private readonly ColumnHeader annotationCountColumn;
+        private readonly List<ImageListRow> source = new List<ImageListRow>();
+        private IReadOnlyList<ImageListRow> visible = new List<ImageListRow>();
         private string imagesDirectory;
         private ImageListSortColumn column = ImageListSortColumn.Sequence;
         private ImageListSortDirection direction = ImageListSortDirection.Ascending;
+        private bool refreshing;
 
         public event EventHandler<ImageSelectedEventArgs> ImageSelected;
 
-        public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visible[index].Id).ToArray(); } }
+        public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visible[index].Image.Id).ToArray(); } }
+        internal IReadOnlyList<ImageListRow> Rows { get { return source; } }
 
         internal void MoveSelection(int direction)
         {
@@ -35,7 +38,7 @@ namespace Neurocle.WinForms
 
         internal void SelectImage(string imageId)
         {
-            int index = visible.Select((image, current) => new { image, current }).Where(item => item.image.Id == imageId).Select(item => item.current).DefaultIfEmpty(-1).Single();
+            int index = visible.Select((row, current) => new { row, current }).Where(item => item.row.Image.Id == imageId).Select(item => item.current).DefaultIfEmpty(-1).Single();
             list.SelectedIndices.Clear();
             if (index >= 0) list.SelectedIndices.Add(index);
         }
@@ -48,19 +51,31 @@ namespace Neurocle.WinForms
             list = new ListView { Dock = DockStyle.Fill, View = View.Details, VirtualMode = true, FullRowSelect = true, HideSelection = false };
             list.Columns.Add(Strings.ImageSequenceColumn, 80);
             list.Columns.Add(Strings.ImageFileNameColumn, 260);
+            list.Columns.Add(Strings.ImageClassColumn, 180);
+            annotationCountColumn = new ColumnHeader { Text = Strings.ImageAnnotationCountColumn, Width = 90 };
             list.RetrieveVirtualItem += RetrieveVirtualItem;
             list.SelectedIndexChanged += (sender, args) => ShowSelectionAsync();
-            list.ColumnClick += (sender, args) => ChangeSort(args.Column == 0 ? ImageListSortColumn.Sequence : ImageListSortColumn.FileName);
+            list.ColumnClick += (sender, args) => ChangeSort(args.Column == 0 ? ImageListSortColumn.Sequence : args.Column == 1 ? ImageListSortColumn.FileName : args.Column == 2 ? ImageListSortColumn.Classes : ImageListSortColumn.AnnotationCount);
             Controls.Add(list);
             Controls.Add(search);
         }
 
         public void LoadImages(IReadOnlyList<ProjectImage> images, string managedImagesDirectory)
         {
+            LoadRows((images ?? new ProjectImage[0]).Select(image => new ImageListRow(image, new string[0], 0, false)), managedImagesDirectory);
+        }
+
+        public void LoadRows(IEnumerable<ImageListRow> rows, string managedImagesDirectory)
+        {
             source.Clear();
-            if (images != null) source.AddRange(images);
+            if (rows != null) source.AddRange(rows);
             imagesDirectory = managedImagesDirectory;
-            RefreshList();
+            bool showAnnotationCount = source.Any(row => row.ShowAnnotationCount);
+            if (showAnnotationCount && !list.Columns.Contains(annotationCountColumn)) list.Columns.Add(annotationCountColumn);
+            if (!showAnnotationCount && list.Columns.Contains(annotationCountColumn)) list.Columns.Remove(annotationCountColumn);
+            refreshing = true;
+            try { RefreshList(); }
+            finally { refreshing = false; }
         }
 
         private void ChangeSort(ImageListSortColumn requestedColumn)
@@ -76,26 +91,28 @@ namespace Neurocle.WinForms
 
         private void RefreshList()
         {
-            string selectedId = list.SelectedIndices.Count == 0 ? null : visible[list.SelectedIndices[0]].Id;
+            string selectedId = list.SelectedIndices.Count == 0 ? null : visible[list.SelectedIndices[0]].Image.Id;
             visible = ImageListProjection.FilterAndSort(source, search.Text, column, direction);
             list.VirtualListSize = visible.Count;
             list.SelectedIndices.Clear();
-            int selectedIndex = selectedId == null ? -1 : visible.Select((image, index) => new { image, index }).Where(item => item.image.Id == selectedId).Select(item => item.index).DefaultIfEmpty(-1).Single();
+            int selectedIndex = selectedId == null ? -1 : visible.Select((row, index) => new { row, index }).Where(item => item.row.Image.Id == selectedId).Select(item => item.index).DefaultIfEmpty(-1).Single();
             if (selectedIndex >= 0) list.SelectedIndices.Add(selectedIndex);
             list.Invalidate();
         }
 
         private void RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs args)
         {
-            ProjectImage image = visible[args.ItemIndex];
-            args.Item = new ListViewItem(image.Sequence.ToString());
-            args.Item.SubItems.Add(image.OriginalFileName);
+            ImageListRow row = visible[args.ItemIndex];
+            args.Item = new ListViewItem(row.Image.Sequence.ToString());
+            args.Item.SubItems.Add(row.Image.OriginalFileName);
+            args.Item.SubItems.Add(row.ClassDisplay);
+            if (list.Columns.Contains(annotationCountColumn)) args.Item.SubItems.Add(row.AnnotationCount.ToString());
         }
 
         private void ShowSelectionAsync()
         {
-            if (list.SelectedIndices.Count == 0) return;
-            ProjectImage image = visible[list.SelectedIndices[0]];
+            if (refreshing || list.SelectedIndices.Count == 0) return;
+            ProjectImage image = visible[list.SelectedIndices[0]].Image;
             ImageSelected?.Invoke(this, new ImageSelectedEventArgs(image, Path.Combine(imagesDirectory, image.ManagedFileName)));
         }
     }
