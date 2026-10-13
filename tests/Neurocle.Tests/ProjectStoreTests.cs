@@ -137,8 +137,8 @@ namespace Neurocle.Tests
                 {
                     var images = store.ImportFiles(new[] { second, first });
                     Assert.AreEqual(2, images.Count);
-                    Assert.AreEqual("photo.bmp", images[0].ManagedFileName);
-                    Assert.AreEqual("photo (1).bmp", images[1].ManagedFileName);
+                    Assert.AreEqual("photo.png", images[0].ManagedFileName);
+                    Assert.AreEqual("photo (1).png", images[1].ManagedFileName);
                     Assert.AreEqual(1, images[0].Sequence);
                     Assert.AreEqual(2, images[1].Sequence);
                     Assert.AreEqual(3, images[0].Width);
@@ -151,8 +151,8 @@ namespace Neurocle.Tests
                 {
                     var persisted = reopened.GetImages();
                     Assert.AreEqual(2, persisted.Count);
-                    Assert.AreEqual("photo.bmp", persisted[0].OriginalFileName);
-                    Assert.AreEqual("photo (1).bmp", persisted[1].ManagedFileName);
+                    Assert.AreEqual("photo.png", persisted[0].OriginalFileName);
+                    Assert.AreEqual("photo (1).png", persisted[1].ManagedFileName);
                     Assert.AreEqual(1, persisted[0].Sequence);
                     Assert.AreEqual(2, persisted[1].Sequence);
                 }
@@ -174,11 +174,54 @@ namespace Neurocle.Tests
                 using (ProjectStore store = ProjectStore.Create(path))
                 {
                     var images = store.ImportFiles(new[] { ten, two, eleven, one });
-                    CollectionAssert.AreEqual(new[] { "1.jpeg", "2.jpg", "10.png", "11.bmp" }, images.Select(image => image.OriginalFileName).ToArray());
+                    CollectionAssert.AreEqual(new[] { "1.jpeg", "2.jpg", "10.png", "11.png" }, images.Select(image => image.OriginalFileName).ToArray());
                     CollectionAssert.AreEqual(new[] { 1, 2, 3, 4 }, images.Select(image => image.Sequence).ToArray());
                 }
             }
             finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Import_converts_bmp_to_png_and_preserves_other_supported_file_contents()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                string bitmap = CreateBitmap(Path.Combine(sourceRoot, "photo.bmp"), Color.Red, ImageFormat.Bmp);
+                string jpeg = CreateBitmap(Path.Combine(sourceRoot, "photo.jpg"), Color.Blue, ImageFormat.Jpeg);
+                string png = CreateBitmap(Path.Combine(sourceRoot, "photo.png"), Color.Green, ImageFormat.Png);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(new[] { bitmap, jpeg, png }).ToArray();
+                    ProjectImage converted = images.Single(image => image.OriginalFileName == "photo.png");
+                    Assert.AreEqual("photo.png", converted.ManagedFileName);
+                    using (var managedImage = Image.FromFile(Path.Combine(store.ImagesDirectory, converted.ManagedFileName)))
+                        Assert.AreEqual(ImageFormat.Png.Guid, managedImage.RawFormat.Guid);
+
+                    ProjectImage importedJpeg = images.Single(image => image.ManagedFileName == "photo.jpg");
+                    ProjectImage importedPng = images.Single(image => image.ManagedFileName == "photo (1).png");
+                    CollectionAssert.AreEqual(File.ReadAllBytes(jpeg), File.ReadAllBytes(Path.Combine(store.ImagesDirectory, importedJpeg.ManagedFileName)));
+                    CollectionAssert.AreEqual(File.ReadAllBytes(png), File.ReadAllBytes(Path.Combine(store.ImagesDirectory, importedPng.ManagedFileName)));
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Bmp_conversion_cleans_temporary_file_when_final_destination_cannot_be_created()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.bmp");
+            string destination = Path.Combine(Path.GetDirectoryName(path), "managed.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Bmp);
+                Directory.CreateDirectory(destination);
+                Assert.ThrowsException<IOException>(() => ProjectImageImporter.CopyToManagedStorage(source, destination));
+                Assert.IsFalse(File.Exists(destination + ".importing"));
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
         }
 
         [TestMethod]

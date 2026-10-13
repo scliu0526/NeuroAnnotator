@@ -1578,10 +1578,12 @@ namespace Neurocle.Infrastructure.Persistence
 
         private ProjectImage ImportFile(string source, int sequence)
         {
-            string managedName = NextManagedName(Path.GetFileName(source));
+            string managedName = NextManagedName(ProjectImageImporter.RequiresPngConversion(source)
+                ? Path.GetFileNameWithoutExtension(source) + ".png"
+                : Path.GetFileName(source));
             ProjectImage image = ProjectImageImporter.Read(source, managedName, sequence);
             string destination = Path.Combine(ImagesDirectory, managedName);
-            File.Copy(source, destination);
+            ProjectImageImporter.CopyToManagedStorage(source, destination);
             try
             {
                 CompleteOperation((db, transaction) => Execute(db, transaction,
