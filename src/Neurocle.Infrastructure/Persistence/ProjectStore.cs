@@ -1308,7 +1308,7 @@ namespace Neurocle.Infrastructure.Persistence
             string temporary = Path.Combine(ImagesDirectory, Guid.NewGuid().ToString("N") + ".relinking");
             try
             {
-                File.Copy(sourcePath, temporary);
+                ProjectImageImporter.CopyToManagedStorage(sourcePath, temporary);
                 File.Move(temporary, destination);
             }
             finally

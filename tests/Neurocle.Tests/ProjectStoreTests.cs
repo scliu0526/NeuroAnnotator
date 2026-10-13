@@ -701,6 +701,7 @@ namespace Neurocle.Tests
             {
                 string source = CreateBitmap(Path.Combine(sourceRoot, "source.bmp"), Color.Red);
                 string different = CreateBitmap(Path.Combine(sourceRoot, "different.bmp"), Color.Blue);
+                string renamedSource = Path.Combine(sourceRoot, "source-renamed.png");
                 ProjectImage image;
                 using (ProjectStore store = ProjectStore.Create(path))
                 {
@@ -713,9 +714,12 @@ namespace Neurocle.Tests
                     Assert.AreEqual(ImageRelinkFailure.ContentMismatch, mismatch.Failure);
                     Assert.IsTrue(store.GetMissingImages().Single().IsMissing);
 
-                    store.RelinkImage(image.Id, source);
+                    File.Copy(source, renamedSource);
+                    store.RelinkImage(image.Id, renamedSource);
                     Assert.AreEqual(0, store.GetMissingImages().Count);
                     Assert.IsTrue(File.Exists(Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    using (var relinked = Image.FromFile(Path.Combine(store.ImagesDirectory, image.ManagedFileName)))
+                        Assert.AreEqual(ImageFormat.Png.Guid, relinked.RawFormat.Guid);
                 }
 
                 using (ProjectStore reopened = ProjectStore.Open(path))

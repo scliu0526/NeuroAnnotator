@@ -37,7 +37,7 @@ namespace Neurocle.Infrastructure.Persistence
 
         internal static void CopyToManagedStorage(string sourcePath, string destinationPath)
         {
-            if (!RequiresPngConversion(sourcePath))
+            if (!RequiresPngConversion(sourcePath) && !IsBitmapImage(sourcePath))
             {
                 File.Copy(sourcePath, destinationPath);
                 return;
@@ -52,6 +52,11 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
             }
+        }
+
+        private static bool IsBitmapImage(string sourcePath)
+        {
+            using (var image = Image.FromFile(sourcePath, false)) return image.RawFormat.Guid == System.Drawing.Imaging.ImageFormat.Bmp.Guid;
         }
 
         internal static void ValidateFileSize(long length)
