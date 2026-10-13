@@ -505,6 +505,41 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Closed_seg_brush_path_submits_a_filled_polygon()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 300);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Brush })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    SegRegionType? submittedType = null;
+                    IReadOnlyList<SegPoint> submittedPoints = null;
+                    canvas.SegPathCreated += (type, points, width) => { submittedType = type; submittedPoints = points; };
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 70, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 70, 70, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 20, 70, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 20, 20, 0));
+
+                    Assert.AreEqual(SegRegionType.PolyGon, submittedType);
+                    Assert.IsNotNull(submittedPoints);
+                    Assert.AreEqual(4, submittedPoints.Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         private static void AssertPreviewStrokeThickness(ImageCanvasControl canvas, int x, int y, int expected)
         {
             using (var preview = new Bitmap(canvas.Width, canvas.Height))

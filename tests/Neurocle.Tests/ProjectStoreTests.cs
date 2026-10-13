@@ -8,6 +8,8 @@ using System.Drawing.Imaging;
 using System.Linq;
 using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Clipper2Lib;
+using Neurocle.Domain.Segmentation;
 using Neurocle.Infrastructure.Persistence;
 using Neurocle.Application.Projects;
 
@@ -1446,6 +1448,58 @@ namespace Neurocle.Tests
                     store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 50, 10, 10, 10);
                     store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 60, 10, 10, 10);
                     Assert.AreEqual(3, store.GetSegRegions(set.Id, image.Id).Count(item => item.ClassId == first.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Closed_seg_brush_polygon_unions_existing_same_class_area_without_erasing_it()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                string setId;
+                string imageId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    setId = set.Id;
+                    imageId = image.Id;
+                    AnnotationClass first = store.GetClasses(set.Id).Single();
+                    AnnotationClass second = store.AddClass(set.Id, "other", "#123456");
+                    store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 5, 30, 30, 20);
+                    store.AddSegRegion(set.Id, image.Id, second.Id, SegRegionType.Rect, 5, 30, 30, 20);
+
+                    store.AddSegPath(set.Id, image.Id, first.Id, SegRegionType.PolyGon, new[]
+                    {
+                        new SegPoint(10, 10), new SegPoint(90, 10), new SegPoint(90, 90), new SegPoint(10, 90)
+                    }, 0);
+
+                    SegRegion merged = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == first.Id);
+                    var mergedPath = new Path64(merged.Points.Select(point => new Point64(point.X, point.Y)).ToList());
+                    Paths64 preserved = Clipper.Intersect(new Paths64 { SegGeometryPrototype.Rectangle(5, 30, 35, 50) }, new Paths64 { mergedPath }, FillRule.NonZero);
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count(value => value.ClassId == first.Id));
+                    Assert.AreEqual(600d, SegGeometryPrototype.Area(preserved));
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { mergedPath }));
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count(value => value.ClassId == second.Id));
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    SegRegion restored = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == first.Id);
+                    Assert.AreEqual(SegRegionType.Rect, restored.Type);
+                    Assert.AreEqual(new Rectangle(5, 30, 30, 20), new Rectangle(restored.X, restored.Y, restored.Width, restored.Height));
+                    Assert.IsTrue(store.Redo(set.Id));
+                    SegRegion redone = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == first.Id);
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { new Path64(redone.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }));
+                    store.Save();
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    SegRegion persisted = reopened.GetSegRegions(setId, imageId).Single(value => value.ClassId == reopened.GetClasses(setId).First().Id);
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { new Path64(persisted.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }));
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }

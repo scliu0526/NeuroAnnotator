@@ -644,6 +644,11 @@ namespace Neurocle.WinForms
                     SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
                     segPath.Clear();
                 }
+                else if (SegTool == SegToolKind.Brush && segPathDragging && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
+                {
+                    SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
+                    segPath.Clear();
+                }
                 else if (SegTool == SegToolKind.Brush)
                 {
                     if (segPath.Count >= 2) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
