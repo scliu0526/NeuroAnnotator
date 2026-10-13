@@ -1,8 +1,43 @@
 using System;
+using System.Drawing;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Collections.Generic;
 
 namespace Neurocle.Application.Projects
 {
+    public static class AnnotationColorFormat
+    {
+        private static readonly Regex Rgba = new Regex(@"^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d+(?:\.\d+)?)\s*\)$", RegexOptions.CultureInvariant);
+
+        public static string Normalize(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("Color is required.", nameof(value));
+            bool custom = value.EndsWith("-custom", StringComparison.Ordinal);
+            string source = custom ? value.Substring(0, value.Length - 7) : value;
+            Match match = Rgba.Match(source);
+            Color color;
+            if (match.Success)
+            {
+                int red = int.Parse(match.Groups[1].Value), green = int.Parse(match.Groups[2].Value), blue = int.Parse(match.Groups[3].Value);
+                double alpha = double.Parse(match.Groups[4].Value, CultureInfo.InvariantCulture);
+                if (red > 255 || green > 255 || blue > 255 || alpha < 0 || alpha > 1) throw new ArgumentException("Color is invalid.", nameof(value));
+                color = Color.FromArgb(red, green, blue);
+            }
+            else
+            {
+                if (!Regex.IsMatch(source, @"^#[0-9a-fA-F]{6}$")) throw new ArgumentException("Color is invalid.", nameof(value));
+                color = ColorTranslator.FromHtml(source);
+            }
+            return string.Format("rgba({0}, {1}, {2}, 1){3}", color.R, color.G, color.B, custom ? "-custom" : "");
+        }
+
+        public static Color ToColor(string value)
+        {
+            Match match = Rgba.Match(Normalize(value).Replace("-custom", ""));
+            return Color.FromArgb(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value));
+        }
+    }
     public enum ImageImportFailure
     {
         UnsupportedFormat,

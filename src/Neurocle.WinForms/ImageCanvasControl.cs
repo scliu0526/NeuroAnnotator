@@ -257,7 +257,7 @@ namespace Neurocle.WinForms
                 RectangleF rectangle = ToScreenRectangle(imageRectangle.X, imageRectangle.Y, imageRectangle.Width, imageRectangle.Height);
                 AnnotationClass annotationClass;
                 obdClasses.TryGetValue(annotation.ClassId, out annotationClass);
-                Color color = annotationClass == null ? Color.Red : ColorTranslator.FromHtml(annotationClass.Color);
+                Color color = annotationClass == null ? Color.Red : AnnotationColorFormat.ToColor(annotationClass.Color);
                 using (var fill = new SolidBrush(Color.FromArgb(ToAlpha(ObdOpacity), color))) args.Graphics.FillRectangle(fill, rectangle);
                 using (var pen = new Pen(color, selectedObdIds.Contains(annotation.Id) ? 3f : 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
                 if (annotationClass != null) using (var text = new SolidBrush(color)) args.Graphics.DrawString(annotationClass.Name, Font, text, rectangle.Left + 2f, rectangle.Top + 2f);
@@ -274,7 +274,7 @@ namespace Neurocle.WinForms
                 if (!segPreviews.TryGetValue(stored.Id, out region)) region = stored;
                 AnnotationClass annotationClass;
                 segClasses.TryGetValue(region.ClassId, out annotationClass);
-                Color color = annotationClass == null ? Color.Red : ColorTranslator.FromHtml(annotationClass.Color);
+                Color color = annotationClass == null ? Color.Red : AnnotationColorFormat.ToColor(annotationClass.Color);
                 using (var fill = new SolidBrush(Color.FromArgb(ToAlpha(SegOpacity), color)))
                 using (var pen = new Pen(color, 2f))
                 {

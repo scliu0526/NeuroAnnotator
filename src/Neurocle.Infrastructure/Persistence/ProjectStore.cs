@@ -297,7 +297,7 @@ namespace Neurocle.Infrastructure.Persistence
             CompleteOperation((db, transaction) =>
             {
                 Execute(db, transaction, "INSERT INTO AnnotationSet (Id, Name, Type) VALUES ($id, $name, $type);", new SqliteParameter("$id", set.Id), new SqliteParameter("$name", set.Name), new SqliteParameter("$type", (int)set.Type));
-                Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, 'class1', '#FF0000');", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", set.Id));
+                Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, 'class1', $color);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", set.Id), new SqliteParameter("$color", AnnotationColorFormat.Normalize("#FF0000")));
             });
             return set;
         }
@@ -319,7 +319,9 @@ namespace Neurocle.Infrastructure.Persistence
                 }
             }
             var set = new AnnotationSet(Guid.NewGuid().ToString("D"), NormalizeName(annotationSetName), imported.Type);
-            var classes = imported.Classes.Select(value => new AnnotationClass(Guid.NewGuid().ToString("D"), set.Id, NormalizeName(value.Name), value.Color)).ToArray();
+            AnnotationClass[] classes;
+            try { classes = imported.Classes.Select(value => new AnnotationClass(Guid.NewGuid().ToString("D"), set.Id, NormalizeName(value.Name), AnnotationColorFormat.Normalize(value.Color))).ToArray(); }
+            catch (ArgumentException exception) { throw new JsonAnnotationImportException(exception.Message); }
             if (classes.Select(value => value.Name).Distinct(StringComparer.Ordinal).Count() != classes.Length) throw new JsonAnnotationImportException("classes contains duplicates.");
             var classByName = classes.ToDictionary(value => value.Name, StringComparer.Ordinal);
             CompleteOperation((db, transaction) =>
@@ -400,7 +402,7 @@ namespace Neurocle.Infrastructure.Persistence
 
         public AnnotationClass AddClass(string annotationSetId, string name, string color)
         {
-            var value = new AnnotationClass(Guid.NewGuid().ToString("D"), annotationSetId, NormalizeName(name), color ?? throw new ArgumentNullException(nameof(color)));
+            var value = new AnnotationClass(Guid.NewGuid().ToString("D"), annotationSetId, NormalizeName(name), AnnotationColorFormat.Normalize(color));
             Execute(connection, null, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
             Record(annotationSetId, () => DeleteClassRaw(value.Id), () => InsertClassRaw(value), EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.Name, value.Color));
             return value;
@@ -414,7 +416,7 @@ namespace Neurocle.Infrastructure.Persistence
         }
         public void ChangeClassColor(string classId, string color)
         {
-            AnnotationClass previous = GetClass(classId); string next = color ?? throw new ArgumentNullException(nameof(color));
+            AnnotationClass previous = GetClass(classId); string next = AnnotationColorFormat.Normalize(color);
             Execute(connection, null, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", next), new SqliteParameter("$id", classId));
             Record(previous.AnnotationSetId, () => ChangeClassColorRaw(classId, previous.Color), () => ChangeClassColorRaw(classId, next), EstimateHistoryBytes(classId, previous.Color, next));
         }

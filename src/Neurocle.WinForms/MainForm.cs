@@ -504,7 +504,7 @@ namespace Neurocle.WinForms
             if (project == null || selected == null) return;
             foreach (AnnotationClass value in classes)
             {
-                var button = new Button { Text = value.Name, AutoSize = true, BackColor = ColorTranslator.FromHtml(value.Color) };
+                var button = new Button { Text = value.Name, AutoSize = true, BackColor = AnnotationColorFormat.ToColor(value.Color) };
                 button.Click += (sender, args) =>
                 {
                     if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() => project.SetClaClass(selected.Id, selectedImageId, value.Id));
@@ -836,7 +836,7 @@ namespace Neurocle.WinForms
             if (project == null || selected == null) return;
             string name = Prompt(Strings.AnnotationClassNamePrompt);
             if (name == null) return;
-            project.AddClass(selected.Id, name, "#FF0000");
+            project.AddClass(selected.Id, name, "rgba(255, 0, 0, 1)");
             RefreshAnnotationClasses();
         }
 
@@ -850,10 +850,10 @@ namespace Neurocle.WinForms
 
         private void ChangeAnnotationClassColor(AnnotationClass value)
         {
-            using (var dialog = new ColorDialog { Color = ColorTranslator.FromHtml(value.Color) })
+            using (var dialog = new ColorDialog { Color = AnnotationColorFormat.ToColor(value.Color) })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                project.ChangeClassColor(value.Id, ColorTranslator.ToHtml(dialog.Color));
+                project.ChangeClassColor(value.Id, string.Format("rgba({0}, {1}, {2}, 1)-custom", dialog.Color.R, dialog.Color.G, dialog.Color.B));
                 RefreshAnnotationClasses();
             }
         }

@@ -1745,7 +1745,7 @@ namespace Neurocle.Tests
                     Assert.IsTrue(store.Undo(seg.Id));
                     Assert.AreEqual(store.GetSegRegions(seg.Id, image.Id).Count, store.GetImageAnnotationSummaries(seg.Id).Single().AnnotationCount);
 
-                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"source.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":100,\"height\":100}]}";
+                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"source.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":100,\"height\":100}]}";
                     AnnotationSet imported = store.ImportAnnotationJson(json, "imported", false);
                     Assert.AreEqual(store.GetSegRegions(imported.Id, image.Id).Count, store.GetImageAnnotationSummaries(imported.Id).Single().AnnotationCount);
                 }
@@ -1785,6 +1785,9 @@ namespace Neurocle.Tests
                     string invalid = valid.Replace("sample.png", "missing.png");
                     Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJson(invalid, "bad", false));
                     Assert.AreEqual(1, store.GetAnnotationSets().Count);
+                    string invalidColor = valid.Replace("rgba(1, 2, 3, 1)-custom", "rgba(256, 2, 3, 1)");
+                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJson(invalidColor, "bad-color", false));
+                    Assert.AreEqual(1, store.GetAnnotationSets().Count);
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
@@ -1801,7 +1804,7 @@ namespace Neurocle.Tests
                 using (var store = ProjectStore.Create(path))
                 {
                     ProjectImage image = store.ImportFiles(new[] { source }).Single();
-                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[1,2],[3,4]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[1,2],[3,4]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     AnnotationSet set = store.ImportAnnotationJson(json, "seg", false);
                     SegRegion region = store.GetSegRegions(set.Id, image.Id).Single();
                     Assert.AreEqual(SegRegionType.PolyLine, region.Type);
@@ -1824,10 +1827,10 @@ namespace Neurocle.Tests
                 using (var store = ProjectStore.Create(path))
                 {
                     ProjectImage image = store.ImportFiles(new[] { source }).Single();
-                    string obd = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\" part \",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\" part \",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    string obd = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\" part \",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\" part \",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     AnnotationSet obdSet = store.ImportAnnotationJson(obd, "obd", false);
                     Assert.AreEqual("part", store.GetClasses(obdSet.Id).Single().Name);
-                    string seg = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyGon\",\"points\":[[0,0],[20,0],[20,20],[0,20]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    string seg = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyGon\",\"points\":[[0,0],[20,0],[20,20],[0,20]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     AnnotationSet segSet = store.ImportAnnotationJson(seg, "seg", false);
                     Assert.AreEqual(4, store.GetSegRegions(segSet.Id, image.Id).Single().Points.Count);
                 }
@@ -1846,7 +1849,7 @@ namespace Neurocle.Tests
                 using (var store = ProjectStore.Create(path))
                 {
                     store.ImportFiles(new[] { source });
-                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2,\"futureField\":true}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2,\"futureField\":true}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJson(json, "strict", false));
                     Assert.AreEqual(0, store.GetAnnotationSets().Count);
                     AnnotationSet set = store.ImportAnnotationJson(json, "allowed", true);
