@@ -108,9 +108,8 @@ namespace Neurocle.WinForms.Resources
         internal static string AnnotationJsonFileFilter { get { return ResourceManager.GetString("AnnotationJsonFileFilter", CultureInfo.CurrentUICulture); } }
         internal static string ImageZipFileFilter { get { return ResourceManager.GetString("ImageZipFileFilter", CultureInfo.CurrentUICulture); } }
         internal static string FitToWindow { get { return ResourceManager.GetString("FitToWindow", CultureInfo.CurrentUICulture); } }
-        internal static string NewClaSet { get { return ResourceManager.GetString("NewClaSet", CultureInfo.CurrentUICulture); } }
-        internal static string NewObdSet { get { return ResourceManager.GetString("NewObdSet", CultureInfo.CurrentUICulture); } }
-        internal static string NewSegSet { get { return ResourceManager.GetString("NewSegSet", CultureInfo.CurrentUICulture); } }
+        internal static string NewAnnotationSet { get { return ResourceManager.GetString("NewAnnotationSet", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetType { get { return ResourceManager.GetString("AnnotationSetType", CultureInfo.CurrentUICulture); } }
         internal static string SegRectangleTool { get { return ResourceManager.GetString("SegRectangleTool", CultureInfo.CurrentUICulture); } }
         internal static string SegEllipseTool { get { return ResourceManager.GetString("SegEllipseTool", CultureInfo.CurrentUICulture); } }
         internal static string SegPolygonTool { get { return ResourceManager.GetString("SegPolygonTool", CultureInfo.CurrentUICulture); } }

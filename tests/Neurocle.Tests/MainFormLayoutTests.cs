@@ -109,6 +109,16 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Annotation_set_creation_dialog_offers_all_types()
+        {
+            using (var dialog = new AnnotationSetCreationDialog())
+            {
+                ComboBox types = dialog.Controls.OfType<ComboBox>().Single();
+                CollectionAssert.AreEqual(new[] { AnnotationSetType.Cla, AnnotationSetType.Obd, AnnotationSetType.Seg }, types.Items.Cast<AnnotationSetType>().ToArray());
+            }
+        }
+
+        [TestMethod]
         public void Page_tabs_are_below_the_menu_and_status()
         {
             using (var form = new MainForm(new ProjectLifecycle()))

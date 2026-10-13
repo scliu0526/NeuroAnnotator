@@ -122,9 +122,8 @@
   <data name="AnnotationJsonFileFilter" xml:space="preserve"><value>JSON 標註檔 (*.json)|*.json</value></data>
   <data name="ImageZipFileFilter" xml:space="preserve"><value>ZIP 壓縮檔 (*.zip)|*.zip</value></data>
   <data name="FitToWindow" xml:space="preserve"><value>適合視窗</value></data>
-  <data name="NewClaSet" xml:space="preserve"><value>新增 CLA</value></data>
-  <data name="NewObdSet" xml:space="preserve"><value>新增 OBD</value></data>
-  <data name="NewSegSet" xml:space="preserve"><value>新增 SEG</value></data>
+  <data name="NewAnnotationSet" xml:space="preserve"><value>新增標註集</value></data>
+  <data name="AnnotationSetType" xml:space="preserve"><value>類型</value></data>
   <data name="SegRectangleTool" xml:space="preserve"><value>SEG 矩形</value></data>
   <data name="SegEllipseTool" xml:space="preserve"><value>SEG 橢圓</value></data>
   <data name="SegPolygonTool" xml:space="preserve"><value>SEG 畫筆</value></data>

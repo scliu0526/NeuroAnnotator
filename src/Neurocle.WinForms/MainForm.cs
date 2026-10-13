@@ -139,12 +139,8 @@ namespace Neurocle.WinForms
             annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
             annotationTools = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
             annotationToolTips = new ToolTip();
-            var newCla = new Button { AutoSize = true, Text = Strings.NewClaSet };
-            newCla.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Cla));
-            var newObd = new Button { AutoSize = true, Text = Strings.NewObdSet };
-            newObd.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Obd));
-            var newSeg = new Button { AutoSize = true, Text = Strings.NewSegSet };
-            newSeg.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Seg));
+            var newSet = new Button { AutoSize = true, Text = Strings.NewAnnotationSet };
+            newSet.Click += (sender, args) => RunAnnotationCommand(CreateAnnotationSet);
             var renameSet = new Button { AutoSize = true, Text = Strings.RenameAnnotationSet };
             renameSet.Click += (sender, args) => RunAnnotationCommand(RenameSelectedAnnotationSet);
             var deleteSet = new Button { AutoSize = true, Text = Strings.DeleteAnnotationSet };
@@ -211,9 +207,7 @@ namespace Neurocle.WinForms
             annotationSidebar.Controls.Add(addClass);
             annotationPage.Controls.Add(annotationSidebar);
             annotationHeader.Controls.Add(annotationSets);
-            annotationHeader.Controls.Add(newCla);
-            annotationHeader.Controls.Add(newObd);
-            annotationHeader.Controls.Add(newSeg);
+            annotationHeader.Controls.Add(newSet);
             annotationHeader.Controls.Add(renameSet);
             annotationHeader.Controls.Add(deleteSet);
             annotationHeader.Controls.Add(segOpacityLabel);
@@ -409,12 +403,14 @@ namespace Neurocle.WinForms
             using (var dialog = new DiagnosticsForm(diagnosticLog)) dialog.ShowDialog(this);
         }
 
-        private void CreateAnnotationSet(AnnotationSetType type)
+        private void CreateAnnotationSet()
         {
             if (project == null) return;
-            string name = Prompt(Strings.AnnotationSetNamePrompt);
-            if (name == null) return;
-            CreateAnnotationSet(type, name);
+            using (var dialog = new AnnotationSetCreationDialog())
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.AnnotationSetName)) return;
+                CreateAnnotationSet(dialog.AnnotationSetType, dialog.AnnotationSetName.Trim());
+            }
         }
 
         private void CreateAnnotationSet(AnnotationSetType type, string name)
