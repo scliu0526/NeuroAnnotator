@@ -932,7 +932,7 @@ namespace Neurocle.WinForms
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 IProjectSession session = project;
                 string[] selectedFiles = dialog.FileNames.ToArray();
-                await ImportAsync(progress => session.ImportFilesWithReport(selectedFiles, () => progress.IsCancellationRequested));
+                await ImportAsync(progress => session.ImportFilesWithReport(selectedFiles, () => progress.IsCancellationRequested, progress.Report));
             }
         }
 
@@ -946,7 +946,7 @@ namespace Neurocle.WinForms
                 if (choice == DialogResult.Cancel) return;
                 IProjectSession session = project;
                 string selectedPath = dialog.SelectedPath;
-                await ImportAsync(progress => session.ImportDirectory(selectedPath, choice == DialogResult.Yes, () => progress.IsCancellationRequested));
+                await ImportAsync(progress => session.ImportDirectory(selectedPath, choice == DialogResult.Yes, () => progress.IsCancellationRequested, progress.Report));
             }
         }
 

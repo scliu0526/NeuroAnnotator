@@ -183,11 +183,21 @@ namespace Neurocle.Infrastructure.Persistence
 
         public ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested)
         {
+            return ImportFilesWithReport(filePaths, cancellationRequested, null);
+        }
+
+        public ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
+        {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
-            return ImportSourcesWithReport(OrderSources(filePaths), cancellationRequested);
+            return ImportSourcesWithReport(OrderSources(filePaths), cancellationRequested, null, progress);
         }
 
         public ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested)
+        {
+            return ImportDirectory(directoryPath, includeSubdirectories, cancellationRequested, null);
+        }
+
+        public ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
         {
             if (directoryPath == null) throw new ArgumentNullException(nameof(directoryPath));
             var sources = new List<string>();
@@ -212,7 +222,7 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 failures.Add(new ImageImportFailureDetail(directoryPath, ImageImportFailure.Unknown));
             }
-            return ImportSourcesWithReport(OrderSources(sources), cancellationRequested, failures);
+            return ImportSourcesWithReport(OrderSources(sources), cancellationRequested, failures, progress);
         }
 
         public IReadOnlyList<ProjectImage> GetImages()
@@ -1539,11 +1549,12 @@ namespace Neurocle.Infrastructure.Persistence
             catch (UnauthorizedAccessException) { return false; }
         }
 
-        private ImageImportReport ImportSourcesWithReport(IReadOnlyList<string> sources, Func<bool> cancellationRequested, IReadOnlyList<ImageImportFailureDetail> initialFailures = null)
+        private ImageImportReport ImportSourcesWithReport(IReadOnlyList<string> sources, Func<bool> cancellationRequested, IReadOnlyList<ImageImportFailureDetail> initialFailures = null, Action<ImageImportProgress> progress = null)
         {
             var imported = new List<ProjectImage>();
             var failures = initialFailures == null ? new List<ImageImportFailureDetail>() : new List<ImageImportFailureDetail>(initialFailures);
             long existing = Convert.ToInt64(ExecuteScalar(connection, "SELECT COUNT(*) FROM ImageRecord;"));
+            progress?.Invoke(new ImageImportProgress(0, sources.Count, 0, failures.Count));
             for (int index = 0; index < sources.Count; index++)
             {
                 if (cancellationRequested != null && cancellationRequested()) return new ImageImportReport(imported, failures, sources.Count - index);
@@ -1560,6 +1571,7 @@ namespace Neurocle.Infrastructure.Persistence
                 {
                     failures.Add(new ImageImportFailureDetail(sources[index], ImageImportFailure.Unknown));
                 }
+                progress?.Invoke(new ImageImportProgress(index + 1, sources.Count, imported.Count, failures.Count));
             }
             return new ImageImportReport(imported, failures, 0);
         }

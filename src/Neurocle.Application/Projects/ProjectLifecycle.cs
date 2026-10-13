@@ -178,6 +178,22 @@ namespace Neurocle.Application.Projects
         public int UnprocessedCount { get; }
         public bool WasCancelledDuringScan { get; }
     }
+
+    public sealed class ImageImportProgress
+    {
+        public ImageImportProgress(int processedCount, int totalCount, int successfulCount, int failedCount)
+        {
+            ProcessedCount = processedCount;
+            TotalCount = totalCount;
+            SuccessfulCount = successfulCount;
+            FailedCount = failedCount;
+        }
+
+        public int ProcessedCount { get; }
+        public int TotalCount { get; }
+        public int SuccessfulCount { get; }
+        public int FailedCount { get; }
+    }
     public interface IProjectSession : IDisposable
     {
         string ProjectPath { get; }
@@ -185,7 +201,9 @@ namespace Neurocle.Application.Projects
         IProjectSession SaveAs(string targetPath);
         IReadOnlyList<ProjectImage> ImportFiles(IEnumerable<string> filePaths);
         ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested);
+        ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested, Action<ImageImportProgress> progress);
         ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested);
+        ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested, Action<ImageImportProgress> progress);
         AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields);
         string ExportAnnotationJson(string annotationSetId, string outputPath);
         string ExportImagesZip(string outputPath, IEnumerable<string> imageIds);

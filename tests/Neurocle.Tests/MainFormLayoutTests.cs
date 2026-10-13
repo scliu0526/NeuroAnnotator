@@ -18,6 +18,22 @@ namespace Neurocle.Tests
     [TestClass]
     public class MainFormLayoutTests
     {
+        [STATestMethod]
+        public void Import_progress_dialog_displays_processed_total_success_and_failure_counts()
+        {
+            using (var form = new ImportProgressForm())
+            {
+                form.Report(new ImageImportProgress(2, 5, 1, 1));
+
+                ProgressBar progressBar = form.Controls.OfType<ProgressBar>().Single();
+                Label progressLabel = form.Controls.OfType<Label>().Single(label => label.Text.Contains("2 / 5"));
+                Assert.AreEqual(5, progressBar.Maximum);
+                Assert.AreEqual(2, progressBar.Value);
+                StringAssert.Contains(progressLabel.Text, "成功: 1");
+                StringAssert.Contains(progressLabel.Text, "失敗: 1");
+            }
+        }
+
         [TestMethod]
         public void MinimumSize_fits_the_smallest_supported_viewport_at_each_supported_dpi_scale()
         {

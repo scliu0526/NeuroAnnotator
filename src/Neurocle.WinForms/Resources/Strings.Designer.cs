@@ -37,6 +37,7 @@ namespace Neurocle.WinForms.Resources
         internal static string IncludeSubdirectoriesPrompt { get { return ResourceManager.GetString("IncludeSubdirectoriesPrompt", CultureInfo.CurrentUICulture); } }
         internal static string ImportProgressTitle { get { return ResourceManager.GetString("ImportProgressTitle", CultureInfo.CurrentUICulture); } }
         internal static string ImportInProgress { get { return ResourceManager.GetString("ImportInProgress", CultureInfo.CurrentUICulture); } }
+        internal static string ImportProgressCounts { get { return ResourceManager.GetString("ImportProgressCounts", CultureInfo.CurrentUICulture); } }
         internal static string Cancel { get { return ResourceManager.GetString("Cancel", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportSummary { get { return ResourceManager.GetString("ImportReportSummary", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportUnknownCount { get { return ResourceManager.GetString("ImportReportUnknownCount", CultureInfo.CurrentUICulture); } }

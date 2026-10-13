@@ -51,6 +51,7 @@
   <data name="IncludeSubdirectoriesPrompt" xml:space="preserve"><value>是否包含子資料夾中的檔案？</value></data>
   <data name="ImportProgressTitle" xml:space="preserve"><value>正在匯入圖片</value></data>
   <data name="ImportInProgress" xml:space="preserve"><value>正在匯入；可按取消停止後續檔案。</value></data>
+  <data name="ImportProgressCounts" xml:space="preserve"><value>{0} / {1}   成功: {2} 失敗: {3}</value></data>
   <data name="Cancel" xml:space="preserve"><value>取消</value></data>
   <data name="ImportReportSummary" xml:space="preserve"><value>已匯入：{0}&#13;&#10;失敗：{1}&#13;&#10;未完成：{2}</value></data>
   <data name="ImportReportUnknownCount" xml:space="preserve"><value>無法確定</value></data>

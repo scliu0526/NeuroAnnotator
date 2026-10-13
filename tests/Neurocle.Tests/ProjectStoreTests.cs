@@ -510,13 +510,18 @@ namespace Neurocle.Tests
                 string second = CreateBitmap(Path.Combine(sourceRoot, "3.bmp"), Color.Blue);
                 using (ProjectStore store = ProjectStore.Create(path))
                 {
-                    ImageImportReport report = store.ImportFilesWithReport(new[] { second, invalid, first }, null);
+                    var progress = new List<ImageImportProgress>();
+                    ImageImportReport report = store.ImportFilesWithReport(new[] { second, invalid, first }, null, progress.Add);
                     Assert.AreEqual(2, report.Imported.Count);
                     Assert.AreEqual(1, report.Failures.Count);
                     Assert.AreEqual(0, report.UnprocessedCount);
                     Assert.AreEqual("2.txt", Path.GetFileName(report.Failures[0].FilePath));
                     Assert.AreEqual(ImageImportFailure.UnsupportedFormat, report.Failures[0].Failure);
                     Assert.AreEqual(2, store.GetImages().Count);
+                    CollectionAssert.AreEqual(new[] { 0, 1, 2, 3 }, progress.Select(item => item.ProcessedCount).ToArray());
+                    Assert.AreEqual(3, progress.Last().TotalCount);
+                    Assert.AreEqual(2, progress.Last().SuccessfulCount);
+                    Assert.AreEqual(1, progress.Last().FailedCount);
                 }
             }
             finally { DeleteTemporaryProject(path); }
@@ -535,11 +540,16 @@ namespace Neurocle.Tests
                 int checks = 0;
                 using (ProjectStore store = ProjectStore.Create(path))
                 {
-                    ImageImportReport report = store.ImportFilesWithReport(new[] { third, second, first }, () => ++checks > 1);
+                    var progress = new List<ImageImportProgress>();
+                    ImageImportReport report = store.ImportFilesWithReport(new[] { third, second, first }, () => ++checks > 1, progress.Add);
                     Assert.AreEqual(1, report.Imported.Count);
                     Assert.AreEqual(0, report.Failures.Count);
                     Assert.AreEqual(2, report.UnprocessedCount);
                     Assert.AreEqual(1, store.GetImages().Count);
+                    Assert.AreEqual(1, progress.Last().ProcessedCount);
+                    Assert.AreEqual(3, progress.Last().TotalCount);
+                    Assert.AreEqual(1, progress.Last().SuccessfulCount);
+                    Assert.AreEqual(0, progress.Last().FailedCount);
                 }
             }
             finally { DeleteTemporaryProject(path); }
