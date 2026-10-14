@@ -695,6 +695,97 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Annotation_and_eraser_previews_use_the_current_class_color_at_fixed_forty_percent()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    ImageCanvasControl.SegToolKind?[] tools =
+                    {
+                        null,
+                        ImageCanvasControl.SegToolKind.Rect,
+                        ImageCanvasControl.SegToolKind.Ellipse,
+                        ImageCanvasControl.SegToolKind.Polygon,
+                        ImageCanvasControl.SegToolKind.Brush,
+                        ImageCanvasControl.SegToolKind.Line,
+                        ImageCanvasControl.SegToolKind.Eraser
+                    };
+                    foreach (string storedColor in new[] { "rgba(248, 0, 255, 1)-custom", "#18A45B" })
+                    {
+                        Color classColor = AnnotationColorFormat.ToColor(storedColor);
+                        canvas.PreviewColor = classColor;
+                        foreach (ImageCanvasControl.SegToolKind? tool in tools)
+                        {
+                            Color? baseline = null;
+                            foreach (float resultOpacity in new[] { 0f, 0.4f, 1f })
+                            {
+                                canvas.ObdOpacity = resultOpacity;
+                                canvas.SegOpacity = resultOpacity;
+                                Color rendered = RenderPreviewTrack(canvas, tool);
+                                AssertFortyPercentBlend(rendered, classColor);
+                                if (baseline.HasValue) Assert.AreEqual(baseline.Value.ToArgb(), rendered.ToArgb(), "Preview opacity must not follow result opacity for {0}.", tool.HasValue ? tool.Value.ToString() : "OBD");
+                                else baseline = rendered;
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Preview_color_tracks_the_class_used_by_the_current_annotation_tool()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(projectPath);
+                AnnotationSet obd = store.CreateAnnotationSet("obd", AnnotationSetType.Obd);
+                AnnotationSet seg = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
+                AnnotationClass obdClass = store.GetClasses(obd.Id).Single();
+                AnnotationClass custom = store.AddClass(seg.Id, "custom", "rgba(248, 0, 255, 1)-custom");
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, obd.Id);
+                    Assert.AreEqual(AnnotationColorFormat.ToColor(obdClass.Color).ToArgb(), form.AnnotationCanvas.PreviewColor.ToArgb());
+
+                    sets.SelectedItem = AnnotationSet(sets, seg.Id);
+                    FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
+                    Button customClass = classes.Controls.OfType<Button>().Single(button => button.Text == custom.Name);
+                    typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(customClass, new object[] { EventArgs.Empty });
+                    Assert.AreEqual(AnnotationColorFormat.ToColor(custom.Color).ToArgb(), form.AnnotationCanvas.PreviewColor.ToArgb());
+                }
+                store.Dispose();
+                store = null;
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Closed_seg_brush_path_submits_a_filled_polygon()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
@@ -738,7 +829,7 @@ namespace Neurocle.Tests
                     .Count(row =>
                     {
                         Color pixel = preview.GetPixel(x, row);
-                        return pixel.R > 220 && pixel.G > 220 && pixel.B > 220;
+                        return pixel.R > 80 && pixel.G > 80 && pixel.B > 80;
                     });
                 Assert.IsTrue(Math.Abs(thickness - expected) <= 2,
                     $"Expected preview thickness near {expected}px at ({x}, {y}), but was {thickness}px.");
@@ -1044,6 +1135,38 @@ namespace Neurocle.Tests
                 canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
                 return rendered.GetPixel(x, y);
             }
+        }
+
+        private static Color RenderPreviewTrack(ImageCanvasControl canvas, ImageCanvasControl.SegToolKind? tool)
+        {
+            canvas.DiscardUnfinishedShape();
+            canvas.ObdEnabled = !tool.HasValue;
+            canvas.ObdSelectMode = false;
+            canvas.SegEnabled = tool.HasValue;
+            canvas.SegTool = tool;
+            if (!tool.HasValue || tool == ImageCanvasControl.SegToolKind.Rect || tool == ImageCanvasControl.SegToolKind.Ellipse)
+            {
+                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 60, 60, 0));
+                return RenderPixel(canvas, 40, 20);
+            }
+            if (tool == ImageCanvasControl.SegToolKind.Polygon)
+            {
+                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 60, 20, 0));
+                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 60, 60, 0));
+                return RenderPixel(canvas, 40, 20);
+            }
+            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+            RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(tool == ImageCanvasControl.SegToolKind.Line ? MouseButtons.None : MouseButtons.Left, 0, 60, 20, 0));
+            return RenderPixel(canvas, 40, 20);
+        }
+
+        private static void AssertFortyPercentBlend(Color rendered, Color classColor)
+        {
+            Assert.IsTrue(Math.Abs(rendered.R - (int)Math.Round(classColor.R * 0.4f)) <= 2, "Unexpected preview red channel: {0} for class {1}.", rendered, classColor);
+            Assert.IsTrue(Math.Abs(rendered.G - (int)Math.Round(classColor.G * 0.4f)) <= 2, "Unexpected preview green channel: {0} for class {1}.", rendered, classColor);
+            Assert.IsTrue(Math.Abs(rendered.B - (int)Math.Round(classColor.B * 0.4f)) <= 2, "Unexpected preview blue channel: {0} for class {1}.", rendered, classColor);
         }
 
         private static void AssertWhiteHandleCenters(ImageCanvasControl canvas, Rectangle bounds)

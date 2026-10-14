@@ -47,6 +47,7 @@ namespace Neurocle.WinForms
         private SegRegion segOriginal;
         private RectangleF segOriginalBounds;
         private int segStrokeWidth = 15;
+        private Color previewColor = Color.White;
 
         public bool ObdEnabled { get; set; }
         public bool ObdSelectMode { get; set; }
@@ -66,6 +67,11 @@ namespace Neurocle.WinForms
         private Keys CurrentModifierKeys { get { return ModifierKeysProvider == null ? ModifierKeys : ModifierKeysProvider(); } }
         public float ObdOpacity { get; set; } = 0.4f;
         public float SegOpacity { get; set; } = 0.4f;
+        public Color PreviewColor
+        {
+            get { return previewColor; }
+            set { previewColor = value; Invalidate(); }
+        }
         public string SelectedSegId { get { return selectedSegId; } }
         public IReadOnlyCollection<string> SelectedSegIds { get { return selectedSegIds; } }
         public string SelectedObdId { get { return selectedObdId; } }
@@ -266,7 +272,7 @@ namespace Neurocle.WinForms
             if (obdPreview.HasValue)
             {
                 RectangleF rectangle = ToScreenRectangle(obdPreview.Value.X, obdPreview.Value.Y, obdPreview.Value.Width, obdPreview.Value.Height);
-                using (var pen = new Pen(Color.White, 1f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                using (var pen = new Pen(PreviewTrackColor, 1f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             }
             foreach (SegRegion stored in segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Concat(segRegions.Where(item => selectedSegIds.Contains(item.Id))))
             {
@@ -310,7 +316,7 @@ namespace Neurocle.WinForms
             {
                 RectangleF rectangle = ToScreenRectangle(segPreview.Value.X, segPreview.Value.Y, segPreview.Value.Width, segPreview.Value.Height);
                 float width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
-                using (var pen = new Pen(Color.White, width))
+                using (var pen = new Pen(PreviewTrackColor, width))
                 {
                     if (SegTool == SegToolKind.Ellipse) args.Graphics.DrawEllipse(pen, rectangle);
                     else args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
@@ -320,7 +326,7 @@ namespace Neurocle.WinForms
             {
                 PointF[] points = segPath.Select(viewport.ImageToScreen).ToArray();
                 float width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
-                using (var pen = new Pen(Color.White, width))
+                using (var pen = new Pen(PreviewTrackColor, width))
                 {
                     if (points.Length > 1) args.Graphics.DrawLines(pen, points);
                     if (SegTool == SegToolKind.Polygon && points.Length > 2) args.Graphics.DrawLine(pen, points[points.Length - 1], points[0]);
@@ -328,21 +334,23 @@ namespace Neurocle.WinForms
                 if (SegTool == SegToolKind.Polygon && DistanceInScreenPixels(segPath[0], segCursor) <= 8f)
                 {
                     PointF closureOrigin = points[0];
-                    using (var pen = new Pen(Color.Lime, 2f)) args.Graphics.DrawEllipse(pen, closureOrigin.X - 5f, closureOrigin.Y - 5f, 10f, 10f);
+                    using (var pen = new Pen(PreviewTrackColor, 2f)) args.Graphics.DrawEllipse(pen, closureOrigin.X - 5f, closureOrigin.Y - 5f, 10f, 10f);
                 }
             }
             if (segLineStart.HasValue && SegTool == SegToolKind.Line)
             {
-                using (var pen = new Pen(Color.White, Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
+                using (var pen = new Pen(PreviewTrackColor, Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
             }
             if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
             {
                 PointF cursor = viewport.ImageToScreen(segCursor);
                 int toolWidth = SegStrokeWidth;
                 float diameter = Math.Max(1f, (float)(toolWidth * viewport.Zoom));
-                using (var pen = new Pen(Color.White, 1f)) args.Graphics.DrawEllipse(pen, cursor.X - diameter / 2f, cursor.Y - diameter / 2f, diameter, diameter);
+                using (var pen = new Pen(PreviewTrackColor, 1f)) args.Graphics.DrawEllipse(pen, cursor.X - diameter / 2f, cursor.Y - diameter / 2f, diameter, diameter);
             }
         }
+
+        private Color PreviewTrackColor { get { return Color.FromArgb(ToAlpha(0.4f), previewColor); } }
 
         private static int ToAlpha(float opacity)
         {

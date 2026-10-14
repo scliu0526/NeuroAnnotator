@@ -493,6 +493,10 @@ namespace Neurocle.WinForms
             AnnotationClass[] classes = project == null || selected == null ? new AnnotationClass[0] : project.GetClasses(selected.Id).ToArray();
             if (selected == null || selected.Type != AnnotationSetType.Seg || !classes.Any(value => value.Id == selectedSegClassId)) selectedSegClassId = null;
             if (canvas.SegEnabled && selectedSegClassId == null) selectedSegClassId = classes.FirstOrDefault()?.Id;
+            AnnotationClass previewClass = selected != null && selected.Type == AnnotationSetType.Seg
+                ? classes.FirstOrDefault(value => value.Id == selectedSegClassId)
+                : classes.FirstOrDefault();
+            canvas.PreviewColor = previewClass == null ? Color.White : AnnotationColorFormat.ToColor(previewClass.Color);
             canvas.ObdClasses = classes.ToDictionary(value => value.Id);
             canvas.ObdAnnotations = canvas.ObdEnabled ? project.GetObdAnnotations(selected.Id, selectedImageId) : null;
             canvas.SegClasses = classes.ToDictionary(value => value.Id);
@@ -516,6 +520,7 @@ namespace Neurocle.WinForms
                     else if (selected.Type == AnnotationSetType.Seg)
                     {
                         selectedSegClassId = value.Id;
+                        canvas.PreviewColor = AnnotationColorFormat.ToColor(value.Color);
                         if (selectedImageId != null && canvas.SelectedSegIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedSegClass(value.Id));
                     }
                 };
