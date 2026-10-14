@@ -1603,6 +1603,37 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Closed_seg_brush_polygon_preserves_existing_same_class_area_when_drawn_counterclockwise()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                    store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 5, 30, 30, 20);
+
+                    SegPoint[] counterclockwise =
+                    {
+                        new SegPoint(10, 10), new SegPoint(10, 90), new SegPoint(90, 90), new SegPoint(90, 10)
+                    };
+                    store.AddSegPath(set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, counterclockwise, 0);
+
+                    SegRegion merged = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == annotationClass.Id);
+                    var mergedPath = new Path64(merged.Points.Select(point => new Point64(point.X, point.Y)).ToList());
+                    Paths64 preserved = Clipper.Intersect(new Paths64 { SegGeometryPrototype.Rectangle(5, 30, 35, 50) }, new Paths64 { mergedPath }, FillRule.NonZero);
+                    Assert.AreEqual(600d, SegGeometryPrototype.Area(preserved));
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { mergedPath }));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Restore_falls_back_from_native_replace_and_recovers_the_original_database_when_the_second_move_fails()
         {
             string path = TemporaryProjectPath();

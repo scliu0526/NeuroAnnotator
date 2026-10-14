@@ -8,8 +8,10 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Clipper2Lib;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.Application.Projects;
+using Neurocle.Domain.Segmentation;
 using Neurocle.WinForms;
 using Neurocle.Infrastructure.Persistence;
 
@@ -889,6 +891,76 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Counterclockwise_seg_brush_loop_preserves_existing_same_class_area_through_main_form()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 5, 30, 30, 20);
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Size = new Size(1200, 800);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    System.Windows.Forms.Application.DoEvents();
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, image.ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, image.ManagedFileName));
+                    Field<Button>(form, "segBrush").PerformClick();
+
+                    ImageCanvasControl canvas = form.AnnotationCanvas;
+                    Point start = ImagePointToScreen(canvas, 10, 10);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    foreach (Point point in new[]
+                    {
+                        ImagePointToScreen(canvas, 10, 90),
+                        ImagePointToScreen(canvas, 90, 90),
+                        ImagePointToScreen(canvas, 90, 10)
+                    })
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, point.X, point.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, start.X, start.Y, 0));
+
+                    DateTime timeout = DateTime.UtcNow.AddSeconds(5);
+                    while (Field<bool>(form, "annotationOperationInProgress") && DateTime.UtcNow < timeout)
+                    {
+                        System.Windows.Forms.Application.DoEvents();
+                        Thread.Sleep(1);
+                    }
+
+                    Assert.IsFalse(Field<bool>(form, "annotationOperationInProgress"), "The SEG brush operation did not complete.");
+                    SegRegion merged = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == annotationClass.Id);
+                    var mergedPath = new Path64(merged.Points.Select(point => new Point64(point.X, point.Y)).ToList());
+                    Paths64 preserved = Clipper.Intersect(new Paths64 { SegGeometryPrototype.Rectangle(5, 30, 35, 50) }, new Paths64 { mergedPath }, FillRule.NonZero);
+                    Assert.AreEqual(600d, SegGeometryPrototype.Area(preserved));
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { mergedPath }));
+                    form.Close();
+                    System.Windows.Forms.Application.DoEvents();
+                }
+                store.Dispose();
+                store = null;
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         private static void AssertPreviewStrokeThickness(ImageCanvasControl canvas, int x, int y, int expected)
         {
             using (var preview = new Bitmap(canvas.Width, canvas.Height))
@@ -1344,6 +1416,12 @@ namespace Neurocle.Tests
             typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
         }
 
+        private static Point ImagePointToScreen(ImageCanvasControl canvas, int x, int y)
+        {
+            ImageCanvasControl.CanvasViewState state = canvas.ViewState;
+            return Point.Round(new PointF((float)(state.Origin.X + x * state.Zoom), (float)(state.Origin.Y + y * state.Zoom)));
+        }
+
 
         private static void Invoke(object target, string methodName, params object[] arguments)
         {
@@ -1352,7 +1430,7 @@ namespace Neurocle.Tests
             method.Invoke(target, arguments);
         }
 
-        private static T Field<T>(object target, string fieldName) where T : class
+        private static T Field<T>(object target, string fieldName)
         {
             return (T)target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
         }

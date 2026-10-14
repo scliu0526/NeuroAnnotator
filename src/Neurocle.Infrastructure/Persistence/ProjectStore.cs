@@ -1104,7 +1104,9 @@ namespace Neurocle.Infrastructure.Persistence
             if (value.Type == SegRegionType.Rect) return new Paths64 { SegGeometryPrototype.Rectangle(value.X, value.Y, value.X + value.Width, value.Y + value.Height) };
             if (value.Type == SegRegionType.Ellipse) return new Paths64 { SegGeometryPrototype.Ellipse(value.X, value.Y, value.Width, value.Height, 32) };
             if (value.Type == SegRegionType.PolyLine) return SegGeometryPrototype.Stroke(ToPath(value.Points), value.StrokeWidth);
-            return new Paths64 { ToPath(value.Points) };
+            Path64 polygon = ToPath(value.Points);
+            if (Clipper.Area(polygon) < 0) polygon.Reverse();
+            return new Paths64 { polygon };
         }
 
         private static List<SegRegion> ToPolygonRegions(string annotationSetId, string imageId, string classId, Paths64 paths, Size imageSize, ref int zOrder)
