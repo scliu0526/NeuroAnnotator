@@ -87,6 +87,52 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Dataset_page_annotation_set_selector_stays_synchronized_and_refreshes_rows()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string source = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(source, Color.Red);
+                store = ProjectStore.Create(path);
+                ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                AnnotationSet annotated = store.CreateAnnotationSet("annotated", AnnotationSetType.Obd);
+                AnnotationSet empty = store.CreateAnnotationSet("empty", AnnotationSetType.Obd);
+                store.AddObdAnnotation(annotated.Id, image.Id, store.GetClasses(annotated.Id).Single().Id, 1, 1, 3, 3);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    ComboBox annotationSelector = Field<ComboBox>(form, "annotationSets");
+                    ComboBox datasetSelector = Field<ComboBox>(form, "datasetAnnotationSets");
+                    form.Size = new Size(1366, 768);
+                    form.Show();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 2;
+                    System.Windows.Forms.Application.DoEvents();
+                    Assert.IsTrue(datasetSelector.Visible);
+                    Assert.IsTrue(datasetSelector.Bounds.Width > 0 && datasetSelector.Bounds.Height > 0);
+
+                    annotationSelector.SelectedItem = AnnotationSet(annotationSelector, empty.Id);
+                    Assert.AreEqual(empty.Id, ((AnnotationSet)datasetSelector.SelectedItem).Id);
+                    Assert.AreEqual(0, form.DatasetAssignments.Rows.Single().AnnotationCount);
+
+                    SetField(form.AnnotationCanvas, "segLineStart", new PointF(2, 2));
+                    datasetSelector.SelectedItem = AnnotationSet(datasetSelector, annotated.Id);
+                    Assert.AreEqual(annotated.Id, ((AnnotationSet)annotationSelector.SelectedItem).Id);
+                    Assert.AreEqual(1, form.DatasetAssignments.Rows.Single().AnnotationCount);
+                    Assert.IsNull(Field<object>(form.AnnotationCanvas, "segLineStart"));
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         private static void CreateSolidImage(string path, Color color)
         {
             using (var bitmap = new Bitmap(10, 10))
@@ -106,6 +152,16 @@ namespace Neurocle.Tests
         private static T Field<T>(object target, string fieldName) where T : class
         {
             return (T)target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
+        }
+
+        private static AnnotationSet AnnotationSet(ComboBox values, string id)
+        {
+            return values.Items.Cast<AnnotationSet>().Single(value => value.Id == id);
+        }
+
+        private static void SetField(object target, string fieldName, object value)
+        {
+            target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(target, value);
         }
 
         private static void Click(Button button)

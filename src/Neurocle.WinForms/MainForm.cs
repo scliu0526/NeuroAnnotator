@@ -24,6 +24,7 @@ namespace Neurocle.WinForms
         private ImageCanvasControl activeCanvas;
         private readonly DatasetAssignmentControl datasetAssignments;
         private readonly ComboBox annotationSets;
+        private readonly ComboBox datasetAnnotationSets;
         private readonly Panel annotationSidebar;
         private readonly FlowLayoutPanel annotationClasses;
         private readonly FlowLayoutPanel annotationTools;
@@ -49,6 +50,7 @@ namespace Neurocle.WinForms
         private ImageSelectedEventArgs pendingImageSelection;
         private bool synchronizingCanvasView;
         private bool refreshingAnnotationSets;
+        private bool synchronizingAnnotationSetSelection;
         private string displayedAnnotationSetId;
 
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
@@ -127,14 +129,9 @@ namespace Neurocle.WinForms
             var annotationHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
             annotationHeader.SizeChanged += (sender, args) => imageHeader.Height = annotationHeader.Height;
             annotationSets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
-            annotationSets.SelectedIndexChanged += (sender, args) =>
-            {
-                if (refreshingAnnotationSets) return;
-                ResetAnnotationOpacity();
-                canvas.DiscardUnfinishedShape();
-                RefreshAnnotationClasses();
-                RefreshDatasetAssignments();
-            };
+            datasetAnnotationSets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
+            annotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(annotationSets);
+            datasetAnnotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(datasetAnnotationSets);
             annotationSidebar = new Panel { Dock = DockStyle.Right, Width = 180 };
             annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
             annotationTools = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
@@ -224,7 +221,11 @@ namespace Neurocle.WinForms
             pages.TabPages.Add(imagesPage);
             pages.TabPages.Add(annotationPage);
             var datasetPage = new TabPage(Strings.DatasetPage);
+            var datasetHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
+            datasetHeader.Controls.Add(new Label { Text = Strings.AnnotationSet, AutoSize = true, Margin = new Padding(4, 6, 0, 0) });
+            datasetHeader.Controls.Add(datasetAnnotationSets);
             datasetPage.Controls.Add(datasetAssignments);
+            datasetPage.Controls.Add(datasetHeader);
             pages.TabPages.Add(datasetPage);
             var exportPage = new TabPage(Strings.ExportPage);
             var exportJson = new Button { Dock = DockStyle.Top, Text = Strings.ExportAnnotationJson };
@@ -424,14 +425,19 @@ namespace Neurocle.WinForms
             if (annotationSets == null) return;
             if (selectedId == null) selectedId = (annotationSets.SelectedItem as AnnotationSet)?.Id;
             string previousId = (annotationSets.SelectedItem as AnnotationSet)?.Id;
+            AnnotationSet[] sets = project == null ? new AnnotationSet[0] : project.GetAnnotationSets().ToArray();
             refreshingAnnotationSets = true;
             try
             {
                 annotationSets.Items.Clear();
-                if (project != null) annotationSets.Items.AddRange(project.GetAnnotationSets().ToArray());
+                datasetAnnotationSets.Items.Clear();
+                annotationSets.Items.AddRange(sets);
+                datasetAnnotationSets.Items.AddRange(sets);
                 annotationSets.DisplayMember = "DisplayName";
-                AnnotationSet selected = annotationSets.Items.Cast<AnnotationSet>().FirstOrDefault(item => item.Id == selectedId) ?? annotationSets.Items.Cast<AnnotationSet>().FirstOrDefault();
+                datasetAnnotationSets.DisplayMember = "DisplayName";
+                AnnotationSet selected = sets.FirstOrDefault(item => item.Id == selectedId) ?? sets.FirstOrDefault();
                 annotationSets.SelectedItem = selected;
+                datasetAnnotationSets.SelectedItem = selected;
             }
             finally
             {
@@ -442,6 +448,26 @@ namespace Neurocle.WinForms
                 ResetAnnotationOpacity();
                 canvas.DiscardUnfinishedShape();
             }
+            RefreshAnnotationClasses();
+            RefreshDatasetAssignments();
+        }
+
+        private void AnnotationSetSelectionChanged(ComboBox source)
+        {
+            if (refreshingAnnotationSets || synchronizingAnnotationSetSelection) return;
+            AnnotationSet selected = source.SelectedItem as AnnotationSet;
+            ComboBox target = ReferenceEquals(source, annotationSets) ? datasetAnnotationSets : annotationSets;
+            synchronizingAnnotationSetSelection = true;
+            try
+            {
+                target.SelectedItem = selected == null ? null : target.Items.Cast<AnnotationSet>().FirstOrDefault(item => item.Id == selected.Id);
+            }
+            finally
+            {
+                synchronizingAnnotationSetSelection = false;
+            }
+            ResetAnnotationOpacity();
+            canvas.DiscardUnfinishedShape();
             RefreshAnnotationClasses();
             RefreshDatasetAssignments();
         }

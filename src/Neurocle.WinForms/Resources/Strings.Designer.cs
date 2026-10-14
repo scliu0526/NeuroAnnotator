@@ -109,6 +109,7 @@ namespace Neurocle.WinForms.Resources
         internal static string ImageZipFileFilter { get { return ResourceManager.GetString("ImageZipFileFilter", CultureInfo.CurrentUICulture); } }
         internal static string FitToWindow { get { return ResourceManager.GetString("FitToWindow", CultureInfo.CurrentUICulture); } }
         internal static string NewAnnotationSet { get { return ResourceManager.GetString("NewAnnotationSet", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSet { get { return ResourceManager.GetString("AnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationSetType { get { return ResourceManager.GetString("AnnotationSetType", CultureInfo.CurrentUICulture); } }
         internal static string SegRectangleTool { get { return ResourceManager.GetString("SegRectangleTool", CultureInfo.CurrentUICulture); } }
         internal static string SegEllipseTool { get { return ResourceManager.GetString("SegEllipseTool", CultureInfo.CurrentUICulture); } }
