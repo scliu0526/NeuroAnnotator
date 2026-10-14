@@ -853,7 +853,8 @@ namespace Neurocle.WinForms
             if (failure != null) imageBrowser.SelectImage(imageId);
             else if (ReferenceEquals(project, session) && pending != null)
             {
-                ApplyImageSelection(pending);
+                imageBrowser.SelectImage(pending.Image.Id);
+                if (selectedImageId != pending.Image.Id) ApplyImageSelection(pending);
             }
         }
 

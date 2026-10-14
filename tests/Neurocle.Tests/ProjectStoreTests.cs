@@ -456,9 +456,9 @@ namespace Neurocle.Tests
                     store.DeleteImages(new[] { imported[1].Id });
 
                     var remaining = store.GetImages();
-                    CollectionAssert.AreEqual(new[] { "1.bmp", "3.bmp" }, remaining.Select(image => image.OriginalFileName).ToArray());
+                    CollectionAssert.AreEqual(new[] { "1.png", "3.png" }, remaining.Select(image => image.OriginalFileName).ToArray());
                     CollectionAssert.AreEqual(new[] { 1, 2 }, remaining.Select(image => image.Sequence).ToArray());
-                    Assert.IsFalse(File.Exists(Path.Combine(store.ImagesDirectory, "2.bmp")));
+                    Assert.IsFalse(File.Exists(Path.Combine(store.ImagesDirectory, "2.png")));
 
                     var next = store.ImportFiles(new[] { fourth }).Single();
                     Assert.AreEqual(3, next.Sequence);
@@ -502,7 +502,7 @@ namespace Neurocle.Tests
                 using (ProjectStore reopened = ProjectStore.Open(path))
                 {
                     Assert.AreEqual(1, reopened.GetImages().Count);
-                    Assert.IsTrue(File.Exists(Path.Combine(reopened.ImagesDirectory, ".delete-sample.bmp")));
+                    Assert.IsTrue(File.Exists(Path.Combine(reopened.ImagesDirectory, ".delete-sample.png")));
                 }
             }
             finally { DeleteTemporaryProject(path); }
@@ -658,7 +658,7 @@ namespace Neurocle.Tests
                 {
                     ImageImportReport report = store.ImportDirectory(sourceRoot, false, null);
                     Assert.AreEqual(1, report.Imported.Count);
-                    Assert.AreEqual("root.bmp", report.Imported[0].OriginalFileName);
+                    Assert.AreEqual("root.png", report.Imported[0].OriginalFileName);
                 }
 
                 using (ProjectStore store = ProjectStore.Create(Path.Combine(Path.GetDirectoryName(path), "recursive.neurocle")))
@@ -1992,7 +1992,18 @@ namespace Neurocle.Tests
                 CreateBitmap(first, Color.Red, ImageFormat.Png); CreateBitmap(second, Color.Blue, ImageFormat.Png);
                 using (var store = ProjectStore.Create(path))
                 {
-                    store.ImportFiles(new[] { first, second });
+                    ProjectImage[] images = store.ImportFiles(new[] { first, second }).ToArray();
+                    store.CompleteOperation((connection, transaction) =>
+                    {
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "UPDATE ImageRecord SET OriginalFileName = $name WHERE Id = $id;";
+                            command.Parameters.AddWithValue("$name", images[0].OriginalFileName);
+                            command.Parameters.AddWithValue("$id", images[1].Id);
+                            command.ExecuteNonQuery();
+                        }
+                    });
                     AnnotationSet set = store.CreateAnnotationSet("set", AnnotationSetType.Cla);
                     Assert.ThrowsException<InvalidOperationException>(() => store.ExportAnnotationJson(set.Id, Path.Combine(Path.GetDirectoryName(path), "labels.json")));
                 }

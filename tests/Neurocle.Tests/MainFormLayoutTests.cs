@@ -366,30 +366,30 @@ namespace Neurocle.Tests
             {
                 store = ProjectStore.Create(projectPath);
                 AnnotationSet set = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
-                ProjectImage[] images =
-                {
-                    new ProjectImage("one", "one.png", "one.png", "hash", 1, 1, 1),
-                    new ProjectImage("two", "two.png", "two.png", "hash", 1, 1, 2),
-                    new ProjectImage("three", "three.png", "three.png", "hash", 1, 1, 3)
-                };
+                string firstPath = Path.Combine(directory, "one.png");
+                string secondPath = Path.Combine(directory, "two.png");
+                string thirdPath = Path.Combine(directory, "three.png");
+                CreateSolidImage(firstPath, Color.Red);
+                CreateSolidImage(secondPath, Color.Green);
+                CreateSolidImage(thirdPath, Color.Blue);
+                ProjectImage[] images = store.ImportFiles(new[] { firstPath, secondPath, thirdPath }).ToArray();
                 using (var form = new MainForm(new ProjectLifecycle()))
                 {
                     Invoke(form, "ReplaceProject", store);
                     form.Show();
                     System.Windows.Forms.Application.DoEvents();
-                    form.ImageBrowser.LoadImages(images, directory);
-                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], null));
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
                     SetField(form, "annotationOperationInProgress", true);
-                    form.ImageBrowser.SelectImage("two");
-                    form.ImageBrowser.SelectImage("three");
+                    form.ImageBrowser.SelectImage(images[1].Id);
+                    form.ImageBrowser.SelectImage(images[2].Id);
                     SetField(form, "annotationOperationInProgress", false);
 
                     Task completion = (Task)form.GetType().GetMethod("RunSegOperationAsync", BindingFlags.Instance | BindingFlags.NonPublic)
-                        .Invoke(form, new object[] { store, set.Id, "one", (Action)(() => { }) });
+                        .Invoke(form, new object[] { store, set.Id, images[0].Id, (Action)(() => { }) });
                     WaitForTask(completion);
 
-                    Assert.AreEqual("three", Field<string>(form, "selectedImageId"));
-                    CollectionAssert.AreEqual(new[] { "three" }, form.ImageBrowser.SelectedImageIds.ToArray());
+                    Assert.AreEqual(images[2].Id, Field<string>(form, "selectedImageId"));
+                    CollectionAssert.AreEqual(new[] { images[2].Id }, form.ImageBrowser.SelectedImageIds.ToArray());
                 }
             }
             finally
