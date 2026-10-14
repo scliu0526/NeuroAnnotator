@@ -633,20 +633,76 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
-        public void Seg_tools_share_one_stroke_width_with_a_single_one_to_one_hundred_control()
+        public void Seg_stroke_width_numeric_input_and_slider_stay_synchronized_from_one_to_one_hundred()
         {
             using (var form = new MainForm(new ProjectLifecycle()))
             {
-                NumericUpDown[] widths = Descendants<NumericUpDown>(form).Where(value => value.Minimum == 1 && value.Maximum == 100).ToArray();
-                Assert.AreEqual(1, widths.Length);
+                NumericUpDown width = Field<NumericUpDown>(form, "segStrokeWidth");
+                TrackBar slider = Field<TrackBar>(form, "segStrokeWidthSlider");
+                Assert.AreEqual(1, width.Minimum);
+                Assert.AreEqual(100, width.Maximum);
+                Assert.AreEqual(1, slider.Minimum);
+                Assert.AreEqual(100, slider.Maximum);
+                Assert.AreEqual(15, width.Value);
+                Assert.AreEqual(15, slider.Value);
                 Assert.AreEqual(15, form.AnnotationCanvas.SegStrokeWidth);
-                foreach (decimal width in new[] { 1m, 15m, 100m })
+                foreach (decimal value in new[] { 1m, 37m, 100m })
                 {
-                    widths[0].Value = width;
-                    Assert.AreEqual((int)width, form.AnnotationCanvas.SegStrokeWidth);
+                    width.Value = value;
+                    Assert.AreEqual((int)value, slider.Value);
+                    Assert.AreEqual((int)value, form.AnnotationCanvas.SegStrokeWidth);
+                }
+                foreach (int value in new[] { 1, 63, 100 })
+                {
+                    slider.Value = value;
+                    Assert.AreEqual(value, (int)width.Value);
+                    Assert.AreEqual(value, form.AnnotationCanvas.SegStrokeWidth);
                 }
                 Assert.ThrowsException<ArgumentOutOfRangeException>(() => form.AnnotationCanvas.SegStrokeWidth = 0);
                 Assert.ThrowsException<ArgumentOutOfRangeException>(() => form.AnnotationCanvas.SegStrokeWidth = 101);
+            }
+        }
+
+        [TestMethod]
+        public void Numeric_annotation_inputs_reject_non_numeric_text_and_constrain_out_of_range_values_without_diverging()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                NumericUpDown width = Field<NumericUpDown>(form, "segStrokeWidth");
+                TrackBar widthSlider = Field<TrackBar>(form, "segStrokeWidthSlider");
+                NumericUpDown opacity = Field<NumericUpDown>(form, "annotationOpacityValue");
+                TrackBar opacitySlider = Field<TrackBar>(form, "annotationOpacity");
+
+                width.Value = 37;
+                EnterNumericText(width, "abc");
+                Assert.AreEqual(37, width.Value);
+                Assert.AreEqual(37, widthSlider.Value);
+                Assert.AreEqual(37, form.AnnotationCanvas.SegStrokeWidth);
+                EnterNumericText(width, "101");
+                Assert.AreEqual(100, width.Value);
+                Assert.AreEqual(100, widthSlider.Value);
+                Assert.AreEqual(100, form.AnnotationCanvas.SegStrokeWidth);
+                EnterNumericText(width, "-5");
+                Assert.AreEqual(1, width.Value);
+                Assert.AreEqual(1, widthSlider.Value);
+                Assert.AreEqual(1, form.AnnotationCanvas.SegStrokeWidth);
+
+                opacity.Value = 37;
+                EnterNumericText(opacity, "abc");
+                Assert.AreEqual(37, opacity.Value);
+                Assert.AreEqual(37, opacitySlider.Value);
+                Assert.AreEqual(0.37f, form.AnnotationCanvas.ObdOpacity);
+                Assert.AreEqual(0.37f, form.AnnotationCanvas.SegOpacity);
+                EnterNumericText(opacity, "101");
+                Assert.AreEqual(100, opacity.Value);
+                Assert.AreEqual(100, opacitySlider.Value);
+                Assert.AreEqual(1f, form.AnnotationCanvas.ObdOpacity);
+                Assert.AreEqual(1f, form.AnnotationCanvas.SegOpacity);
+                EnterNumericText(opacity, "-1");
+                Assert.AreEqual(0, opacity.Value);
+                Assert.AreEqual(0, opacitySlider.Value);
+                Assert.AreEqual(0f, form.AnnotationCanvas.ObdOpacity);
+                Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
             }
         }
 
@@ -1084,18 +1140,35 @@ namespace Neurocle.Tests
                     Invoke(form, "ReplaceProject", store);
                     ComboBox sets = Field<ComboBox>(form, "annotationSets");
                     TrackBar opacity = Field<TrackBar>(form, "annotationOpacity");
+                    NumericUpDown opacityValue = Field<NumericUpDown>(form, "annotationOpacityValue");
+                    Assert.AreEqual(0, opacityValue.Minimum);
+                    Assert.AreEqual(100, opacityValue.Maximum);
+                    Assert.AreEqual(40, opacityValue.Value);
                     sets.SelectedItem = AnnotationSet(sets, obd.Id);
                     opacity.Value = 0;
+                    Assert.AreEqual(0, opacityValue.Value);
                     Assert.AreEqual(0f, form.AnnotationCanvas.ObdOpacity);
                     Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
 
+                    opacityValue.Value = 73;
+                    Assert.AreEqual(73, opacity.Value);
+                    Assert.AreEqual(0.73f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(0.73f, form.AnnotationCanvas.SegOpacity);
+
+                    opacity.Value = 100;
+                    Assert.AreEqual(100, opacityValue.Value);
+                    Assert.AreEqual(1f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(1f, form.AnnotationCanvas.SegOpacity);
+
                     Invoke(form, "RefreshAnnotationSets", new object[] { null });
-                    Assert.AreEqual(0, opacity.Value, "Refreshing the current annotation set must not reset opacity.");
+                    Assert.AreEqual(100, opacity.Value, "Refreshing the current annotation set must not reset opacity.");
+                    Assert.AreEqual(100, opacityValue.Value);
 
                     SetField(form.AnnotationCanvas, "segLineStart", new PointF(10, 10));
                     Invoke(form, "RefreshAnnotationSets", new object[] { seg.Id });
                     Assert.IsNull(form.AnnotationCanvas.GetType().GetField("segLineStart", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form.AnnotationCanvas), "A programmatic annotation-set switch must discard unfinished SEG shapes.");
                     Assert.AreEqual(40, opacity.Value);
+                    Assert.AreEqual(40, opacityValue.Value);
                     Assert.AreEqual(0.4f, form.AnnotationCanvas.ObdOpacity);
                     Assert.AreEqual(0.4f, form.AnnotationCanvas.SegOpacity);
 
@@ -1274,6 +1347,12 @@ namespace Neurocle.Tests
         private static void SetField(object target, string fieldName, object value)
         {
             target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(target, value);
+        }
+
+        private static void EnterNumericText(NumericUpDown control, string text)
+        {
+            control.Controls.Cast<Control>().Single(value => value.GetType().Name == "UpDownEdit").Text = text;
+            typeof(NumericUpDown).GetMethod("ValidateEditText", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, null);
         }
 
         private static AnnotationSet AnnotationSet(ComboBox sets, string id)

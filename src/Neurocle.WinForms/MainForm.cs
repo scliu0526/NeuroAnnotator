@@ -29,8 +29,10 @@ namespace Neurocle.WinForms
         private readonly FlowLayoutPanel annotationClasses;
         private readonly FlowLayoutPanel annotationTools;
         private readonly ToolTip annotationToolTips;
+        private readonly NumericUpDown segStrokeWidth;
+        private readonly TrackBar segStrokeWidthSlider;
         private readonly TrackBar annotationOpacity;
-        private readonly Label annotationOpacityValue;
+        private readonly NumericUpDown annotationOpacityValue;
         private readonly Button addClass;
         private readonly Button obdSelect;
         private readonly Button obdRectangle;
@@ -164,13 +166,21 @@ namespace Neurocle.WinForms
             segEraser.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Eraser);
             segSelect = CreateAnnotationToolButton("segSelect", "↖", Strings.SegSelectTool);
             segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
-            var segWidths = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, RowCount = 1 };
+            var segWidths = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 1 };
             segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            AddSegWidthControl(segWidths, 0, Strings.SegBrushWidth, value => canvas.SegStrokeWidth = value);
+            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            segStrokeWidth = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 15, Width = 52 };
+            segStrokeWidthSlider = new TrackBar { Minimum = 1, Maximum = 100, Value = 15, TickFrequency = 10, Width = 100, AutoSize = false, Height = 28 };
+            segStrokeWidth.ValueChanged += (sender, args) => SetSegStrokeWidth((int)segStrokeWidth.Value);
+            segStrokeWidthSlider.ValueChanged += (sender, args) => SetSegStrokeWidth(segStrokeWidthSlider.Value);
+            segWidths.Controls.Add(new Label { Text = Strings.SegBrushWidth, AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+            segWidths.Controls.Add(segStrokeWidth, 1, 0);
+            segWidths.Controls.Add(segStrokeWidthSlider, 2, 0);
             annotationOpacity = new TrackBar { Minimum = 0, Maximum = 100, Value = 40, TickFrequency = 10, Width = 100, AutoSize = false, Height = 28 };
             annotationOpacity.ValueChanged += (sender, args) => SetAnnotationOpacity(annotationOpacity.Value);
-            annotationOpacityValue = new Label { AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
+            annotationOpacityValue = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 40, Width = 52 };
+            annotationOpacityValue.ValueChanged += (sender, args) => SetAnnotationOpacity((int)annotationOpacityValue.Value);
             var segOpacityLabel = new Label { Text = Strings.SegOpacity, AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
             var fit = new Button { AutoSize = true, Text = Strings.FitToWindow };
             var zoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
@@ -316,12 +326,11 @@ namespace Neurocle.WinForms
             else if (selected.Type == AnnotationSetType.Seg && canvas.SegEnabled) canvas.SelectAllSeg();
         }
 
-        private static void AddSegWidthControl(TableLayoutPanel container, int row, string label, Action<int> apply)
+        private void SetSegStrokeWidth(int width)
         {
-            var value = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 1, Maximum = 100, Value = 15 };
-            value.ValueChanged += (sender, args) => apply((int)value.Value);
-            container.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left }, 0, row);
-            container.Controls.Add(value, 1, row);
+            if (segStrokeWidth.Value != width) segStrokeWidth.Value = width;
+            if (segStrokeWidthSlider.Value != width) segStrokeWidthSlider.Value = width;
+            canvas.SegStrokeWidth = width;
         }
 
         private void SynchronizeCanvasView(ImageCanvasControl source, ImageCanvasControl target)
@@ -525,10 +534,11 @@ namespace Neurocle.WinForms
 
         private void SetAnnotationOpacity(int percent)
         {
+            if (annotationOpacity.Value != percent) annotationOpacity.Value = percent;
+            if (annotationOpacityValue.Value != percent) annotationOpacityValue.Value = percent;
             float opacity = percent / 100f;
             canvas.ObdOpacity = opacity;
             canvas.SegOpacity = opacity;
-            if (annotationOpacityValue != null) annotationOpacityValue.Text = percent + "%";
             canvas.Invalidate();
         }
 
