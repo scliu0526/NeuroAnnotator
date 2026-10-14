@@ -91,12 +91,12 @@ namespace Neurocle.WinForms
 
         private void RefreshList()
         {
-            string selectedId = list.SelectedIndices.Count == 0 ? null : visible[list.SelectedIndices[0]].Image.Id;
+            var selectedIds = new HashSet<string>(list.SelectedIndices.Cast<int>().Select(index => visible[index].Image.Id), StringComparer.Ordinal);
             visible = ImageListProjection.FilterAndSort(source, search.Text, column, direction);
             list.VirtualListSize = visible.Count;
             list.SelectedIndices.Clear();
-            int selectedIndex = selectedId == null ? -1 : visible.Select((row, index) => new { row, index }).Where(item => item.row.Image.Id == selectedId).Select(item => item.index).DefaultIfEmpty(-1).Single();
-            if (selectedIndex >= 0) list.SelectedIndices.Add(selectedIndex);
+            foreach (int selectedIndex in visible.Select((row, index) => new { row, index }).Where(item => selectedIds.Contains(item.row.Image.Id)).Select(item => item.index))
+                list.SelectedIndices.Add(selectedIndex);
             list.Invalidate();
         }
 

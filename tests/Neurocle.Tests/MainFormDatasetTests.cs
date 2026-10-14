@@ -133,6 +133,68 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Delete_selected_images_requires_confirmation_and_uses_only_explicit_selected_ids()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string firstPath = Path.Combine(directory, "first.png");
+                string secondPath = Path.Combine(directory, "second.png");
+                string thirdPath = Path.Combine(directory, "third.png");
+                CreateSolidImage(firstPath, Color.Red);
+                CreateSolidImage(secondPath, Color.Green);
+                CreateSolidImage(thirdPath, Color.Blue);
+                store = ProjectStore.Create(path);
+                ProjectImage[] images = store.ImportFiles(new[] { firstPath, secondPath, thirdPath }).ToArray();
+                AnnotationSet cla = store.CreateAnnotationSet("classes", AnnotationSetType.Cla);
+                AnnotationSet obd = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                store.SetClaClass(cla.Id, images[0].Id, store.GetClasses(cla.Id).Single().Id);
+                store.AddObdAnnotation(obd.Id, images[2].Id, store.GetClasses(obd.Id).Single().Id, 1, 1, 3, 3);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    ListView list = Field<ListView>(form.ImageBrowser, "list");
+                    list.SelectedIndices.Add(0);
+                    list.SelectedIndices.Add(2);
+                    CollectionAssert.AreEqual(new[] { images[0].Id, images[2].Id }, form.ImageBrowser.SelectedImageIds.ToArray());
+                    Button delete = form.Controls.Find("deleteSelectedImages", true).OfType<Button>().Single();
+                    string prompt = null;
+                    SetField(form, "confirmImageDeletion", new Func<string, bool>(message => { prompt = message; return false; }));
+
+                    delete.PerformClick();
+                    Assert.AreEqual(3, store.GetImages().Count);
+                    StringAssert.Contains(prompt, "2");
+                    StringAssert.Contains(prompt, "所有標註集");
+                    StringAssert.Contains(prompt, "無法復原");
+
+                    SetField(form, "confirmImageDeletion", new Func<string, bool>(message => true));
+                    delete.PerformClick();
+                    CollectionAssert.AreEqual(new[] { images[1].Id }, store.GetImages().Select(image => image.Id).ToArray());
+                    Assert.AreEqual(1, store.GetImages().Single().Sequence);
+                    Assert.IsNull(store.GetClaClassId(cla.Id, images[0].Id));
+                    Assert.AreEqual(0, store.GetObdAnnotations(obd.Id, images[2].Id).Count);
+                    Assert.AreEqual(1, form.ImageBrowser.Rows.Count);
+                    Assert.IsNull(form.ImageCanvas.LoadedImagePath);
+                    Assert.IsNull(form.AnnotationCanvas.LoadedImagePath);
+
+                    SetField(form, "confirmImageDeletion", new Func<string, bool>(message => { Assert.Fail("Deletion confirmation must not appear without a selection."); return true; }));
+                    delete.PerformClick();
+                    Assert.AreEqual(1, store.GetImages().Count);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         private static void CreateSolidImage(string path, Color color)
         {
             using (var bitmap = new Bitmap(10, 10))

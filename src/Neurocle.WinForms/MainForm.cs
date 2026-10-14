@@ -52,6 +52,7 @@ namespace Neurocle.WinForms
         private bool refreshingAnnotationSets;
         private bool synchronizingAnnotationSetSelection;
         private string displayedAnnotationSetId;
+        private Func<string, bool> confirmImageDeletion;
 
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
         internal ImageCanvasControl ImageCanvas { get { return imageCanvas; } }
@@ -67,6 +68,7 @@ namespace Neurocle.WinForms
         {
             this.projectLifecycle = projectLifecycle ?? throw new ArgumentNullException(nameof(projectLifecycle));
             this.diagnosticLog = diagnosticLog ?? throw new ArgumentNullException(nameof(diagnosticLog));
+            confirmImageDeletion = message => MessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
             AutoScaleMode = AutoScaleMode.Dpi;
             MinimumSize = new Size(640, 360);
             StartPosition = FormStartPosition.CenterScreen;
@@ -176,6 +178,8 @@ namespace Neurocle.WinForms
             zoom.SelectedIndex = 0;
             var imageFit = new Button { AutoSize = true, Text = Strings.FitToWindow };
             var imageZoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
+            var deleteSelectedImages = new Button { AutoSize = true, Name = "deleteSelectedImages", Text = Strings.DeleteSelectedImages };
+            deleteSelectedImages.Click += (sender, args) => RunProjectCommand(DeleteSelectedImages);
             imageZoom.Items.AddRange(zoom.Items.Cast<object>().ToArray());
             imageZoom.SelectedIndex = 0;
             var annotationZoomText = new Label { AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
@@ -218,6 +222,7 @@ namespace Neurocle.WinForms
             imageControls.Controls.Add(imageFit);
             imageControls.Controls.Add(imageZoom);
             imageControls.Controls.Add(imageZoomText);
+            imageControls.Controls.Add(deleteSelectedImages);
             pages.TabPages.Add(imagesPage);
             pages.TabPages.Add(annotationPage);
             var datasetPage = new TabPage(Strings.DatasetPage);
@@ -388,6 +393,33 @@ namespace Neurocle.WinForms
                 ReplaceProject(copy);
                 WriteDiagnostic(DiagnosticEvent.ProjectSaved);
             }
+        }
+
+        private void DeleteSelectedImages()
+        {
+            if (project == null) return;
+            string[] imageIds = imageBrowser.SelectedImageIds.Distinct(StringComparer.Ordinal).ToArray();
+            if (imageIds.Length == 0) return;
+            string message = string.Format(Strings.DeleteSelectedImagesPrompt, imageIds.Length);
+            if (!confirmImageDeletion(message)) return;
+            DeleteImages(imageIds);
+        }
+
+        private void DeleteImages(IReadOnlyCollection<string> imageIds)
+        {
+            bool currentImageDeleted = selectedImageId != null && imageIds.Contains(selectedImageId);
+            project.DeleteImages(imageIds);
+            if (currentImageDeleted)
+            {
+                selectedImageId = null;
+                selectedImagePath = null;
+                pendingImageSelection = null;
+                imageCanvas.LoadImage(null);
+                canvas.LoadImage(null);
+            }
+            UpdateProjectStatus();
+            RefreshAnnotationClasses();
+            RefreshDatasetAssignments();
         }
 
         private void ManageMissingImages()
