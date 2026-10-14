@@ -74,6 +74,8 @@ namespace Neurocle.WinForms.Resources
         internal static string ImagesPage { get { return ResourceManager.GetString("ImagesPage", CultureInfo.CurrentUICulture); } }
         internal static string DeleteSelectedImages { get { return ResourceManager.GetString("DeleteSelectedImages", CultureInfo.CurrentUICulture); } }
         internal static string DeleteSelectedImagesPrompt { get { return ResourceManager.GetString("DeleteSelectedImagesPrompt", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAllImages { get { return ResourceManager.GetString("DeleteAllImages", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAllImagesPrompt { get { return ResourceManager.GetString("DeleteAllImagesPrompt", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationPage { get { return ResourceManager.GetString("AnnotationPage", CultureInfo.CurrentUICulture); } }
         internal static string DatasetPage { get { return ResourceManager.GetString("DatasetPage", CultureInfo.CurrentUICulture); } }
         internal static string DatasetTrain { get { return ResourceManager.GetString("DatasetTrain", CultureInfo.CurrentUICulture); } }

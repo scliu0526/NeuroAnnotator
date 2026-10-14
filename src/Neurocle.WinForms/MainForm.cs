@@ -180,6 +180,8 @@ namespace Neurocle.WinForms
             var imageZoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
             var deleteSelectedImages = new Button { AutoSize = true, Name = "deleteSelectedImages", Text = Strings.DeleteSelectedImages };
             deleteSelectedImages.Click += (sender, args) => RunProjectCommand(DeleteSelectedImages);
+            var deleteAllImages = new Button { AutoSize = true, Name = "deleteAllImages", Text = Strings.DeleteAllImages };
+            deleteAllImages.Click += (sender, args) => RunProjectCommand(DeleteAllImages);
             imageZoom.Items.AddRange(zoom.Items.Cast<object>().ToArray());
             imageZoom.SelectedIndex = 0;
             var annotationZoomText = new Label { AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
@@ -223,6 +225,7 @@ namespace Neurocle.WinForms
             imageControls.Controls.Add(imageZoom);
             imageControls.Controls.Add(imageZoomText);
             imageControls.Controls.Add(deleteSelectedImages);
+            imageControls.Controls.Add(deleteAllImages);
             pages.TabPages.Add(imagesPage);
             pages.TabPages.Add(annotationPage);
             var datasetPage = new TabPage(Strings.DatasetPage);
@@ -405,11 +408,21 @@ namespace Neurocle.WinForms
             DeleteImages(imageIds);
         }
 
+        private void DeleteAllImages()
+        {
+            if (project == null) return;
+            string[] imageIds = project.GetImages().Select(image => image.Id).ToArray();
+            if (imageIds.Length == 0) return;
+            string message = string.Format(Strings.DeleteAllImagesPrompt, imageIds.Length);
+            if (!confirmImageDeletion(message)) return;
+            DeleteImages(imageIds);
+        }
+
         private void DeleteImages(IReadOnlyCollection<string> imageIds)
         {
             bool currentImageDeleted = selectedImageId != null && imageIds.Contains(selectedImageId);
             project.DeleteImages(imageIds);
-            if (currentImageDeleted)
+            if (currentImageDeleted || project.GetImages().Count == 0)
             {
                 selectedImageId = null;
                 selectedImagePath = null;
