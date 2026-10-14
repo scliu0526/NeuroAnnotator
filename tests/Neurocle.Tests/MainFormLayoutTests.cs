@@ -483,6 +483,155 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Every_selected_obd_and_seg_region_renders_a_bounding_box_and_eight_handles_after_view_changes()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(160, 160) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdClasses = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#00FF00") } };
+                    ObdAnnotation[] obds =
+                    {
+                        new ObdAnnotation("one", "set", "image", "class", 20, 20, 20, 20, 0),
+                        new ObdAnnotation("two", "set", "image", "class", 60, 60, 20, 20, 1),
+                        new ObdAnnotation("three", "set", "image", "class", 20, 60, 20, 20, 2)
+                    };
+                    canvas.ObdAnnotations = obds;
+                    canvas.SelectAllObd();
+                    canvas.SetViewState(new ImageCanvasControl.CanvasViewState(2d, new PointF(-30f, -20f), false));
+
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 100, 40, 40));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 20, 20).ToArgb(), "The selected OBD bounding-box border must remain aligned after zooming and panning.");
+
+                    canvas.ObdAnnotations = new ObdAnnotation[0];
+                    canvas.ObdAnnotations = obds;
+                    canvas.ObdEnabled = true;
+                    canvas.ObdSelectMode = true;
+                    canvas.ModifierKeysProvider = () => Keys.Control;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 40, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 110, 120, 0));
+                    CollectionAssert.AreEquivalent(new[] { "one", "two" }, canvas.SelectedObdIds.ToArray());
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
+                    AssertNoWhiteHandle(canvas, new Point(10, 100));
+                    canvas.ObdAnnotations = new ObdAnnotation[0];
+                    canvas.ObdEnabled = false;
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#00FF00") } };
+                    SegRegion[] regions =
+                    {
+                        new SegRegion("first", "set", "image", "class", SegRegionType.Rect, 20, 20, 20, 20, 0),
+                        new SegRegion("second", "set", "image", "class", SegRegionType.Rect, 60, 60, 20, 20, 1),
+                        new SegRegion("third", "set", "image", "class", SegRegionType.Rect, 20, 60, 20, 20, 2)
+                    };
+                    canvas.SegRegions = regions;
+                    canvas.SelectAllSeg();
+
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 100, 40, 40));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 20, 20).ToArgb(), "The selected SEG bounding-box border must remain aligned after zooming and panning.");
+
+                    canvas.SegRegions = new SegRegion[0];
+                    canvas.SegRegions = regions;
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 40, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 110, 120, 0));
+                    CollectionAssert.AreEquivalent(new[] { "first", "second" }, canvas.SelectedSegIds.ToArray());
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
+                    AssertNoWhiteHandle(canvas, new Point(10, 100));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Dragging_a_handle_changes_only_the_selected_obd_or_seg_region_that_owns_it()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), ObdEnabled = true, ObdSelectMode = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdAnnotations = new[]
+                    {
+                        new ObdAnnotation("one", "set", "image", "class", 10, 10, 30, 30, 0),
+                        new ObdAnnotation("two", "set", "image", "class", 10, 10, 20, 20, 1)
+                    };
+                    canvas.SelectAllObd();
+                    IReadOnlyDictionary<string, Rectangle> changedObd = null;
+                    canvas.ObdRectanglesChanged += value => changedObd = value;
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+
+                    Assert.IsNotNull(changedObd);
+                    CollectionAssert.AreEqual(new[] { "two" }, changedObd.Keys.ToArray());
+                    Assert.AreEqual(new Rectangle(5, 5, 25, 25), changedObd["two"]);
+
+                    changedObd = null;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    Assert.IsNotNull(changedObd);
+                    CollectionAssert.AreEquivalent(new[] { "one", "two" }, changedObd.Keys.ToArray(), "Dragging a selected OBD body must keep group movement.");
+
+                    canvas.ObdEnabled = false;
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    canvas.SegRegions = new[]
+                    {
+                        new SegRegion("first", "set", "image", "class", SegRegionType.Rect, 10, 10, 30, 30, 0),
+                        new SegRegion("second", "set", "image", "class", SegRegionType.Rect, 10, 10, 20, 20, 1)
+                    };
+                    canvas.SelectAllSeg();
+                    IReadOnlyList<SegRegion> changedSeg = null;
+                    canvas.SegRegionsChanged += value => changedSeg = value;
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+
+                    Assert.IsNotNull(changedSeg);
+                    Assert.AreEqual(1, changedSeg.Count);
+                    Assert.AreEqual("second", changedSeg[0].Id);
+                    Assert.AreEqual(new Rectangle(5, 5, 25, 25), new Rectangle(changedSeg[0].X, changedSeg[0].Y, changedSeg[0].Width, changedSeg[0].Height));
+
+                    changedSeg = null;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    Assert.IsNotNull(changedSeg);
+                    CollectionAssert.AreEquivalent(new[] { "first", "second" }, changedSeg.Select(region => region.Id).ToArray(), "Dragging a selected SEG body must keep group movement.");
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         [TestMethod]
         public void Seg_tools_share_one_stroke_width_with_a_single_one_to_one_hundred_control()
         {
@@ -894,6 +1043,42 @@ namespace Neurocle.Tests
             {
                 canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
                 return rendered.GetPixel(x, y);
+            }
+        }
+
+        private static void AssertWhiteHandleCenters(ImageCanvasControl canvas, Rectangle bounds)
+        {
+            Point[] centers =
+            {
+                new Point(bounds.Left, bounds.Top),
+                new Point(bounds.Left + bounds.Width / 2, bounds.Top),
+                new Point(bounds.Right, bounds.Top),
+                new Point(bounds.Right, bounds.Top + bounds.Height / 2),
+                new Point(bounds.Right, bounds.Bottom),
+                new Point(bounds.Left + bounds.Width / 2, bounds.Bottom),
+                new Point(bounds.Left, bounds.Bottom),
+                new Point(bounds.Left, bounds.Top + bounds.Height / 2)
+            };
+            using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                foreach (Point center in centers)
+                {
+                    int whitePixels = Enumerable.Range(center.X - 2, 5).Sum(x => Enumerable.Range(center.Y - 2, 5)
+                        .Count(y => rendered.GetPixel(x, y).ToArgb() == Color.White.ToArgb()));
+                    Assert.IsTrue(whitePixels >= 12, "Expected a visible selection handle at {0}.", center);
+                }
+            }
+        }
+
+        private static void AssertNoWhiteHandle(ImageCanvasControl canvas, Point center)
+        {
+            using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                int whitePixels = Enumerable.Range(center.X - 2, 5).Sum(x => Enumerable.Range(center.Y - 2, 5)
+                    .Count(y => rendered.GetPixel(x, y).ToArgb() == Color.White.ToArgb()));
+                Assert.AreEqual(0, whitePixels, "Deselected annotations must not show selection handles.");
             }
         }
 

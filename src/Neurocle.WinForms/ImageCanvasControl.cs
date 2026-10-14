@@ -261,7 +261,7 @@ namespace Neurocle.WinForms
                 using (var fill = new SolidBrush(Color.FromArgb(ToAlpha(ObdOpacity), color))) args.Graphics.FillRectangle(fill, rectangle);
                 using (var pen = new Pen(color, selectedObdIds.Contains(annotation.Id) ? 3f : 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
                 if (annotationClass != null) using (var text = new SolidBrush(color)) args.Graphics.DrawString(annotationClass.Name, Font, text, rectangle.Left + 2f, rectangle.Top + 2f);
-                if (annotation.Id == selectedObdId) DrawHandles(args.Graphics, rectangle);
+                if (selectedObdIds.Contains(annotation.Id)) DrawHandles(args.Graphics, rectangle);
             }
             if (obdPreview.HasValue)
             {
@@ -304,7 +304,7 @@ namespace Neurocle.WinForms
                         }
                     }
                 }
-                if (region.Id == selectedSegId) DrawSegHandles(args.Graphics, ToScreenRectangle(GetSegBounds(region)));
+                if (selectedSegIds.Contains(region.Id)) DrawSegHandles(args.Graphics, ToScreenRectangle(GetSegBounds(region)));
             }
             if (segPreview.HasValue)
             {
@@ -351,6 +351,8 @@ namespace Neurocle.WinForms
 
         private static void DrawHandles(Graphics graphics, RectangleF rectangle)
         {
+            using (var outline = new Pen(Color.Black, 3f)) graphics.DrawRectangle(outline, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            using (var outline = new Pen(Color.White, 1f)) graphics.DrawRectangle(outline, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             foreach (PointF point in GetHandlePoints(rectangle))
             {
                 var handle = new RectangleF(point.X - HandleSize / 2f, point.Y - HandleSize / 2f, HandleSize, HandleSize);
@@ -396,11 +398,12 @@ namespace Neurocle.WinForms
                 }
                 else
                 {
-                    ObdDragKind handle = HitHandle(args.Location);
+                    ObdAnnotation handleAnnotation;
+                    ObdDragKind handle = HitHandle(args.Location, out handleAnnotation);
                     if (handle != ObdDragKind.None)
                     {
-                        activeObd = obdAnnotations.FirstOrDefault(item => item.Id == selectedObdId);
-                        if (activeObd != null) BeginObdDrag(handle, point, activeObd);
+                        selectedObdId = handleAnnotation.Id;
+                        BeginObdDrag(handle, point, handleAnnotation);
                     }
                     else
                     {
@@ -444,19 +447,18 @@ namespace Neurocle.WinForms
                 if (SegTool == SegToolKind.Select)
                 {
                     PointF selectionPoint = ClampPoint(viewport.ScreenToImage(args.Location));
-                    SegDragKind handle = HitSegHandle(args.Location);
+                    SegRegion handleRegion;
+                    SegDragKind handle = HitSegHandle(args.Location, out handleRegion);
                     if (handle != SegDragKind.None)
                     {
-                        segOriginal = segRegions.FirstOrDefault(item => item.Id == selectedSegId);
-                        if (segOriginal != null)
-                        {
-                            segOriginalBounds = GetSegBounds(segOriginal);
-                            segDragStart = selectionPoint;
-                            segDrag = handle;
-                            Capture = true;
-                            base.OnMouseDown(args);
-                            return;
-                        }
+                        selectedSegId = handleRegion.Id;
+                        segOriginal = handleRegion;
+                        segOriginalBounds = GetSegBounds(segOriginal);
+                        segDragStart = selectionPoint;
+                        segDrag = handle;
+                        Capture = true;
+                        base.OnMouseDown(args);
+                        return;
                     }
                     SegRegion hit = TopmostSegAt(selectionPoint);
                     if (hit == null) ClearSegSelection();
@@ -754,17 +756,27 @@ namespace Neurocle.WinForms
             return RectangleF.FromLTRB(region.Points.Min(point => point.X) - inset, region.Points.Min(point => point.Y) - inset, region.Points.Max(point => point.X) + inset, region.Points.Max(point => point.Y) + inset);
         }
 
-        private SegDragKind HitSegHandle(Point point)
+        private SegDragKind HitSegHandle(Point point, out SegRegion hitRegion)
         {
-            if (selectedSegId == null) return SegDragKind.None;
-            SegRegion region = segRegions.FirstOrDefault(item => item.Id == selectedSegId);
-            if (region == null) return SegDragKind.None;
-            RectangleF rectangle = ToScreenRectangle(GetSegBounds(region));
-            PointF rotation = new PointF(rectangle.Left + rectangle.Width / 2f, rectangle.Top - 24f);
-            if (Math.Abs(point.X - rotation.X) <= HandleSize && Math.Abs(point.Y - rotation.Y) <= HandleSize) return SegDragKind.Rotate;
             SegDragKind[] kinds = { SegDragKind.ResizeNw, SegDragKind.ResizeN, SegDragKind.ResizeNe, SegDragKind.ResizeE, SegDragKind.ResizeSe, SegDragKind.ResizeS, SegDragKind.ResizeSw, SegDragKind.ResizeW };
-            PointF[] points = GetHandlePoints(rectangle);
-            for (int index = 0; index < points.Length; index++) if (Math.Abs(point.X - points[index].X) <= HandleSize && Math.Abs(point.Y - points[index].Y) <= HandleSize) return kinds[index];
+            foreach (SegRegion region in segRegions.Where(item => selectedSegIds.Contains(item.Id)).Reverse())
+            {
+                RectangleF rectangle = ToScreenRectangle(GetSegBounds(region));
+                PointF rotation = new PointF(rectangle.Left + rectangle.Width / 2f, rectangle.Top - 24f);
+                if (Math.Abs(point.X - rotation.X) <= HandleSize && Math.Abs(point.Y - rotation.Y) <= HandleSize)
+                {
+                    hitRegion = region;
+                    return SegDragKind.Rotate;
+                }
+                PointF[] points = GetHandlePoints(rectangle);
+                for (int index = 0; index < points.Length; index++)
+                {
+                    if (Math.Abs(point.X - points[index].X) > HandleSize || Math.Abs(point.Y - points[index].Y) > HandleSize) continue;
+                    hitRegion = region;
+                    return kinds[index];
+                }
+            }
+            hitRegion = null;
             return SegDragKind.None;
         }
 
@@ -849,14 +861,20 @@ namespace Neurocle.WinForms
             return Clamp(RectangleF.FromLTRB(left, top, right, bottom));
         }
 
-        private ObdDragKind HitHandle(Point point)
+        private ObdDragKind HitHandle(Point point, out ObdAnnotation hitAnnotation)
         {
-            if (selectedObdId == null) return ObdDragKind.None;
-            ObdAnnotation annotation = obdAnnotations.FirstOrDefault(item => item.Id == selectedObdId);
-            if (annotation == null) return ObdDragKind.None;
-            PointF[] points = GetHandlePoints(ToScreenRectangle(annotation.X, annotation.Y, annotation.Width, annotation.Height));
             ObdDragKind[] kinds = { ObdDragKind.ResizeNw, ObdDragKind.ResizeN, ObdDragKind.ResizeNe, ObdDragKind.ResizeE, ObdDragKind.ResizeSe, ObdDragKind.ResizeS, ObdDragKind.ResizeSw, ObdDragKind.ResizeW };
-            for (int index = 0; index < points.Length; index++) if (Math.Abs(point.X - points[index].X) <= HandleSize && Math.Abs(point.Y - points[index].Y) <= HandleSize) return kinds[index];
+            foreach (ObdAnnotation annotation in obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).Reverse())
+            {
+                PointF[] points = GetHandlePoints(ToScreenRectangle(annotation.X, annotation.Y, annotation.Width, annotation.Height));
+                for (int index = 0; index < points.Length; index++)
+                {
+                    if (Math.Abs(point.X - points[index].X) > HandleSize || Math.Abs(point.Y - points[index].Y) > HandleSize) continue;
+                    hitAnnotation = annotation;
+                    return kinds[index];
+                }
+            }
+            hitAnnotation = null;
             return ObdDragKind.None;
         }
 
