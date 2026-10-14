@@ -35,6 +35,19 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Main_window_starts_maximized_and_can_be_restored_and_resized()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                Assert.AreEqual(FormWindowState.Maximized, form.WindowState);
+                form.WindowState = FormWindowState.Normal;
+                form.Size = new Size(1024, 640);
+                Assert.AreEqual(FormWindowState.Normal, form.WindowState);
+                Assert.AreEqual(new Size(1024, 640), form.Size);
+            }
+        }
+
+        [TestMethod]
         public void MinimumSize_fits_the_smallest_supported_viewport_at_each_supported_dpi_scale()
         {
             using (var form = new MainForm(new ProjectLifecycle()))

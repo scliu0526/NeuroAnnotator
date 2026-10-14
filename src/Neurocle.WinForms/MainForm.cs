@@ -74,6 +74,7 @@ namespace Neurocle.WinForms
             AutoScaleMode = AutoScaleMode.Dpi;
             MinimumSize = new Size(640, 360);
             StartPosition = FormStartPosition.CenterScreen;
+            WindowState = FormWindowState.Maximized;
             Text = Strings.ApplicationTitle;
             KeyPreview = true;
 
