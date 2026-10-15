@@ -9,7 +9,9 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 | 詞彙 | 定義 |
 |---|---|
 | 專案（Project） | 一個 SQLite 專案資料庫及其受管理圖片目錄。 |
-| 圖片（Image） | 匯入專案且具有不可變內部識別碼、內容雜湊、原始檔名與目前顯示序號的圖片。 |
+| 圖片（Image） | 匯入專案且具有不可變內部識別碼、來源內容雜湊、來源檔名、顯示檔名與目前顯示序號的圖片。 |
+| 來源檔名 | 圖片匯入時所選檔案的名稱；轉檔後仍用於辨識原始來源及重新連結。 |
+| 顯示檔名 | 圖片在清單及標註 JSON 中使用的名稱；新匯入 BMP 轉成 PNG 後使用唯一的 `.png` 名稱。 |
 | 標註集（Annotation Set） | 對共享圖片池的一份獨立標記成果；具有不可變識別碼、使用者名稱及 CLA、OBD、SEG 其中一種型別。名稱可重複。 |
 | 類別（Class） | 隸屬單一標註集的標籤名稱與顏色。同一標註集內名稱區分大小寫且不可完全重複。 |
 | 資料集狀態（Dataset Assignment） | 圖片在單一標註集中的 `train`、`test`、未分配或 `not_used` 狀態。`test` 同時作為驗證集。 |
@@ -32,6 +34,7 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 - SEG 不同類別可以覆蓋同一像素；同類別只有「新繪製」造成面積重疊時自動聯集。
 - 永久刪除圖片會刪除該圖片在所有標註集中的資料；永久刪除標註集會刪除其全部資料。
 - JSON 是交換格式，不是專案的完整持久化格式。
+- 新匯入 BMP 的顯示檔名反映轉換後 PNG 格式；既有專案圖片不因新匯入規則改名。
 
 ## 主要工作流程
 
@@ -53,8 +56,10 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 
 - 正式產品規格：`docs/specs/ai-labeling-tool.md`
 - 標註介面與 SEG 增量規格：`docs/specs/annotation-ui-seg-performance.md`
+- 圖片匯入與標註操作增量規格：`docs/specs/annotation-workflow-import-update.md`
 - 實作順序：`docs/plans/implementation-plan.md`
 - 標註介面與 SEG 增量計畫：`docs/plans/annotation-ui-seg-performance.md`
+- 圖片匯入與標註操作增量計畫：`docs/plans/annotation-workflow-import-update.md`
 - 測試與驗收：`docs/plans/test-and-acceptance-plan.md`
 - 已知風險：`docs/plans/known-risks.md`
 - 架構決策：`docs/adr/`

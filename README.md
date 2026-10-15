@@ -8,14 +8,18 @@ Neurocle is a fully offline Windows desktop application for manually annotating 
 
 ## Features
 
-- Import PNG, JPG, JPEG, and BMP files or folders into a managed local project.
-- Browse, search, sort, preview, and recover missing project images.
-- Create multiple isolated CLA, OBD, and SEG annotation sets, each with its own classes, dataset assignments, Retest flag, and undo/redo history.
-- Annotate CLA labels, OBD rectangles, and SEG rectangles, ellipses, polygons, brushes, lines, and local erasing.
+- Import PNG, JPG, JPEG, and BMP files or folders with visible progress. PNG/JPG/JPEG files retain their format; BMP files are converted to PNG.
+- Browse, search, sort, preview, delete selected or all images, and recover missing project images.
+- Create multiple isolated CLA, OBD, and SEG annotation sets from one dialog, then switch annotation sets from either the annotation or dataset page.
+- View and sort each image by its present annotation classes and annotation count.
+- Annotate CLA labels, OBD rectangles, and SEG rectangles, ellipses, polygons, brushes, lines, and local erasing. Closed SEG brush regions add blank pixels to matching existing regions without clearing existing labels.
+- Inspect every selected OBD or SEG region with its bounding rectangle and eight resize handles.
+- Assign new classes distinct random RGB colors; stored and exported colors use normalized `rgba(R, G, B, 1)` values and identify user-selected colors with `-custom`.
+- Adjust brush width and opacity with synchronized numeric and slider controls; annotation and eraser previews use the label color at a fixed 40% opacity.
 - Assign images to `train`, `test`, unassigned, or `not_used`; use stratified automatic splitting and Retest management.
 - Import and export one selected annotation set as validated JSON; export selected or all available images as a flat ZIP archive.
 - Keep local database backups and daily diagnostic logs; restore a project safely after a failed replacement.
-- Run entirely offline from a portable x64 ZIP.
+- Run entirely offline from a portable x64 ZIP, with the main window maximized at startup.
 
 ## Requirements
 
@@ -32,7 +36,7 @@ Open `Neurocle.sln` in Visual Studio 2019 or later with .NET Framework 4.7.2 sup
 & 'C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe' 'tests\Neurocle.Tests\bin\x64\Release\Neurocle.Tests.dll'
 ```
 
-The current automated suite contains 86 MSTest tests. GitHub Actions builds, tests, packages, and verifies the portable runtime contents on `windows-2022`.
+The current automated suite contains 135 MSTest tests. GitHub Actions builds, tests, packages, and verifies the portable runtime contents on `windows-2022`.
 
 ## Portable release
 
@@ -59,6 +63,7 @@ See [the release-candidate acceptance guide](docs/acceptance/release-candidate.m
 
 - [Domain context](CONTEXT.md)
 - [Product specification](docs/specs/ai-labeling-tool.md)
+- [Annotation workflow and image import update specification](docs/specs/annotation-workflow-import-update.md)
 - [Implementation plan](docs/plans/implementation-plan.md)
 - [Test and acceptance plan](docs/plans/test-and-acceptance-plan.md)
 - [Architecture decisions](docs/adr/)

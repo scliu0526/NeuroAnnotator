@@ -37,6 +37,7 @@ namespace Neurocle.WinForms.Resources
         internal static string IncludeSubdirectoriesPrompt { get { return ResourceManager.GetString("IncludeSubdirectoriesPrompt", CultureInfo.CurrentUICulture); } }
         internal static string ImportProgressTitle { get { return ResourceManager.GetString("ImportProgressTitle", CultureInfo.CurrentUICulture); } }
         internal static string ImportInProgress { get { return ResourceManager.GetString("ImportInProgress", CultureInfo.CurrentUICulture); } }
+        internal static string ImportProgressCounts { get { return ResourceManager.GetString("ImportProgressCounts", CultureInfo.CurrentUICulture); } }
         internal static string Cancel { get { return ResourceManager.GetString("Cancel", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportSummary { get { return ResourceManager.GetString("ImportReportSummary", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportUnknownCount { get { return ResourceManager.GetString("ImportReportUnknownCount", CultureInfo.CurrentUICulture); } }
@@ -64,11 +65,17 @@ namespace Neurocle.WinForms.Resources
         internal static string ImageSearchPlaceholder { get { return ResourceManager.GetString("ImageSearchPlaceholder", CultureInfo.CurrentUICulture); } }
         internal static string ImageSequenceColumn { get { return ResourceManager.GetString("ImageSequenceColumn", CultureInfo.CurrentUICulture); } }
         internal static string ImageFileNameColumn { get { return ResourceManager.GetString("ImageFileNameColumn", CultureInfo.CurrentUICulture); } }
+        internal static string ImageClassColumn { get { return ResourceManager.GetString("ImageClassColumn", CultureInfo.CurrentUICulture); } }
+        internal static string ImageAnnotationCountColumn { get { return ResourceManager.GetString("ImageAnnotationCountColumn", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewEmpty { get { return ResourceManager.GetString("ImagePreviewEmpty", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewLoading { get { return ResourceManager.GetString("ImagePreviewLoading", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewMissing { get { return ResourceManager.GetString("ImagePreviewMissing", CultureInfo.CurrentUICulture); } }
         internal static string ImagePreviewUnavailable { get { return ResourceManager.GetString("ImagePreviewUnavailable", CultureInfo.CurrentUICulture); } }
         internal static string ImagesPage { get { return ResourceManager.GetString("ImagesPage", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteSelectedImages { get { return ResourceManager.GetString("DeleteSelectedImages", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteSelectedImagesPrompt { get { return ResourceManager.GetString("DeleteSelectedImagesPrompt", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAllImages { get { return ResourceManager.GetString("DeleteAllImages", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAllImagesPrompt { get { return ResourceManager.GetString("DeleteAllImagesPrompt", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationPage { get { return ResourceManager.GetString("AnnotationPage", CultureInfo.CurrentUICulture); } }
         internal static string DatasetPage { get { return ResourceManager.GetString("DatasetPage", CultureInfo.CurrentUICulture); } }
         internal static string DatasetTrain { get { return ResourceManager.GetString("DatasetTrain", CultureInfo.CurrentUICulture); } }
@@ -105,9 +112,9 @@ namespace Neurocle.WinForms.Resources
         internal static string AnnotationJsonFileFilter { get { return ResourceManager.GetString("AnnotationJsonFileFilter", CultureInfo.CurrentUICulture); } }
         internal static string ImageZipFileFilter { get { return ResourceManager.GetString("ImageZipFileFilter", CultureInfo.CurrentUICulture); } }
         internal static string FitToWindow { get { return ResourceManager.GetString("FitToWindow", CultureInfo.CurrentUICulture); } }
-        internal static string NewClaSet { get { return ResourceManager.GetString("NewClaSet", CultureInfo.CurrentUICulture); } }
-        internal static string NewObdSet { get { return ResourceManager.GetString("NewObdSet", CultureInfo.CurrentUICulture); } }
-        internal static string NewSegSet { get { return ResourceManager.GetString("NewSegSet", CultureInfo.CurrentUICulture); } }
+        internal static string NewAnnotationSet { get { return ResourceManager.GetString("NewAnnotationSet", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSet { get { return ResourceManager.GetString("AnnotationSet", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetType { get { return ResourceManager.GetString("AnnotationSetType", CultureInfo.CurrentUICulture); } }
         internal static string SegRectangleTool { get { return ResourceManager.GetString("SegRectangleTool", CultureInfo.CurrentUICulture); } }
         internal static string SegEllipseTool { get { return ResourceManager.GetString("SegEllipseTool", CultureInfo.CurrentUICulture); } }
         internal static string SegPolygonTool { get { return ResourceManager.GetString("SegPolygonTool", CultureInfo.CurrentUICulture); } }

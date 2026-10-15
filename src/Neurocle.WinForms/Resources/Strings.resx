@@ -51,6 +51,7 @@
   <data name="IncludeSubdirectoriesPrompt" xml:space="preserve"><value>是否包含子資料夾中的檔案？</value></data>
   <data name="ImportProgressTitle" xml:space="preserve"><value>正在匯入圖片</value></data>
   <data name="ImportInProgress" xml:space="preserve"><value>正在匯入；可按取消停止後續檔案。</value></data>
+  <data name="ImportProgressCounts" xml:space="preserve"><value>{0} / {1}   成功: {2} 失敗: {3}</value></data>
   <data name="Cancel" xml:space="preserve"><value>取消</value></data>
   <data name="ImportReportSummary" xml:space="preserve"><value>已匯入：{0}&#13;&#10;失敗：{1}&#13;&#10;未完成：{2}</value></data>
   <data name="ImportReportUnknownCount" xml:space="preserve"><value>無法確定</value></data>
@@ -78,11 +79,17 @@
   <data name="ImageSearchPlaceholder" xml:space="preserve"><value>搜尋檔名</value></data>
   <data name="ImageSequenceColumn" xml:space="preserve"><value>序號</value></data>
   <data name="ImageFileNameColumn" xml:space="preserve"><value>檔名</value></data>
+  <data name="ImageClassColumn" xml:space="preserve"><value>類別</value></data>
+  <data name="ImageAnnotationCountColumn" xml:space="preserve"><value>標註數量</value></data>
   <data name="ImagePreviewEmpty" xml:space="preserve"><value>請從圖片清單選取圖片。</value></data>
   <data name="ImagePreviewLoading" xml:space="preserve"><value>正在載入預覽。</value></data>
   <data name="ImagePreviewMissing" xml:space="preserve"><value>這張圖片缺失或無法讀取。</value></data>
   <data name="ImagePreviewUnavailable" xml:space="preserve"><value>無法預覽這張圖片。</value></data>
   <data name="ImagesPage" xml:space="preserve"><value>圖片</value></data>
+  <data name="DeleteSelectedImages" xml:space="preserve"><value>刪除選取圖片</value></data>
+  <data name="DeleteSelectedImagesPrompt" xml:space="preserve"><value>確定要永久刪除選取的 {0} 張圖片，以及它們在所有標註集中的資料嗎？此操作無法復原。</value></data>
+  <data name="DeleteAllImages" xml:space="preserve"><value>刪除全部圖片</value></data>
+  <data name="DeleteAllImagesPrompt" xml:space="preserve"><value>確定要永久刪除專案中的全部 {0} 張圖片，以及它們在所有標註集中的資料嗎？此操作無法復原。</value></data>
   <data name="AnnotationPage" xml:space="preserve"><value>標註</value></data>
   <data name="DatasetPage" xml:space="preserve"><value>資料集分配</value></data>
   <data name="DatasetTrain" xml:space="preserve"><value>訓練 (train)</value></data>
@@ -119,9 +126,9 @@
   <data name="AnnotationJsonFileFilter" xml:space="preserve"><value>JSON 標註檔 (*.json)|*.json</value></data>
   <data name="ImageZipFileFilter" xml:space="preserve"><value>ZIP 壓縮檔 (*.zip)|*.zip</value></data>
   <data name="FitToWindow" xml:space="preserve"><value>適合視窗</value></data>
-  <data name="NewClaSet" xml:space="preserve"><value>新增 CLA</value></data>
-  <data name="NewObdSet" xml:space="preserve"><value>新增 OBD</value></data>
-  <data name="NewSegSet" xml:space="preserve"><value>新增 SEG</value></data>
+  <data name="NewAnnotationSet" xml:space="preserve"><value>新增標註集</value></data>
+  <data name="AnnotationSet" xml:space="preserve"><value>標註集</value></data>
+  <data name="AnnotationSetType" xml:space="preserve"><value>類型</value></data>
   <data name="SegRectangleTool" xml:space="preserve"><value>SEG 矩形</value></data>
   <data name="SegEllipseTool" xml:space="preserve"><value>SEG 橢圓</value></data>
   <data name="SegPolygonTool" xml:space="preserve"><value>SEG 畫筆</value></data>

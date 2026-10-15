@@ -24,12 +24,15 @@ namespace Neurocle.WinForms
         private ImageCanvasControl activeCanvas;
         private readonly DatasetAssignmentControl datasetAssignments;
         private readonly ComboBox annotationSets;
+        private readonly ComboBox datasetAnnotationSets;
         private readonly Panel annotationSidebar;
         private readonly FlowLayoutPanel annotationClasses;
         private readonly FlowLayoutPanel annotationTools;
         private readonly ToolTip annotationToolTips;
+        private readonly NumericUpDown segStrokeWidth;
+        private readonly TrackBar segStrokeWidthSlider;
         private readonly TrackBar annotationOpacity;
-        private readonly Label annotationOpacityValue;
+        private readonly NumericUpDown annotationOpacityValue;
         private readonly Button addClass;
         private readonly Button obdSelect;
         private readonly Button obdRectangle;
@@ -49,7 +52,9 @@ namespace Neurocle.WinForms
         private ImageSelectedEventArgs pendingImageSelection;
         private bool synchronizingCanvasView;
         private bool refreshingAnnotationSets;
+        private bool synchronizingAnnotationSetSelection;
         private string displayedAnnotationSetId;
+        private Func<string, bool> confirmImageDeletion;
 
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
         internal ImageCanvasControl ImageCanvas { get { return imageCanvas; } }
@@ -65,9 +70,11 @@ namespace Neurocle.WinForms
         {
             this.projectLifecycle = projectLifecycle ?? throw new ArgumentNullException(nameof(projectLifecycle));
             this.diagnosticLog = diagnosticLog ?? throw new ArgumentNullException(nameof(diagnosticLog));
+            confirmImageDeletion = message => MessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
             AutoScaleMode = AutoScaleMode.Dpi;
             MinimumSize = new Size(640, 360);
             StartPosition = FormStartPosition.CenterScreen;
+            WindowState = FormWindowState.Maximized;
             Text = Strings.ApplicationTitle;
             KeyPreview = true;
 
@@ -127,24 +134,15 @@ namespace Neurocle.WinForms
             var annotationHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
             annotationHeader.SizeChanged += (sender, args) => imageHeader.Height = annotationHeader.Height;
             annotationSets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
-            annotationSets.SelectedIndexChanged += (sender, args) =>
-            {
-                if (refreshingAnnotationSets) return;
-                ResetAnnotationOpacity();
-                canvas.DiscardUnfinishedShape();
-                RefreshAnnotationClasses();
-                RefreshDatasetAssignments();
-            };
+            datasetAnnotationSets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
+            annotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(annotationSets);
+            datasetAnnotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(datasetAnnotationSets);
             annotationSidebar = new Panel { Dock = DockStyle.Right, Width = 180 };
             annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
             annotationTools = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
             annotationToolTips = new ToolTip();
-            var newCla = new Button { AutoSize = true, Text = Strings.NewClaSet };
-            newCla.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Cla));
-            var newObd = new Button { AutoSize = true, Text = Strings.NewObdSet };
-            newObd.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Obd));
-            var newSeg = new Button { AutoSize = true, Text = Strings.NewSegSet };
-            newSeg.Click += (sender, args) => RunAnnotationCommand(() => CreateAnnotationSet(AnnotationSetType.Seg));
+            var newSet = new Button { AutoSize = true, Text = Strings.NewAnnotationSet };
+            newSet.Click += (sender, args) => RunAnnotationCommand(CreateAnnotationSet);
             var renameSet = new Button { AutoSize = true, Text = Strings.RenameAnnotationSet };
             renameSet.Click += (sender, args) => RunAnnotationCommand(RenameSelectedAnnotationSet);
             var deleteSet = new Button { AutoSize = true, Text = Strings.DeleteAnnotationSet };
@@ -169,13 +167,21 @@ namespace Neurocle.WinForms
             segEraser.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Eraser);
             segSelect = CreateAnnotationToolButton("segSelect", "↖", Strings.SegSelectTool);
             segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
-            var segWidths = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, RowCount = 1 };
+            var segWidths = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 1 };
             segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            AddSegWidthControl(segWidths, 0, Strings.SegBrushWidth, value => canvas.SegStrokeWidth = value);
+            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            segStrokeWidth = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 15, Width = 52 };
+            segStrokeWidthSlider = new TrackBar { Minimum = 1, Maximum = 100, Value = 15, TickFrequency = 10, Width = 100, AutoSize = false, Height = 28 };
+            segStrokeWidth.ValueChanged += (sender, args) => SetSegStrokeWidth((int)segStrokeWidth.Value);
+            segStrokeWidthSlider.ValueChanged += (sender, args) => SetSegStrokeWidth(segStrokeWidthSlider.Value);
+            segWidths.Controls.Add(new Label { Text = Strings.SegBrushWidth, AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+            segWidths.Controls.Add(segStrokeWidth, 1, 0);
+            segWidths.Controls.Add(segStrokeWidthSlider, 2, 0);
             annotationOpacity = new TrackBar { Minimum = 0, Maximum = 100, Value = 40, TickFrequency = 10, Width = 100, AutoSize = false, Height = 28 };
             annotationOpacity.ValueChanged += (sender, args) => SetAnnotationOpacity(annotationOpacity.Value);
-            annotationOpacityValue = new Label { AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
+            annotationOpacityValue = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 40, Width = 52 };
+            annotationOpacityValue.ValueChanged += (sender, args) => SetAnnotationOpacity((int)annotationOpacityValue.Value);
             var segOpacityLabel = new Label { Text = Strings.SegOpacity, AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
             var fit = new Button { AutoSize = true, Text = Strings.FitToWindow };
             var zoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
@@ -183,6 +189,10 @@ namespace Neurocle.WinForms
             zoom.SelectedIndex = 0;
             var imageFit = new Button { AutoSize = true, Text = Strings.FitToWindow };
             var imageZoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
+            var deleteSelectedImages = new Button { AutoSize = true, Name = "deleteSelectedImages", Text = Strings.DeleteSelectedImages };
+            deleteSelectedImages.Click += (sender, args) => RunProjectCommand(DeleteSelectedImages);
+            var deleteAllImages = new Button { AutoSize = true, Name = "deleteAllImages", Text = Strings.DeleteAllImages };
+            deleteAllImages.Click += (sender, args) => RunProjectCommand(DeleteAllImages);
             imageZoom.Items.AddRange(zoom.Items.Cast<object>().ToArray());
             imageZoom.SelectedIndex = 0;
             var annotationZoomText = new Label { AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
@@ -211,9 +221,7 @@ namespace Neurocle.WinForms
             annotationSidebar.Controls.Add(addClass);
             annotationPage.Controls.Add(annotationSidebar);
             annotationHeader.Controls.Add(annotationSets);
-            annotationHeader.Controls.Add(newCla);
-            annotationHeader.Controls.Add(newObd);
-            annotationHeader.Controls.Add(newSeg);
+            annotationHeader.Controls.Add(newSet);
             annotationHeader.Controls.Add(renameSet);
             annotationHeader.Controls.Add(deleteSet);
             annotationHeader.Controls.Add(segOpacityLabel);
@@ -227,10 +235,16 @@ namespace Neurocle.WinForms
             imageControls.Controls.Add(imageFit);
             imageControls.Controls.Add(imageZoom);
             imageControls.Controls.Add(imageZoomText);
+            imageControls.Controls.Add(deleteSelectedImages);
+            imageControls.Controls.Add(deleteAllImages);
             pages.TabPages.Add(imagesPage);
             pages.TabPages.Add(annotationPage);
             var datasetPage = new TabPage(Strings.DatasetPage);
+            var datasetHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
+            datasetHeader.Controls.Add(new Label { Text = Strings.AnnotationSet, AutoSize = true, Margin = new Padding(4, 6, 0, 0) });
+            datasetHeader.Controls.Add(datasetAnnotationSets);
             datasetPage.Controls.Add(datasetAssignments);
+            datasetPage.Controls.Add(datasetHeader);
             pages.TabPages.Add(datasetPage);
             var exportPage = new TabPage(Strings.ExportPage);
             var exportJson = new Button { Dock = DockStyle.Top, Text = Strings.ExportAnnotationJson };
@@ -313,12 +327,11 @@ namespace Neurocle.WinForms
             else if (selected.Type == AnnotationSetType.Seg && canvas.SegEnabled) canvas.SelectAllSeg();
         }
 
-        private static void AddSegWidthControl(TableLayoutPanel container, int row, string label, Action<int> apply)
+        private void SetSegStrokeWidth(int width)
         {
-            var value = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 1, Maximum = 100, Value = 15 };
-            value.ValueChanged += (sender, args) => apply((int)value.Value);
-            container.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left }, 0, row);
-            container.Controls.Add(value, 1, row);
+            if (segStrokeWidth.Value != width) segStrokeWidth.Value = width;
+            if (segStrokeWidthSlider.Value != width) segStrokeWidthSlider.Value = width;
+            canvas.SegStrokeWidth = width;
         }
 
         private void SynchronizeCanvasView(ImageCanvasControl source, ImageCanvasControl target)
@@ -395,6 +408,43 @@ namespace Neurocle.WinForms
             }
         }
 
+        private void DeleteSelectedImages()
+        {
+            if (project == null) return;
+            string[] imageIds = imageBrowser.SelectedImageIds.Distinct(StringComparer.Ordinal).ToArray();
+            if (imageIds.Length == 0) return;
+            string message = string.Format(Strings.DeleteSelectedImagesPrompt, imageIds.Length);
+            if (!confirmImageDeletion(message)) return;
+            DeleteImages(imageIds);
+        }
+
+        private void DeleteAllImages()
+        {
+            if (project == null) return;
+            string[] imageIds = project.GetImages().Select(image => image.Id).ToArray();
+            if (imageIds.Length == 0) return;
+            string message = string.Format(Strings.DeleteAllImagesPrompt, imageIds.Length);
+            if (!confirmImageDeletion(message)) return;
+            DeleteImages(imageIds);
+        }
+
+        private void DeleteImages(IReadOnlyCollection<string> imageIds)
+        {
+            bool currentImageDeleted = selectedImageId != null && imageIds.Contains(selectedImageId);
+            project.DeleteImages(imageIds);
+            if (currentImageDeleted || project.GetImages().Count == 0)
+            {
+                selectedImageId = null;
+                selectedImagePath = null;
+                pendingImageSelection = null;
+                imageCanvas.LoadImage(null);
+                canvas.LoadImage(null);
+            }
+            UpdateProjectStatus();
+            RefreshAnnotationClasses();
+            RefreshDatasetAssignments();
+        }
+
         private void ManageMissingImages()
         {
             if (project == null) return;
@@ -409,12 +459,14 @@ namespace Neurocle.WinForms
             using (var dialog = new DiagnosticsForm(diagnosticLog)) dialog.ShowDialog(this);
         }
 
-        private void CreateAnnotationSet(AnnotationSetType type)
+        private void CreateAnnotationSet()
         {
             if (project == null) return;
-            string name = Prompt(Strings.AnnotationSetNamePrompt);
-            if (name == null) return;
-            CreateAnnotationSet(type, name);
+            using (var dialog = new AnnotationSetCreationDialog())
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.AnnotationSetName)) return;
+                CreateAnnotationSet(dialog.AnnotationSetType, dialog.AnnotationSetName.Trim());
+            }
         }
 
         private void CreateAnnotationSet(AnnotationSetType type, string name)
@@ -428,14 +480,19 @@ namespace Neurocle.WinForms
             if (annotationSets == null) return;
             if (selectedId == null) selectedId = (annotationSets.SelectedItem as AnnotationSet)?.Id;
             string previousId = (annotationSets.SelectedItem as AnnotationSet)?.Id;
+            AnnotationSet[] sets = project == null ? new AnnotationSet[0] : project.GetAnnotationSets().ToArray();
             refreshingAnnotationSets = true;
             try
             {
                 annotationSets.Items.Clear();
-                if (project != null) annotationSets.Items.AddRange(project.GetAnnotationSets().ToArray());
+                datasetAnnotationSets.Items.Clear();
+                annotationSets.Items.AddRange(sets);
+                datasetAnnotationSets.Items.AddRange(sets);
                 annotationSets.DisplayMember = "DisplayName";
-                AnnotationSet selected = annotationSets.Items.Cast<AnnotationSet>().FirstOrDefault(item => item.Id == selectedId) ?? annotationSets.Items.Cast<AnnotationSet>().FirstOrDefault();
+                datasetAnnotationSets.DisplayMember = "DisplayName";
+                AnnotationSet selected = sets.FirstOrDefault(item => item.Id == selectedId) ?? sets.FirstOrDefault();
                 annotationSets.SelectedItem = selected;
+                datasetAnnotationSets.SelectedItem = selected;
             }
             finally
             {
@@ -450,6 +507,26 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        private void AnnotationSetSelectionChanged(ComboBox source)
+        {
+            if (refreshingAnnotationSets || synchronizingAnnotationSetSelection) return;
+            AnnotationSet selected = source.SelectedItem as AnnotationSet;
+            ComboBox target = ReferenceEquals(source, annotationSets) ? datasetAnnotationSets : annotationSets;
+            synchronizingAnnotationSetSelection = true;
+            try
+            {
+                target.SelectedItem = selected == null ? null : target.Items.Cast<AnnotationSet>().FirstOrDefault(item => item.Id == selected.Id);
+            }
+            finally
+            {
+                synchronizingAnnotationSetSelection = false;
+            }
+            ResetAnnotationOpacity();
+            canvas.DiscardUnfinishedShape();
+            RefreshAnnotationClasses();
+            RefreshDatasetAssignments();
+        }
+
         private void ResetAnnotationOpacity()
         {
             if (annotationOpacity != null) annotationOpacity.Value = 40;
@@ -458,10 +535,11 @@ namespace Neurocle.WinForms
 
         private void SetAnnotationOpacity(int percent)
         {
+            if (annotationOpacity.Value != percent) annotationOpacity.Value = percent;
+            if (annotationOpacityValue.Value != percent) annotationOpacityValue.Value = percent;
             float opacity = percent / 100f;
             canvas.ObdOpacity = opacity;
             canvas.SegOpacity = opacity;
-            if (annotationOpacityValue != null) annotationOpacityValue.Text = percent + "%";
             canvas.Invalidate();
         }
 
@@ -497,21 +575,34 @@ namespace Neurocle.WinForms
             AnnotationClass[] classes = project == null || selected == null ? new AnnotationClass[0] : project.GetClasses(selected.Id).ToArray();
             if (selected == null || selected.Type != AnnotationSetType.Seg || !classes.Any(value => value.Id == selectedSegClassId)) selectedSegClassId = null;
             if (canvas.SegEnabled && selectedSegClassId == null) selectedSegClassId = classes.FirstOrDefault()?.Id;
+            AnnotationClass previewClass = selected != null && selected.Type == AnnotationSetType.Seg
+                ? classes.FirstOrDefault(value => value.Id == selectedSegClassId)
+                : classes.FirstOrDefault();
+            canvas.PreviewColor = previewClass == null ? Color.White : AnnotationColorFormat.ToColor(previewClass.Color);
             canvas.ObdClasses = classes.ToDictionary(value => value.Id);
             canvas.ObdAnnotations = canvas.ObdEnabled ? project.GetObdAnnotations(selected.Id, selectedImageId) : null;
             canvas.SegClasses = classes.ToDictionary(value => value.Id);
             canvas.SegRegions = canvas.SegEnabled ? project.GetSegRegions(selected.Id, selectedImageId) : null;
-            if (project == null || selected == null) return;
+            if (project == null || selected == null)
+            {
+                RefreshImageBrowser();
+                return;
+            }
             foreach (AnnotationClass value in classes)
             {
-                var button = new Button { Text = value.Name, AutoSize = true, BackColor = ColorTranslator.FromHtml(value.Color) };
+                var button = new Button { Text = value.Name, AutoSize = true, BackColor = AnnotationColorFormat.ToColor(value.Color) };
                 button.Click += (sender, args) =>
                 {
-                    if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() => project.SetClaClass(selected.Id, selectedImageId, value.Id));
+                    if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() =>
+                    {
+                        project.SetClaClass(selected.Id, selectedImageId, value.Id);
+                        RefreshAnnotationClasses();
+                    });
                     else if (selected.Type == AnnotationSetType.Obd && selectedImageId != null && canvas.SelectedObdId != null) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
                     else if (selected.Type == AnnotationSetType.Seg)
                     {
                         selectedSegClassId = value.Id;
+                        canvas.PreviewColor = AnnotationColorFormat.ToColor(value.Color);
                         if (selectedImageId != null && canvas.SelectedSegIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedSegClass(value.Id));
                     }
                 };
@@ -522,6 +613,7 @@ namespace Neurocle.WinForms
                 button.ContextMenuStrip = menu;
                 annotationClasses.Controls.Add(button);
             }
+            RefreshImageBrowser();
         }
 
         private AnnotationSet SelectedAnnotationSet { get { return annotationSets.SelectedItem as AnnotationSet; } }
@@ -543,6 +635,27 @@ namespace Neurocle.WinForms
                 rows.Add(new DatasetRow(image, assignment, classNames, summary == null ? 0 : summary.AnnotationCount));
             }
             datasetAssignments.LoadRows(rows, selected.Type != AnnotationSetType.Cla);
+        }
+
+        private void RefreshImageBrowser()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null) return;
+            if (selected == null)
+            {
+                imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
+                return;
+            }
+            var classes = project.GetClasses(selected.Id).ToDictionary(value => value.Id, value => value.Name, StringComparer.Ordinal);
+            var summaries = project.GetImageAnnotationSummaries(selected.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
+            var rows = project.GetImages().Select(image =>
+            {
+                ImageAnnotationSummary summary;
+                summaries.TryGetValue(image.Id, out summary);
+                string[] classNames = (summary == null ? new string[0] : summary.ClassIds).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
+                return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, selected.Type != AnnotationSetType.Cla);
+            });
+            imageBrowser.LoadRows(rows, GetImagesDirectory(project.ProjectPath));
         }
 
         private void SetDatasetAssignments(IReadOnlyList<string> imageIds, DatasetAssignmentStatus status)
@@ -740,7 +853,8 @@ namespace Neurocle.WinForms
             if (failure != null) imageBrowser.SelectImage(imageId);
             else if (ReferenceEquals(project, session) && pending != null)
             {
-                ApplyImageSelection(pending);
+                imageBrowser.SelectImage(pending.Image.Id);
+                if (selectedImageId != pending.Image.Id) ApplyImageSelection(pending);
             }
         }
 
@@ -836,7 +950,7 @@ namespace Neurocle.WinForms
             if (project == null || selected == null) return;
             string name = Prompt(Strings.AnnotationClassNamePrompt);
             if (name == null) return;
-            project.AddClass(selected.Id, name, "#FF0000");
+            project.AddClass(selected.Id, name, null);
             RefreshAnnotationClasses();
         }
 
@@ -850,10 +964,10 @@ namespace Neurocle.WinForms
 
         private void ChangeAnnotationClassColor(AnnotationClass value)
         {
-            using (var dialog = new ColorDialog { Color = ColorTranslator.FromHtml(value.Color) })
+            using (var dialog = new ColorDialog { Color = AnnotationColorFormat.ToColor(value.Color) })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                project.ChangeClassColor(value.Id, ColorTranslator.ToHtml(dialog.Color));
+                project.ChangeClassColor(value.Id, string.Format("rgba({0}, {1}, {2}, 1)-custom", dialog.Color.R, dialog.Color.G, dialog.Color.B));
                 RefreshAnnotationClasses();
             }
         }
@@ -932,7 +1046,7 @@ namespace Neurocle.WinForms
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 IProjectSession session = project;
                 string[] selectedFiles = dialog.FileNames.ToArray();
-                await ImportAsync(progress => session.ImportFilesWithReport(selectedFiles, () => progress.IsCancellationRequested));
+                await ImportAsync(progress => session.ImportFilesWithReport(selectedFiles, () => progress.IsCancellationRequested, progress.Report));
             }
         }
 
@@ -946,7 +1060,7 @@ namespace Neurocle.WinForms
                 if (choice == DialogResult.Cancel) return;
                 IProjectSession session = project;
                 string selectedPath = dialog.SelectedPath;
-                await ImportAsync(progress => session.ImportDirectory(selectedPath, choice == DialogResult.Yes, () => progress.IsCancellationRequested));
+                await ImportAsync(progress => session.ImportDirectory(selectedPath, choice == DialogResult.Yes, () => progress.IsCancellationRequested, progress.Report));
             }
         }
 
@@ -973,7 +1087,7 @@ namespace Neurocle.WinForms
                     progress.Close();
                     projectMenu.Enabled = true;
                     importInProgress = false;
-                    if (project != null) imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
+                    if (project != null) RefreshImageBrowser();
                 }
             }
         }

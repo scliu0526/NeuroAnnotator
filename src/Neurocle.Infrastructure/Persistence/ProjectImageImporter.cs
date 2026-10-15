@@ -24,10 +24,39 @@ namespace Neurocle.Infrastructure.Persistence
                 using (var image = Image.FromFile(sourcePath, false))
                 {
                     ValidateDimensions(image.Width, image.Height);
-                    return new ProjectImage(Guid.NewGuid().ToString("D"), Path.GetFileName(sourcePath), managedFileName, Hash(sourcePath), image.Width, image.Height, sequence);
+                    return new ProjectImage(Guid.NewGuid().ToString("D"), managedFileName, managedFileName, Hash(sourcePath), image.Width, image.Height, sequence);
                 }
             }
             catch (OutOfMemoryException) { throw new ImageImportException(ImageImportFailure.InvalidImage); }
+        }
+
+        internal static bool RequiresPngConversion(string sourcePath)
+        {
+            return string.Equals(Path.GetExtension(sourcePath), ".bmp", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static void CopyToManagedStorage(string sourcePath, string destinationPath)
+        {
+            if (!RequiresPngConversion(sourcePath) && !IsBitmapImage(sourcePath))
+            {
+                File.Copy(sourcePath, destinationPath);
+                return;
+            }
+            string temporaryPath = destinationPath + ".importing";
+            try
+            {
+                using (var image = Image.FromFile(sourcePath, false)) image.Save(temporaryPath, System.Drawing.Imaging.ImageFormat.Png);
+                File.Move(temporaryPath, destinationPath);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
+        }
+
+        private static bool IsBitmapImage(string sourcePath)
+        {
+            using (var image = Image.FromFile(sourcePath, false)) return image.RawFormat.Guid == System.Drawing.Imaging.ImageFormat.Bmp.Guid;
         }
 
         internal static void ValidateFileSize(long length)

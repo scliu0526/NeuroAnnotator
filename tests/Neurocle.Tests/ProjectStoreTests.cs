@@ -8,6 +8,8 @@ using System.Drawing.Imaging;
 using System.Linq;
 using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Clipper2Lib;
+using Neurocle.Domain.Segmentation;
 using Neurocle.Infrastructure.Persistence;
 using Neurocle.Application.Projects;
 
@@ -16,6 +18,28 @@ namespace Neurocle.Tests
     [TestClass]
     public sealed class ProjectStoreTests
     {
+        [TestMethod]
+        public void New_classes_use_unique_random_rgba_colors_within_each_annotation_set()
+        {
+            string path = TemporaryProjectPath();
+            Func<int, int> original = ProjectStore.NextRandom;
+            try
+            {
+                ProjectStore.NextRandom = maximum => 0;
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    AnnotationSet set = store.CreateAnnotationSet("colors", AnnotationSetType.Cla);
+                    store.AddClass(set.Id, "custom", "rgba(1, 1, 1, 1)-custom");
+                    ProjectStore.NextRandom = maximum => 1;
+                    store.AddClass(set.Id, "second", null);
+                    string[] colors = store.GetClasses(set.Id).Select(value => value.Color).ToArray();
+                    Assert.AreEqual(3, colors.Select(value => value.Replace("-custom", "")).Distinct(StringComparer.Ordinal).Count());
+                    Assert.IsTrue(colors.All(value => value.Replace("-custom", "").StartsWith("rgba(") && value.Replace("-custom", "").EndsWith(", 1)")));
+                }
+            }
+            finally { ProjectStore.NextRandom = original; DeleteTemporaryProject(path); }
+        }
+
         [TestMethod]
         public void Create_open_and_completed_operation_persist_atomically()
         {
@@ -135,8 +159,8 @@ namespace Neurocle.Tests
                 {
                     var images = store.ImportFiles(new[] { second, first });
                     Assert.AreEqual(2, images.Count);
-                    Assert.AreEqual("photo.bmp", images[0].ManagedFileName);
-                    Assert.AreEqual("photo (1).bmp", images[1].ManagedFileName);
+                    Assert.AreEqual("photo.png", images[0].ManagedFileName);
+                    Assert.AreEqual("photo (1).png", images[1].ManagedFileName);
                     Assert.AreEqual(1, images[0].Sequence);
                     Assert.AreEqual(2, images[1].Sequence);
                     Assert.AreEqual(3, images[0].Width);
@@ -149,8 +173,8 @@ namespace Neurocle.Tests
                 {
                     var persisted = reopened.GetImages();
                     Assert.AreEqual(2, persisted.Count);
-                    Assert.AreEqual("photo.bmp", persisted[0].OriginalFileName);
-                    Assert.AreEqual("photo (1).bmp", persisted[1].ManagedFileName);
+                    Assert.AreEqual("photo.png", persisted[0].OriginalFileName);
+                    Assert.AreEqual("photo (1).png", persisted[1].ManagedFileName);
                     Assert.AreEqual(1, persisted[0].Sequence);
                     Assert.AreEqual(2, persisted[1].Sequence);
                 }
@@ -172,11 +196,54 @@ namespace Neurocle.Tests
                 using (ProjectStore store = ProjectStore.Create(path))
                 {
                     var images = store.ImportFiles(new[] { ten, two, eleven, one });
-                    CollectionAssert.AreEqual(new[] { "1.jpeg", "2.jpg", "10.png", "11.bmp" }, images.Select(image => image.OriginalFileName).ToArray());
+                    CollectionAssert.AreEqual(new[] { "1.jpeg", "2.jpg", "10.png", "11.png" }, images.Select(image => image.OriginalFileName).ToArray());
                     CollectionAssert.AreEqual(new[] { 1, 2, 3, 4 }, images.Select(image => image.Sequence).ToArray());
                 }
             }
             finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Import_converts_bmp_to_png_and_preserves_other_supported_file_contents()
+        {
+            string path = TemporaryProjectPath();
+            string sourceRoot = Path.Combine(Path.GetDirectoryName(path), "sources");
+            try
+            {
+                string bitmap = CreateBitmap(Path.Combine(sourceRoot, "photo.bmp"), Color.Red, ImageFormat.Bmp);
+                string jpeg = CreateBitmap(Path.Combine(sourceRoot, "photo.jpg"), Color.Blue, ImageFormat.Jpeg);
+                string png = CreateBitmap(Path.Combine(sourceRoot, "photo.png"), Color.Green, ImageFormat.Png);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(new[] { bitmap, jpeg, png }).ToArray();
+                    ProjectImage converted = images.Single(image => image.OriginalFileName == "photo.png");
+                    Assert.AreEqual("photo.png", converted.ManagedFileName);
+                    using (var managedImage = Image.FromFile(Path.Combine(store.ImagesDirectory, converted.ManagedFileName)))
+                        Assert.AreEqual(ImageFormat.Png.Guid, managedImage.RawFormat.Guid);
+
+                    ProjectImage importedJpeg = images.Single(image => image.ManagedFileName == "photo.jpg");
+                    ProjectImage importedPng = images.Single(image => image.ManagedFileName == "photo (1).png");
+                    CollectionAssert.AreEqual(File.ReadAllBytes(jpeg), File.ReadAllBytes(Path.Combine(store.ImagesDirectory, importedJpeg.ManagedFileName)));
+                    CollectionAssert.AreEqual(File.ReadAllBytes(png), File.ReadAllBytes(Path.Combine(store.ImagesDirectory, importedPng.ManagedFileName)));
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Bmp_conversion_cleans_temporary_file_when_final_destination_cannot_be_created()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.bmp");
+            string destination = Path.Combine(Path.GetDirectoryName(path), "managed.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Bmp);
+                Directory.CreateDirectory(destination);
+                Assert.ThrowsException<IOException>(() => ProjectImageImporter.CopyToManagedStorage(source, destination));
+                Assert.IsFalse(File.Exists(destination + ".importing"));
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
         }
 
         [TestMethod]
@@ -389,9 +456,9 @@ namespace Neurocle.Tests
                     store.DeleteImages(new[] { imported[1].Id });
 
                     var remaining = store.GetImages();
-                    CollectionAssert.AreEqual(new[] { "1.bmp", "3.bmp" }, remaining.Select(image => image.OriginalFileName).ToArray());
+                    CollectionAssert.AreEqual(new[] { "1.png", "3.png" }, remaining.Select(image => image.OriginalFileName).ToArray());
                     CollectionAssert.AreEqual(new[] { 1, 2 }, remaining.Select(image => image.Sequence).ToArray());
-                    Assert.IsFalse(File.Exists(Path.Combine(store.ImagesDirectory, "2.bmp")));
+                    Assert.IsFalse(File.Exists(Path.Combine(store.ImagesDirectory, "2.png")));
 
                     var next = store.ImportFiles(new[] { fourth }).Single();
                     Assert.AreEqual(3, next.Sequence);
@@ -435,7 +502,7 @@ namespace Neurocle.Tests
                 using (ProjectStore reopened = ProjectStore.Open(path))
                 {
                     Assert.AreEqual(1, reopened.GetImages().Count);
-                    Assert.IsTrue(File.Exists(Path.Combine(reopened.ImagesDirectory, ".delete-sample.bmp")));
+                    Assert.IsTrue(File.Exists(Path.Combine(reopened.ImagesDirectory, ".delete-sample.png")));
                 }
             }
             finally { DeleteTemporaryProject(path); }
@@ -508,13 +575,18 @@ namespace Neurocle.Tests
                 string second = CreateBitmap(Path.Combine(sourceRoot, "3.bmp"), Color.Blue);
                 using (ProjectStore store = ProjectStore.Create(path))
                 {
-                    ImageImportReport report = store.ImportFilesWithReport(new[] { second, invalid, first }, null);
+                    var progress = new List<ImageImportProgress>();
+                    ImageImportReport report = store.ImportFilesWithReport(new[] { second, invalid, first }, null, progress.Add);
                     Assert.AreEqual(2, report.Imported.Count);
                     Assert.AreEqual(1, report.Failures.Count);
                     Assert.AreEqual(0, report.UnprocessedCount);
                     Assert.AreEqual("2.txt", Path.GetFileName(report.Failures[0].FilePath));
                     Assert.AreEqual(ImageImportFailure.UnsupportedFormat, report.Failures[0].Failure);
                     Assert.AreEqual(2, store.GetImages().Count);
+                    CollectionAssert.AreEqual(new[] { 0, 1, 2, 3 }, progress.Select(item => item.ProcessedCount).ToArray());
+                    Assert.AreEqual(3, progress.Last().TotalCount);
+                    Assert.AreEqual(2, progress.Last().SuccessfulCount);
+                    Assert.AreEqual(1, progress.Last().FailedCount);
                 }
             }
             finally { DeleteTemporaryProject(path); }
@@ -533,11 +605,16 @@ namespace Neurocle.Tests
                 int checks = 0;
                 using (ProjectStore store = ProjectStore.Create(path))
                 {
-                    ImageImportReport report = store.ImportFilesWithReport(new[] { third, second, first }, () => ++checks > 1);
+                    var progress = new List<ImageImportProgress>();
+                    ImageImportReport report = store.ImportFilesWithReport(new[] { third, second, first }, () => ++checks > 1, progress.Add);
                     Assert.AreEqual(1, report.Imported.Count);
                     Assert.AreEqual(0, report.Failures.Count);
                     Assert.AreEqual(2, report.UnprocessedCount);
                     Assert.AreEqual(1, store.GetImages().Count);
+                    Assert.AreEqual(1, progress.Last().ProcessedCount);
+                    Assert.AreEqual(3, progress.Last().TotalCount);
+                    Assert.AreEqual(1, progress.Last().SuccessfulCount);
+                    Assert.AreEqual(0, progress.Last().FailedCount);
                 }
             }
             finally { DeleteTemporaryProject(path); }
@@ -581,7 +658,7 @@ namespace Neurocle.Tests
                 {
                     ImageImportReport report = store.ImportDirectory(sourceRoot, false, null);
                     Assert.AreEqual(1, report.Imported.Count);
-                    Assert.AreEqual("root.bmp", report.Imported[0].OriginalFileName);
+                    Assert.AreEqual("root.png", report.Imported[0].OriginalFileName);
                 }
 
                 using (ProjectStore store = ProjectStore.Create(Path.Combine(Path.GetDirectoryName(path), "recursive.neurocle")))
@@ -646,6 +723,7 @@ namespace Neurocle.Tests
             {
                 string source = CreateBitmap(Path.Combine(sourceRoot, "source.bmp"), Color.Red);
                 string different = CreateBitmap(Path.Combine(sourceRoot, "different.bmp"), Color.Blue);
+                string renamedSource = Path.Combine(sourceRoot, "source-renamed.png");
                 ProjectImage image;
                 using (ProjectStore store = ProjectStore.Create(path))
                 {
@@ -658,9 +736,12 @@ namespace Neurocle.Tests
                     Assert.AreEqual(ImageRelinkFailure.ContentMismatch, mismatch.Failure);
                     Assert.IsTrue(store.GetMissingImages().Single().IsMissing);
 
-                    store.RelinkImage(image.Id, source);
+                    File.Copy(source, renamedSource);
+                    store.RelinkImage(image.Id, renamedSource);
                     Assert.AreEqual(0, store.GetMissingImages().Count);
                     Assert.IsTrue(File.Exists(Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    using (var relinked = Image.FromFile(Path.Combine(store.ImagesDirectory, image.ManagedFileName)))
+                        Assert.AreEqual(ImageFormat.Png.Guid, relinked.RawFormat.Guid);
                 }
 
                 using (ProjectStore reopened = ProjectStore.Open(path))
@@ -919,6 +1000,24 @@ namespace Neurocle.Tests
 
             IReadOnlyList<ProjectImage> filtered = ImageListProjection.FilterAndSort(images, "IMAGE999", ImageListSortColumn.Sequence, ImageListSortDirection.Descending);
             CollectionAssert.AreEqual(new[] { "image9999.png", "image9998.png", "image9997.png", "image9996.png", "image9995.png", "image9994.png", "image9993.png", "image9992.png", "image9991.png", "image9990.png", "image999.png" }, filtered.Select(image => image.OriginalFileName).ToArray());
+        }
+
+        [TestMethod]
+        public void Image_list_annotation_columns_sort_complete_class_lists_and_numeric_counts()
+        {
+            ImageListRow[] rows =
+            {
+                new ImageListRow(new ProjectImage("one", "one.png", "one.png", "hash", 1, 1, 1), new[] { "zeta", "alpha" }, 10, true),
+                new ImageListRow(new ProjectImage("two", "two.png", "two.png", "hash", 1, 1, 2), new[] { "beta" }, 2, true),
+                new ImageListRow(new ProjectImage("three", "three.png", "three.png", "hash", 1, 1, 3), new string[0], 0, true),
+                new ImageListRow(new ProjectImage("four", "four.png", "four.png", "hash", 1, 1, 4), new[] { "beta" }, 2, true)
+            };
+
+            CollectionAssert.AreEqual(new[] { "one", "two", "four", "three" }, ImageListProjection.FilterAndSort(rows, null, ImageListSortColumn.Classes, ImageListSortDirection.Ascending).Select(row => row.Image.Id).ToArray());
+            CollectionAssert.AreEqual(new[] { "two", "four", "one", "three" }, ImageListProjection.FilterAndSort(rows, null, ImageListSortColumn.Classes, ImageListSortDirection.Descending).Select(row => row.Image.Id).ToArray());
+            CollectionAssert.AreEqual(new[] { "three", "two", "four", "one" }, ImageListProjection.FilterAndSort(rows, null, ImageListSortColumn.AnnotationCount, ImageListSortDirection.Ascending).Select(row => row.Image.Id).ToArray());
+            CollectionAssert.AreEqual(new[] { "one", "two", "four", "three" }, ImageListProjection.FilterAndSort(rows, null, ImageListSortColumn.AnnotationCount, ImageListSortDirection.Descending).Select(row => row.Image.Id).ToArray());
+            Assert.AreEqual("alpha, zeta", rows[0].ClassDisplay);
         }
 
         [TestMethod]
@@ -1452,6 +1551,89 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Closed_seg_brush_polygon_unions_existing_same_class_area_without_erasing_it()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                string setId;
+                string imageId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    setId = set.Id;
+                    imageId = image.Id;
+                    AnnotationClass first = store.GetClasses(set.Id).Single();
+                    AnnotationClass second = store.AddClass(set.Id, "other", "#123456");
+                    store.AddSegRegion(set.Id, image.Id, first.Id, SegRegionType.Rect, 5, 30, 30, 20);
+                    store.AddSegRegion(set.Id, image.Id, second.Id, SegRegionType.Rect, 5, 30, 30, 20);
+
+                    store.AddSegPath(set.Id, image.Id, first.Id, SegRegionType.PolyGon, new[]
+                    {
+                        new SegPoint(10, 10), new SegPoint(90, 10), new SegPoint(90, 90), new SegPoint(10, 90)
+                    }, 0);
+
+                    SegRegion merged = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == first.Id);
+                    var mergedPath = new Path64(merged.Points.Select(point => new Point64(point.X, point.Y)).ToList());
+                    Paths64 preserved = Clipper.Intersect(new Paths64 { SegGeometryPrototype.Rectangle(5, 30, 35, 50) }, new Paths64 { mergedPath }, FillRule.NonZero);
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count(value => value.ClassId == first.Id));
+                    Assert.AreEqual(600d, SegGeometryPrototype.Area(preserved));
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { mergedPath }));
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, image.Id).Count(value => value.ClassId == second.Id));
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    SegRegion restored = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == first.Id);
+                    Assert.AreEqual(SegRegionType.Rect, restored.Type);
+                    Assert.AreEqual(new Rectangle(5, 30, 30, 20), new Rectangle(restored.X, restored.Y, restored.Width, restored.Height));
+                    Assert.IsTrue(store.Redo(set.Id));
+                    SegRegion redone = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == first.Id);
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { new Path64(redone.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }));
+                    store.Save();
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    SegRegion persisted = reopened.GetSegRegions(setId, imageId).Single(value => value.ClassId == reopened.GetClasses(setId).First().Id);
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { new Path64(persisted.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Closed_seg_brush_polygon_preserves_existing_same_class_area_when_drawn_counterclockwise()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                    store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 5, 30, 30, 20);
+
+                    SegPoint[] counterclockwise =
+                    {
+                        new SegPoint(10, 10), new SegPoint(10, 90), new SegPoint(90, 90), new SegPoint(90, 10)
+                    };
+                    store.AddSegPath(set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, counterclockwise, 0);
+
+                    SegRegion merged = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == annotationClass.Id);
+                    var mergedPath = new Path64(merged.Points.Select(point => new Point64(point.X, point.Y)).ToList());
+                    Paths64 preserved = Clipper.Intersect(new Paths64 { SegGeometryPrototype.Rectangle(5, 30, 35, 50) }, new Paths64 { mergedPath }, FillRule.NonZero);
+                    Assert.AreEqual(600d, SegGeometryPrototype.Area(preserved));
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { mergedPath }));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Restore_falls_back_from_native_replace_and_recovers_the_original_database_when_the_second_move_fails()
         {
             string path = TemporaryProjectPath();
@@ -1634,7 +1816,7 @@ namespace Neurocle.Tests
                     Assert.IsTrue(store.Undo(seg.Id));
                     Assert.AreEqual(store.GetSegRegions(seg.Id, image.Id).Count, store.GetImageAnnotationSummaries(seg.Id).Single().AnnotationCount);
 
-                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"source.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":100,\"height\":100}]}";
+                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"source.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":100,\"height\":100}]}";
                     AnnotationSet imported = store.ImportAnnotationJson(json, "imported", false);
                     Assert.AreEqual(store.GetSegRegions(imported.Id, image.Id).Count, store.GetImageAnnotationSummaries(imported.Id).Single().AnnotationCount);
                 }
@@ -1674,6 +1856,9 @@ namespace Neurocle.Tests
                     string invalid = valid.Replace("sample.png", "missing.png");
                     Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJson(invalid, "bad", false));
                     Assert.AreEqual(1, store.GetAnnotationSets().Count);
+                    string invalidColor = valid.Replace("rgba(1, 2, 3, 1)-custom", "rgba(256, 2, 3, 1)");
+                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJson(invalidColor, "bad-color", false));
+                    Assert.AreEqual(1, store.GetAnnotationSets().Count);
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
@@ -1690,7 +1875,7 @@ namespace Neurocle.Tests
                 using (var store = ProjectStore.Create(path))
                 {
                     ProjectImage image = store.ImportFiles(new[] { source }).Single();
-                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[1,2],[3,4]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[1,2],[3,4]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     AnnotationSet set = store.ImportAnnotationJson(json, "seg", false);
                     SegRegion region = store.GetSegRegions(set.Id, image.Id).Single();
                     Assert.AreEqual(SegRegionType.PolyLine, region.Type);
@@ -1713,10 +1898,10 @@ namespace Neurocle.Tests
                 using (var store = ProjectStore.Create(path))
                 {
                     ProjectImage image = store.ImportFiles(new[] { source }).Single();
-                    string obd = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\" part \",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\" part \",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    string obd = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\" part \",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\" part \",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     AnnotationSet obdSet = store.ImportAnnotationJson(obd, "obd", false);
                     Assert.AreEqual("part", store.GetClasses(obdSet.Id).Single().Name);
-                    string seg = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyGon\",\"points\":[[0,0],[20,0],[20,20],[0,20]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    string seg = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyGon\",\"points\":[[0,0],[20,0],[20,20],[0,20]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     AnnotationSet segSet = store.ImportAnnotationJson(seg, "seg", false);
                     Assert.AreEqual(4, store.GetSegRegions(segSet.Id, image.Id).Single().Points.Count);
                 }
@@ -1735,7 +1920,7 @@ namespace Neurocle.Tests
                 using (var store = ProjectStore.Create(path))
                 {
                     store.ImportFiles(new[] { source });
-                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"red\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2,\"futureField\":true}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2,\"futureField\":true}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJson(json, "strict", false));
                     Assert.AreEqual(0, store.GetAnnotationSets().Count);
                     AnnotationSet set = store.ImportAnnotationJson(json, "allowed", true);
@@ -1838,7 +2023,18 @@ namespace Neurocle.Tests
                 CreateBitmap(first, Color.Red, ImageFormat.Png); CreateBitmap(second, Color.Blue, ImageFormat.Png);
                 using (var store = ProjectStore.Create(path))
                 {
-                    store.ImportFiles(new[] { first, second });
+                    ProjectImage[] images = store.ImportFiles(new[] { first, second }).ToArray();
+                    store.CompleteOperation((connection, transaction) =>
+                    {
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "UPDATE ImageRecord SET OriginalFileName = $name WHERE Id = $id;";
+                            command.Parameters.AddWithValue("$name", images[0].OriginalFileName);
+                            command.Parameters.AddWithValue("$id", images[1].Id);
+                            command.ExecuteNonQuery();
+                        }
+                    });
                     AnnotationSet set = store.CreateAnnotationSet("set", AnnotationSetType.Cla);
                     Assert.ThrowsException<InvalidOperationException>(() => store.ExportAnnotationJson(set.Id, Path.Combine(Path.GetDirectoryName(path), "labels.json")));
                 }

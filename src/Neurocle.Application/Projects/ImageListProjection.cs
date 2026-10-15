@@ -7,7 +7,9 @@ namespace Neurocle.Application.Projects
     public enum ImageListSortColumn
     {
         Sequence,
-        FileName
+        FileName,
+        Classes,
+        AnnotationCount
     }
 
     public enum ImageListSortDirection
@@ -27,6 +29,30 @@ namespace Neurocle.Application.Projects
                 ? result.OrderBy(image => image.Sequence).ThenBy(image => image.OriginalFileName, NaturalFileNameComparer.Instance)
                 : result.OrderBy(image => image.OriginalFileName, NaturalFileNameComparer.Instance).ThenBy(image => image.Sequence);
             return (direction == ImageListSortDirection.Ascending ? ordered : ordered.Reverse()).ToList();
+        }
+
+        public static IReadOnlyList<ImageListRow> FilterAndSort(IEnumerable<ImageListRow> rows, string searchText, ImageListSortColumn column, ImageListSortDirection direction)
+        {
+            if (rows == null) throw new ArgumentNullException(nameof(rows));
+            IEnumerable<ImageListRow> result = rows;
+            if (!string.IsNullOrWhiteSpace(searchText)) result = result.Where(row => row.Image.OriginalFileName.IndexOf(searchText.Trim(), StringComparison.OrdinalIgnoreCase) >= 0);
+            if (column == ImageListSortColumn.Classes)
+            {
+                IOrderedEnumerable<ImageListRow> ordered = result.OrderBy(row => row.ClassNames.Count == 0);
+                return (direction == ImageListSortDirection.Ascending
+                    ? ordered.ThenBy(row => row.ClassDisplay, StringComparer.Ordinal)
+                    : ordered.ThenByDescending(row => row.ClassDisplay, StringComparer.Ordinal)).ToList();
+            }
+            if (column == ImageListSortColumn.AnnotationCount)
+            {
+                return (direction == ImageListSortDirection.Ascending
+                    ? result.OrderBy(row => row.AnnotationCount)
+                    : result.OrderByDescending(row => row.AnnotationCount)).ToList();
+            }
+            IOrderedEnumerable<ImageListRow> imageOrdered = column == ImageListSortColumn.Sequence
+                ? result.OrderBy(row => row.Image.Sequence).ThenBy(row => row.Image.OriginalFileName, NaturalFileNameComparer.Instance)
+                : result.OrderBy(row => row.Image.OriginalFileName, NaturalFileNameComparer.Instance).ThenBy(row => row.Image.Sequence);
+            return (direction == ImageListSortDirection.Ascending ? imageOrdered : imageOrdered.Reverse()).ToList();
         }
 
         private sealed class NaturalFileNameComparer : IComparer<string>
@@ -67,5 +93,22 @@ namespace Neurocle.Application.Projects
                 return left.Length.CompareTo(right.Length);
             }
         }
+    }
+
+    public sealed class ImageListRow
+    {
+        public ImageListRow(ProjectImage image, IReadOnlyList<string> classNames, int annotationCount, bool showAnnotationCount)
+        {
+            Image = image ?? throw new ArgumentNullException(nameof(image));
+            ClassNames = (classNames ?? throw new ArgumentNullException(nameof(classNames))).Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToArray();
+            AnnotationCount = annotationCount;
+            ShowAnnotationCount = showAnnotationCount;
+        }
+
+        public ProjectImage Image { get; private set; }
+        public IReadOnlyList<string> ClassNames { get; private set; }
+        public int AnnotationCount { get; private set; }
+        public bool ShowAnnotationCount { get; private set; }
+        public string ClassDisplay { get { return string.Join(", ", ClassNames); } }
     }
 }

@@ -183,11 +183,21 @@ namespace Neurocle.Infrastructure.Persistence
 
         public ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested)
         {
+            return ImportFilesWithReport(filePaths, cancellationRequested, null);
+        }
+
+        public ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
+        {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
-            return ImportSourcesWithReport(OrderSources(filePaths), cancellationRequested);
+            return ImportSourcesWithReport(OrderSources(filePaths), cancellationRequested, null, progress);
         }
 
         public ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested)
+        {
+            return ImportDirectory(directoryPath, includeSubdirectories, cancellationRequested, null);
+        }
+
+        public ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
         {
             if (directoryPath == null) throw new ArgumentNullException(nameof(directoryPath));
             var sources = new List<string>();
@@ -212,7 +222,7 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 failures.Add(new ImageImportFailureDetail(directoryPath, ImageImportFailure.Unknown));
             }
-            return ImportSourcesWithReport(OrderSources(sources), cancellationRequested, failures);
+            return ImportSourcesWithReport(OrderSources(sources), cancellationRequested, failures, progress);
         }
 
         public IReadOnlyList<ProjectImage> GetImages()
@@ -287,7 +297,7 @@ namespace Neurocle.Infrastructure.Persistence
             CompleteOperation((db, transaction) =>
             {
                 Execute(db, transaction, "INSERT INTO AnnotationSet (Id, Name, Type) VALUES ($id, $name, $type);", new SqliteParameter("$id", set.Id), new SqliteParameter("$name", set.Name), new SqliteParameter("$type", (int)set.Type));
-                Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, 'class1', '#FF0000');", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", set.Id));
+                Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, 'class1', $color);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", set.Id), new SqliteParameter("$color", NextClassColor(new string[0])));
             });
             return set;
         }
@@ -309,7 +319,9 @@ namespace Neurocle.Infrastructure.Persistence
                 }
             }
             var set = new AnnotationSet(Guid.NewGuid().ToString("D"), NormalizeName(annotationSetName), imported.Type);
-            var classes = imported.Classes.Select(value => new AnnotationClass(Guid.NewGuid().ToString("D"), set.Id, NormalizeName(value.Name), value.Color)).ToArray();
+            AnnotationClass[] classes;
+            try { classes = imported.Classes.Select(value => new AnnotationClass(Guid.NewGuid().ToString("D"), set.Id, NormalizeName(value.Name), AnnotationColorFormat.Normalize(value.Color))).ToArray(); }
+            catch (ArgumentException exception) { throw new JsonAnnotationImportException(exception.Message); }
             if (classes.Select(value => value.Name).Distinct(StringComparer.Ordinal).Count() != classes.Length) throw new JsonAnnotationImportException("classes contains duplicates.");
             var classByName = classes.ToDictionary(value => value.Name, StringComparer.Ordinal);
             CompleteOperation((db, transaction) =>
@@ -390,7 +402,8 @@ namespace Neurocle.Infrastructure.Persistence
 
         public AnnotationClass AddClass(string annotationSetId, string name, string color)
         {
-            var value = new AnnotationClass(Guid.NewGuid().ToString("D"), annotationSetId, NormalizeName(name), color ?? throw new ArgumentNullException(nameof(color)));
+            string nextColor = color == null ? NextClassColor(GetClasses(annotationSetId).Select(item => item.Color)) : AnnotationColorFormat.Normalize(color);
+            var value = new AnnotationClass(Guid.NewGuid().ToString("D"), annotationSetId, NormalizeName(name), nextColor);
             Execute(connection, null, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
             Record(annotationSetId, () => DeleteClassRaw(value.Id), () => InsertClassRaw(value), EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.Name, value.Color));
             return value;
@@ -404,7 +417,7 @@ namespace Neurocle.Infrastructure.Persistence
         }
         public void ChangeClassColor(string classId, string color)
         {
-            AnnotationClass previous = GetClass(classId); string next = color ?? throw new ArgumentNullException(nameof(color));
+            AnnotationClass previous = GetClass(classId); string next = AnnotationColorFormat.Normalize(color);
             Execute(connection, null, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", next), new SqliteParameter("$id", classId));
             Record(previous.AnnotationSetId, () => ChangeClassColorRaw(classId, previous.Color), () => ChangeClassColorRaw(classId, next), EstimateHistoryBytes(classId, previous.Color, next));
         }
@@ -1091,7 +1104,9 @@ namespace Neurocle.Infrastructure.Persistence
             if (value.Type == SegRegionType.Rect) return new Paths64 { SegGeometryPrototype.Rectangle(value.X, value.Y, value.X + value.Width, value.Y + value.Height) };
             if (value.Type == SegRegionType.Ellipse) return new Paths64 { SegGeometryPrototype.Ellipse(value.X, value.Y, value.Width, value.Height, 32) };
             if (value.Type == SegRegionType.PolyLine) return SegGeometryPrototype.Stroke(ToPath(value.Points), value.StrokeWidth);
-            return new Paths64 { ToPath(value.Points) };
+            Path64 polygon = ToPath(value.Points);
+            if (Clipper.Area(polygon) < 0) polygon.Reverse();
+            return new Paths64 { polygon };
         }
 
         private static List<SegRegion> ToPolygonRegions(string annotationSetId, string imageId, string classId, Paths64 paths, Size imageSize, ref int zOrder)
@@ -1298,7 +1313,7 @@ namespace Neurocle.Infrastructure.Persistence
             string temporary = Path.Combine(ImagesDirectory, Guid.NewGuid().ToString("N") + ".relinking");
             try
             {
-                File.Copy(sourcePath, temporary);
+                ProjectImageImporter.CopyToManagedStorage(sourcePath, temporary);
                 File.Move(temporary, destination);
             }
             finally
@@ -1539,11 +1554,12 @@ namespace Neurocle.Infrastructure.Persistence
             catch (UnauthorizedAccessException) { return false; }
         }
 
-        private ImageImportReport ImportSourcesWithReport(IReadOnlyList<string> sources, Func<bool> cancellationRequested, IReadOnlyList<ImageImportFailureDetail> initialFailures = null)
+        private ImageImportReport ImportSourcesWithReport(IReadOnlyList<string> sources, Func<bool> cancellationRequested, IReadOnlyList<ImageImportFailureDetail> initialFailures = null, Action<ImageImportProgress> progress = null)
         {
             var imported = new List<ProjectImage>();
             var failures = initialFailures == null ? new List<ImageImportFailureDetail>() : new List<ImageImportFailureDetail>(initialFailures);
             long existing = Convert.ToInt64(ExecuteScalar(connection, "SELECT COUNT(*) FROM ImageRecord;"));
+            progress?.Invoke(new ImageImportProgress(0, sources.Count, 0, failures.Count));
             for (int index = 0; index < sources.Count; index++)
             {
                 if (cancellationRequested != null && cancellationRequested()) return new ImageImportReport(imported, failures, sources.Count - index);
@@ -1560,16 +1576,19 @@ namespace Neurocle.Infrastructure.Persistence
                 {
                     failures.Add(new ImageImportFailureDetail(sources[index], ImageImportFailure.Unknown));
                 }
+                progress?.Invoke(new ImageImportProgress(index + 1, sources.Count, imported.Count, failures.Count));
             }
             return new ImageImportReport(imported, failures, 0);
         }
 
         private ProjectImage ImportFile(string source, int sequence)
         {
-            string managedName = NextManagedName(Path.GetFileName(source));
+            string managedName = NextManagedName(ProjectImageImporter.RequiresPngConversion(source)
+                ? Path.GetFileNameWithoutExtension(source) + ".png"
+                : Path.GetFileName(source));
             ProjectImage image = ProjectImageImporter.Read(source, managedName, sequence);
             string destination = Path.Combine(ImagesDirectory, managedName);
-            File.Copy(source, destination);
+            ProjectImageImporter.CopyToManagedStorage(source, destination);
             try
             {
                 CompleteOperation((db, transaction) => Execute(db, transaction,
@@ -1587,6 +1606,22 @@ namespace Neurocle.Infrastructure.Persistence
         private static List<string> OrderSources(IEnumerable<string> filePaths)
         {
             return filePaths.OrderBy(Path.GetFileName, NaturalFileNameComparer.Instance).ToList();
+        }
+
+        private static string NextClassColor(IEnumerable<string> existing)
+        {
+            var colors = new HashSet<string>(existing.Select(value => AnnotationColorFormat.Normalize(value).Replace("-custom", "")), StringComparer.Ordinal);
+            for (int attempt = 0; attempt < 100; attempt++)
+            {
+                string candidate = string.Format("rgba({0}, {1}, {2}, 1)", NextRandom(256), NextRandom(256), NextRandom(256));
+                if (colors.Add(candidate)) return candidate;
+            }
+            for (int value = 0; value <= 0xFFFFFF; value++)
+            {
+                string candidate = string.Format("rgba({0}, {1}, {2}, 1)", (value >> 16) & 255, (value >> 8) & 255, value & 255);
+                if (colors.Add(candidate)) return candidate;
+            }
+            throw new InvalidOperationException("No available RGB colors remain.");
         }
 
         private static void EnsureCurrentSchema(SqliteConnection db, string projectPath)

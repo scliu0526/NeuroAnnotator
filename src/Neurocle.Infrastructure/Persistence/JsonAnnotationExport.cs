@@ -34,7 +34,7 @@ namespace Neurocle.Infrastructure.Persistence
                 else item["regionLabel"] = new JArray((seg.ContainsKey(image.Id) ? seg[image.Id] : new SegRegion[0]).Select(value => Region(value, classes[value.ClassId].Name)));
                 data.Add(item);
             }
-            var root = new JObject { ["label_type"] = set.Type == AnnotationSetType.Cla ? "cla" : set.Type == AnnotationSetType.Obd ? "obd" : "seg", ["source"] = "labelset", ["time"] = DateTime.UtcNow.ToString("o"), ["version"] = "4.5.2.2", ["classes"] = new JArray(classes.Values.Select(value => new JObject { ["name"] = value.Name, ["color"] = value.Color })), ["data"] = data };
+            var root = new JObject { ["label_type"] = set.Type == AnnotationSetType.Cla ? "cla" : set.Type == AnnotationSetType.Obd ? "obd" : "seg", ["source"] = "labelset", ["time"] = DateTime.UtcNow.ToString("o"), ["version"] = "4.5.2.2", ["classes"] = new JArray(classes.Values.Select(value => new JObject { ["name"] = value.Name, ["color"] = AnnotationColorFormat.Normalize(value.Color) })), ["data"] = data };
             string temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
             try
             {

@@ -8,8 +8,10 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Clipper2Lib;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.Application.Projects;
+using Neurocle.Domain.Segmentation;
 using Neurocle.WinForms;
 using Neurocle.Infrastructure.Persistence;
 
@@ -18,6 +20,35 @@ namespace Neurocle.Tests
     [TestClass]
     public class MainFormLayoutTests
     {
+        [STATestMethod]
+        public void Import_progress_dialog_displays_processed_total_success_and_failure_counts()
+        {
+            using (var form = new ImportProgressForm())
+            {
+                form.Report(new ImageImportProgress(2, 5, 1, 1));
+
+                ProgressBar progressBar = form.Controls.OfType<ProgressBar>().Single();
+                Label progressLabel = form.Controls.OfType<Label>().Single(label => label.Text.Contains("2 / 5"));
+                Assert.AreEqual(5, progressBar.Maximum);
+                Assert.AreEqual(2, progressBar.Value);
+                StringAssert.Contains(progressLabel.Text, "成功: 1");
+                StringAssert.Contains(progressLabel.Text, "失敗: 1");
+            }
+        }
+
+        [TestMethod]
+        public void Main_window_starts_maximized_and_can_be_restored_and_resized()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                Assert.AreEqual(FormWindowState.Maximized, form.WindowState);
+                form.WindowState = FormWindowState.Normal;
+                form.Size = new Size(1024, 640);
+                Assert.AreEqual(FormWindowState.Normal, form.WindowState);
+                Assert.AreEqual(new Size(1024, 640), form.Size);
+            }
+        }
+
         [TestMethod]
         public void MinimumSize_fits_the_smallest_supported_viewport_at_each_supported_dpi_scale()
         {
@@ -75,6 +106,30 @@ namespace Neurocle.Tests
                 Assert.IsTrue(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
                 control.LoadRows(Enumerable.Empty<DatasetRow>(), false);
                 Assert.IsFalse(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+            }
+        }
+
+        [TestMethod]
+        public void Image_browser_annotation_count_column_is_visible_only_for_obd_and_seg_rows()
+        {
+            using (var control = new ImageBrowserControl())
+            {
+                ListView list = control.Controls.OfType<ListView>().Single();
+                ProjectImage image = new ProjectImage("image", "image.png", "image.png", "hash", 1, 1, 1);
+                control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, false) }, Path.GetTempPath());
+                Assert.IsFalse(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+                control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, true) }, Path.GetTempPath());
+                Assert.IsTrue(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+            }
+        }
+
+        [TestMethod]
+        public void Annotation_set_creation_dialog_offers_all_types()
+        {
+            using (var dialog = new AnnotationSetCreationDialog())
+            {
+                ComboBox types = dialog.Controls.OfType<ComboBox>().Single();
+                CollectionAssert.AreEqual(new[] { AnnotationSetType.Cla, AnnotationSetType.Obd, AnnotationSetType.Seg }, types.Items.Cast<AnnotationSetType>().ToArray());
             }
         }
 
@@ -313,30 +368,30 @@ namespace Neurocle.Tests
             {
                 store = ProjectStore.Create(projectPath);
                 AnnotationSet set = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
-                ProjectImage[] images =
-                {
-                    new ProjectImage("one", "one.png", "one.png", "hash", 1, 1, 1),
-                    new ProjectImage("two", "two.png", "two.png", "hash", 1, 1, 2),
-                    new ProjectImage("three", "three.png", "three.png", "hash", 1, 1, 3)
-                };
+                string firstPath = Path.Combine(directory, "one.png");
+                string secondPath = Path.Combine(directory, "two.png");
+                string thirdPath = Path.Combine(directory, "three.png");
+                CreateSolidImage(firstPath, Color.Red);
+                CreateSolidImage(secondPath, Color.Green);
+                CreateSolidImage(thirdPath, Color.Blue);
+                ProjectImage[] images = store.ImportFiles(new[] { firstPath, secondPath, thirdPath }).ToArray();
                 using (var form = new MainForm(new ProjectLifecycle()))
                 {
                     Invoke(form, "ReplaceProject", store);
                     form.Show();
                     System.Windows.Forms.Application.DoEvents();
-                    form.ImageBrowser.LoadImages(images, directory);
-                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], null));
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
                     SetField(form, "annotationOperationInProgress", true);
-                    form.ImageBrowser.SelectImage("two");
-                    form.ImageBrowser.SelectImage("three");
+                    form.ImageBrowser.SelectImage(images[1].Id);
+                    form.ImageBrowser.SelectImage(images[2].Id);
                     SetField(form, "annotationOperationInProgress", false);
 
                     Task completion = (Task)form.GetType().GetMethod("RunSegOperationAsync", BindingFlags.Instance | BindingFlags.NonPublic)
-                        .Invoke(form, new object[] { store, set.Id, "one", (Action)(() => { }) });
+                        .Invoke(form, new object[] { store, set.Id, images[0].Id, (Action)(() => { }) });
                     WaitForTask(completion);
 
-                    Assert.AreEqual("three", Field<string>(form, "selectedImageId"));
-                    CollectionAssert.AreEqual(new[] { "three" }, form.ImageBrowser.SelectedImageIds.ToArray());
+                    Assert.AreEqual(images[2].Id, Field<string>(form, "selectedImageId"));
+                    CollectionAssert.AreEqual(new[] { images[2].Id }, form.ImageBrowser.SelectedImageIds.ToArray());
                 }
             }
             finally
@@ -443,21 +498,226 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Every_selected_obd_and_seg_region_renders_a_bounding_box_and_eight_handles_after_view_changes()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(160, 160) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdClasses = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#00FF00") } };
+                    ObdAnnotation[] obds =
+                    {
+                        new ObdAnnotation("one", "set", "image", "class", 20, 20, 20, 20, 0),
+                        new ObdAnnotation("two", "set", "image", "class", 60, 60, 20, 20, 1),
+                        new ObdAnnotation("three", "set", "image", "class", 20, 60, 20, 20, 2)
+                    };
+                    canvas.ObdAnnotations = obds;
+                    canvas.SelectAllObd();
+                    canvas.SetViewState(new ImageCanvasControl.CanvasViewState(2d, new PointF(-30f, -20f), false));
+
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 100, 40, 40));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 20, 20).ToArgb(), "The selected OBD bounding-box border must remain aligned after zooming and panning.");
+
+                    canvas.ObdAnnotations = new ObdAnnotation[0];
+                    canvas.ObdAnnotations = obds;
+                    canvas.ObdEnabled = true;
+                    canvas.ObdSelectMode = true;
+                    canvas.ModifierKeysProvider = () => Keys.Control;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 40, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 110, 120, 0));
+                    CollectionAssert.AreEquivalent(new[] { "one", "two" }, canvas.SelectedObdIds.ToArray());
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
+                    AssertNoWhiteHandle(canvas, new Point(10, 100));
+                    canvas.ObdAnnotations = new ObdAnnotation[0];
+                    canvas.ObdEnabled = false;
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#00FF00") } };
+                    SegRegion[] regions =
+                    {
+                        new SegRegion("first", "set", "image", "class", SegRegionType.Rect, 20, 20, 20, 20, 0),
+                        new SegRegion("second", "set", "image", "class", SegRegionType.Rect, 60, 60, 20, 20, 1),
+                        new SegRegion("third", "set", "image", "class", SegRegionType.Rect, 20, 60, 20, 20, 2)
+                    };
+                    canvas.SegRegions = regions;
+                    canvas.SelectAllSeg();
+
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 100, 40, 40));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 20, 20).ToArgb(), "The selected SEG bounding-box border must remain aligned after zooming and panning.");
+
+                    canvas.SegRegions = new SegRegion[0];
+                    canvas.SegRegions = regions;
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 40, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 110, 120, 0));
+                    CollectionAssert.AreEquivalent(new[] { "first", "second" }, canvas.SelectedSegIds.ToArray());
+                    AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
+                    AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
+                    AssertNoWhiteHandle(canvas, new Point(10, 100));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Dragging_a_handle_changes_only_the_selected_obd_or_seg_region_that_owns_it()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), ObdEnabled = true, ObdSelectMode = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdAnnotations = new[]
+                    {
+                        new ObdAnnotation("one", "set", "image", "class", 10, 10, 30, 30, 0),
+                        new ObdAnnotation("two", "set", "image", "class", 10, 10, 20, 20, 1)
+                    };
+                    canvas.SelectAllObd();
+                    IReadOnlyDictionary<string, Rectangle> changedObd = null;
+                    canvas.ObdRectanglesChanged += value => changedObd = value;
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+
+                    Assert.IsNotNull(changedObd);
+                    CollectionAssert.AreEqual(new[] { "two" }, changedObd.Keys.ToArray());
+                    Assert.AreEqual(new Rectangle(5, 5, 25, 25), changedObd["two"]);
+
+                    changedObd = null;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    Assert.IsNotNull(changedObd);
+                    CollectionAssert.AreEquivalent(new[] { "one", "two" }, changedObd.Keys.ToArray(), "Dragging a selected OBD body must keep group movement.");
+
+                    canvas.ObdEnabled = false;
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    canvas.SegRegions = new[]
+                    {
+                        new SegRegion("first", "set", "image", "class", SegRegionType.Rect, 10, 10, 30, 30, 0),
+                        new SegRegion("second", "set", "image", "class", SegRegionType.Rect, 10, 10, 20, 20, 1)
+                    };
+                    canvas.SelectAllSeg();
+                    IReadOnlyList<SegRegion> changedSeg = null;
+                    canvas.SegRegionsChanged += value => changedSeg = value;
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+
+                    Assert.IsNotNull(changedSeg);
+                    Assert.AreEqual(1, changedSeg.Count);
+                    Assert.AreEqual("second", changedSeg[0].Id);
+                    Assert.AreEqual(new Rectangle(5, 5, 25, 25), new Rectangle(changedSeg[0].X, changedSeg[0].Y, changedSeg[0].Width, changedSeg[0].Height));
+
+                    changedSeg = null;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    Assert.IsNotNull(changedSeg);
+                    CollectionAssert.AreEquivalent(new[] { "first", "second" }, changedSeg.Select(region => region.Id).ToArray(), "Dragging a selected SEG body must keep group movement.");
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         [TestMethod]
-        public void Seg_tools_share_one_stroke_width_with_a_single_one_to_one_hundred_control()
+        public void Seg_stroke_width_numeric_input_and_slider_stay_synchronized_from_one_to_one_hundred()
         {
             using (var form = new MainForm(new ProjectLifecycle()))
             {
-                NumericUpDown[] widths = Descendants<NumericUpDown>(form).Where(value => value.Minimum == 1 && value.Maximum == 100).ToArray();
-                Assert.AreEqual(1, widths.Length);
+                NumericUpDown width = Field<NumericUpDown>(form, "segStrokeWidth");
+                TrackBar slider = Field<TrackBar>(form, "segStrokeWidthSlider");
+                Assert.AreEqual(1, width.Minimum);
+                Assert.AreEqual(100, width.Maximum);
+                Assert.AreEqual(1, slider.Minimum);
+                Assert.AreEqual(100, slider.Maximum);
+                Assert.AreEqual(15, width.Value);
+                Assert.AreEqual(15, slider.Value);
                 Assert.AreEqual(15, form.AnnotationCanvas.SegStrokeWidth);
-                foreach (decimal width in new[] { 1m, 15m, 100m })
+                foreach (decimal value in new[] { 1m, 37m, 100m })
                 {
-                    widths[0].Value = width;
-                    Assert.AreEqual((int)width, form.AnnotationCanvas.SegStrokeWidth);
+                    width.Value = value;
+                    Assert.AreEqual((int)value, slider.Value);
+                    Assert.AreEqual((int)value, form.AnnotationCanvas.SegStrokeWidth);
+                }
+                foreach (int value in new[] { 1, 63, 100 })
+                {
+                    slider.Value = value;
+                    Assert.AreEqual(value, (int)width.Value);
+                    Assert.AreEqual(value, form.AnnotationCanvas.SegStrokeWidth);
                 }
                 Assert.ThrowsException<ArgumentOutOfRangeException>(() => form.AnnotationCanvas.SegStrokeWidth = 0);
                 Assert.ThrowsException<ArgumentOutOfRangeException>(() => form.AnnotationCanvas.SegStrokeWidth = 101);
+            }
+        }
+
+        [TestMethod]
+        public void Numeric_annotation_inputs_reject_non_numeric_text_and_constrain_out_of_range_values_without_diverging()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                NumericUpDown width = Field<NumericUpDown>(form, "segStrokeWidth");
+                TrackBar widthSlider = Field<TrackBar>(form, "segStrokeWidthSlider");
+                NumericUpDown opacity = Field<NumericUpDown>(form, "annotationOpacityValue");
+                TrackBar opacitySlider = Field<TrackBar>(form, "annotationOpacity");
+
+                width.Value = 37;
+                EnterNumericText(width, "abc");
+                Assert.AreEqual(37, width.Value);
+                Assert.AreEqual(37, widthSlider.Value);
+                Assert.AreEqual(37, form.AnnotationCanvas.SegStrokeWidth);
+                EnterNumericText(width, "101");
+                Assert.AreEqual(100, width.Value);
+                Assert.AreEqual(100, widthSlider.Value);
+                Assert.AreEqual(100, form.AnnotationCanvas.SegStrokeWidth);
+                EnterNumericText(width, "-5");
+                Assert.AreEqual(1, width.Value);
+                Assert.AreEqual(1, widthSlider.Value);
+                Assert.AreEqual(1, form.AnnotationCanvas.SegStrokeWidth);
+
+                opacity.Value = 37;
+                EnterNumericText(opacity, "abc");
+                Assert.AreEqual(37, opacity.Value);
+                Assert.AreEqual(37, opacitySlider.Value);
+                Assert.AreEqual(0.37f, form.AnnotationCanvas.ObdOpacity);
+                Assert.AreEqual(0.37f, form.AnnotationCanvas.SegOpacity);
+                EnterNumericText(opacity, "101");
+                Assert.AreEqual(100, opacity.Value);
+                Assert.AreEqual(100, opacitySlider.Value);
+                Assert.AreEqual(1f, form.AnnotationCanvas.ObdOpacity);
+                Assert.AreEqual(1f, form.AnnotationCanvas.SegOpacity);
+                EnterNumericText(opacity, "-1");
+                Assert.AreEqual(0, opacity.Value);
+                Assert.AreEqual(0, opacitySlider.Value);
+                Assert.AreEqual(0f, form.AnnotationCanvas.ObdOpacity);
+                Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
             }
         }
 
@@ -505,6 +765,202 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Annotation_and_eraser_previews_use_the_current_class_color_at_fixed_forty_percent()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    ImageCanvasControl.SegToolKind?[] tools =
+                    {
+                        null,
+                        ImageCanvasControl.SegToolKind.Rect,
+                        ImageCanvasControl.SegToolKind.Ellipse,
+                        ImageCanvasControl.SegToolKind.Polygon,
+                        ImageCanvasControl.SegToolKind.Brush,
+                        ImageCanvasControl.SegToolKind.Line,
+                        ImageCanvasControl.SegToolKind.Eraser
+                    };
+                    foreach (string storedColor in new[] { "rgba(248, 0, 255, 1)-custom", "#18A45B" })
+                    {
+                        Color classColor = AnnotationColorFormat.ToColor(storedColor);
+                        canvas.PreviewColor = classColor;
+                        foreach (ImageCanvasControl.SegToolKind? tool in tools)
+                        {
+                            Color? baseline = null;
+                            foreach (float resultOpacity in new[] { 0f, 0.4f, 1f })
+                            {
+                                canvas.ObdOpacity = resultOpacity;
+                                canvas.SegOpacity = resultOpacity;
+                                Color rendered = RenderPreviewTrack(canvas, tool);
+                                AssertFortyPercentBlend(rendered, classColor);
+                                if (baseline.HasValue) Assert.AreEqual(baseline.Value.ToArgb(), rendered.ToArgb(), "Preview opacity must not follow result opacity for {0}.", tool.HasValue ? tool.Value.ToString() : "OBD");
+                                else baseline = rendered;
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Preview_color_tracks_the_class_used_by_the_current_annotation_tool()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(projectPath);
+                AnnotationSet obd = store.CreateAnnotationSet("obd", AnnotationSetType.Obd);
+                AnnotationSet seg = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
+                AnnotationClass obdClass = store.GetClasses(obd.Id).Single();
+                AnnotationClass custom = store.AddClass(seg.Id, "custom", "rgba(248, 0, 255, 1)-custom");
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, obd.Id);
+                    Assert.AreEqual(AnnotationColorFormat.ToColor(obdClass.Color).ToArgb(), form.AnnotationCanvas.PreviewColor.ToArgb());
+
+                    sets.SelectedItem = AnnotationSet(sets, seg.Id);
+                    FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
+                    Button customClass = classes.Controls.OfType<Button>().Single(button => button.Text == custom.Name);
+                    typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(customClass, new object[] { EventArgs.Empty });
+                    Assert.AreEqual(AnnotationColorFormat.ToColor(custom.Color).ToArgb(), form.AnnotationCanvas.PreviewColor.ToArgb());
+                }
+                store.Dispose();
+                store = null;
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Closed_seg_brush_path_submits_a_filled_polygon()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 300);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Brush })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    SegRegionType? submittedType = null;
+                    IReadOnlyList<SegPoint> submittedPoints = null;
+                    canvas.SegPathCreated += (type, points, width) => { submittedType = type; submittedPoints = points; };
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 70, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 70, 70, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 20, 70, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 20, 20, 0));
+
+                    Assert.AreEqual(SegRegionType.PolyGon, submittedType);
+                    Assert.IsNotNull(submittedPoints);
+                    Assert.AreEqual(4, submittedPoints.Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Counterclockwise_seg_brush_loop_preserves_existing_same_class_area_through_main_form()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 5, 30, 30, 20);
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Size = new Size(1200, 800);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    System.Windows.Forms.Application.DoEvents();
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, image.ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, image.ManagedFileName));
+                    Field<Button>(form, "segBrush").PerformClick();
+
+                    ImageCanvasControl canvas = form.AnnotationCanvas;
+                    Point start = ImagePointToScreen(canvas, 10, 10);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    foreach (Point point in new[]
+                    {
+                        ImagePointToScreen(canvas, 10, 90),
+                        ImagePointToScreen(canvas, 90, 90),
+                        ImagePointToScreen(canvas, 90, 10)
+                    })
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, point.X, point.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, start.X, start.Y, 0));
+
+                    DateTime timeout = DateTime.UtcNow.AddSeconds(5);
+                    while (Field<bool>(form, "annotationOperationInProgress") && DateTime.UtcNow < timeout)
+                    {
+                        System.Windows.Forms.Application.DoEvents();
+                        Thread.Sleep(1);
+                    }
+
+                    Assert.IsFalse(Field<bool>(form, "annotationOperationInProgress"), "The SEG brush operation did not complete.");
+                    SegRegion merged = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == annotationClass.Id);
+                    var mergedPath = new Path64(merged.Points.Select(point => new Point64(point.X, point.Y)).ToList());
+                    Paths64 preserved = Clipper.Intersect(new Paths64 { SegGeometryPrototype.Rectangle(5, 30, 35, 50) }, new Paths64 { mergedPath }, FillRule.NonZero);
+                    Assert.AreEqual(600d, SegGeometryPrototype.Area(preserved));
+                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { mergedPath }));
+                    form.Close();
+                    System.Windows.Forms.Application.DoEvents();
+                }
+                store.Dispose();
+                store = null;
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         private static void AssertPreviewStrokeThickness(ImageCanvasControl canvas, int x, int y, int expected)
         {
             using (var preview = new Bitmap(canvas.Width, canvas.Height))
@@ -514,7 +970,7 @@ namespace Neurocle.Tests
                     .Count(row =>
                     {
                         Color pixel = preview.GetPixel(x, row);
-                        return pixel.R > 220 && pixel.G > 220 && pixel.B > 220;
+                        return pixel.R > 80 && pixel.G > 80 && pixel.B > 80;
                     });
                 Assert.IsTrue(Math.Abs(thickness - expected) <= 2,
                     $"Expected preview thickness near {expected}px at ({x}, {y}), but was {thickness}px.");
@@ -769,18 +1225,35 @@ namespace Neurocle.Tests
                     Invoke(form, "ReplaceProject", store);
                     ComboBox sets = Field<ComboBox>(form, "annotationSets");
                     TrackBar opacity = Field<TrackBar>(form, "annotationOpacity");
+                    NumericUpDown opacityValue = Field<NumericUpDown>(form, "annotationOpacityValue");
+                    Assert.AreEqual(0, opacityValue.Minimum);
+                    Assert.AreEqual(100, opacityValue.Maximum);
+                    Assert.AreEqual(40, opacityValue.Value);
                     sets.SelectedItem = AnnotationSet(sets, obd.Id);
                     opacity.Value = 0;
+                    Assert.AreEqual(0, opacityValue.Value);
                     Assert.AreEqual(0f, form.AnnotationCanvas.ObdOpacity);
                     Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
 
+                    opacityValue.Value = 73;
+                    Assert.AreEqual(73, opacity.Value);
+                    Assert.AreEqual(0.73f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(0.73f, form.AnnotationCanvas.SegOpacity);
+
+                    opacity.Value = 100;
+                    Assert.AreEqual(100, opacityValue.Value);
+                    Assert.AreEqual(1f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(1f, form.AnnotationCanvas.SegOpacity);
+
                     Invoke(form, "RefreshAnnotationSets", new object[] { null });
-                    Assert.AreEqual(0, opacity.Value, "Refreshing the current annotation set must not reset opacity.");
+                    Assert.AreEqual(100, opacity.Value, "Refreshing the current annotation set must not reset opacity.");
+                    Assert.AreEqual(100, opacityValue.Value);
 
                     SetField(form.AnnotationCanvas, "segLineStart", new PointF(10, 10));
                     Invoke(form, "RefreshAnnotationSets", new object[] { seg.Id });
                     Assert.IsNull(form.AnnotationCanvas.GetType().GetField("segLineStart", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form.AnnotationCanvas), "A programmatic annotation-set switch must discard unfinished SEG shapes.");
                     Assert.AreEqual(40, opacity.Value);
+                    Assert.AreEqual(40, opacityValue.Value);
                     Assert.AreEqual(0.4f, form.AnnotationCanvas.ObdOpacity);
                     Assert.AreEqual(0.4f, form.AnnotationCanvas.SegOpacity);
 
@@ -819,6 +1292,74 @@ namespace Neurocle.Tests
             {
                 canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
                 return rendered.GetPixel(x, y);
+            }
+        }
+
+        private static Color RenderPreviewTrack(ImageCanvasControl canvas, ImageCanvasControl.SegToolKind? tool)
+        {
+            canvas.DiscardUnfinishedShape();
+            canvas.ObdEnabled = !tool.HasValue;
+            canvas.ObdSelectMode = false;
+            canvas.SegEnabled = tool.HasValue;
+            canvas.SegTool = tool;
+            if (!tool.HasValue || tool == ImageCanvasControl.SegToolKind.Rect || tool == ImageCanvasControl.SegToolKind.Ellipse)
+            {
+                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 60, 60, 0));
+                return RenderPixel(canvas, 40, 20);
+            }
+            if (tool == ImageCanvasControl.SegToolKind.Polygon)
+            {
+                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 60, 20, 0));
+                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 60, 60, 0));
+                return RenderPixel(canvas, 40, 20);
+            }
+            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+            RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(tool == ImageCanvasControl.SegToolKind.Line ? MouseButtons.None : MouseButtons.Left, 0, 60, 20, 0));
+            return RenderPixel(canvas, 40, 20);
+        }
+
+        private static void AssertFortyPercentBlend(Color rendered, Color classColor)
+        {
+            Assert.IsTrue(Math.Abs(rendered.R - (int)Math.Round(classColor.R * 0.4f)) <= 2, "Unexpected preview red channel: {0} for class {1}.", rendered, classColor);
+            Assert.IsTrue(Math.Abs(rendered.G - (int)Math.Round(classColor.G * 0.4f)) <= 2, "Unexpected preview green channel: {0} for class {1}.", rendered, classColor);
+            Assert.IsTrue(Math.Abs(rendered.B - (int)Math.Round(classColor.B * 0.4f)) <= 2, "Unexpected preview blue channel: {0} for class {1}.", rendered, classColor);
+        }
+
+        private static void AssertWhiteHandleCenters(ImageCanvasControl canvas, Rectangle bounds)
+        {
+            Point[] centers =
+            {
+                new Point(bounds.Left, bounds.Top),
+                new Point(bounds.Left + bounds.Width / 2, bounds.Top),
+                new Point(bounds.Right, bounds.Top),
+                new Point(bounds.Right, bounds.Top + bounds.Height / 2),
+                new Point(bounds.Right, bounds.Bottom),
+                new Point(bounds.Left + bounds.Width / 2, bounds.Bottom),
+                new Point(bounds.Left, bounds.Bottom),
+                new Point(bounds.Left, bounds.Top + bounds.Height / 2)
+            };
+            using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                foreach (Point center in centers)
+                {
+                    int whitePixels = Enumerable.Range(center.X - 2, 5).Sum(x => Enumerable.Range(center.Y - 2, 5)
+                        .Count(y => rendered.GetPixel(x, y).ToArgb() == Color.White.ToArgb()));
+                    Assert.IsTrue(whitePixels >= 12, "Expected a visible selection handle at {0}.", center);
+                }
+            }
+        }
+
+        private static void AssertNoWhiteHandle(ImageCanvasControl canvas, Point center)
+        {
+            using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                int whitePixels = Enumerable.Range(center.X - 2, 5).Sum(x => Enumerable.Range(center.Y - 2, 5)
+                    .Count(y => rendered.GetPixel(x, y).ToArgb() == Color.White.ToArgb()));
+                Assert.AreEqual(0, whitePixels, "Deselected annotations must not show selection handles.");
             }
         }
 
@@ -875,6 +1416,12 @@ namespace Neurocle.Tests
             typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
         }
 
+        private static Point ImagePointToScreen(ImageCanvasControl canvas, int x, int y)
+        {
+            ImageCanvasControl.CanvasViewState state = canvas.ViewState;
+            return Point.Round(new PointF((float)(state.Origin.X + x * state.Zoom), (float)(state.Origin.Y + y * state.Zoom)));
+        }
+
 
         private static void Invoke(object target, string methodName, params object[] arguments)
         {
@@ -883,7 +1430,7 @@ namespace Neurocle.Tests
             method.Invoke(target, arguments);
         }
 
-        private static T Field<T>(object target, string fieldName) where T : class
+        private static T Field<T>(object target, string fieldName)
         {
             return (T)target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
         }
@@ -891,6 +1438,12 @@ namespace Neurocle.Tests
         private static void SetField(object target, string fieldName, object value)
         {
             target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(target, value);
+        }
+
+        private static void EnterNumericText(NumericUpDown control, string text)
+        {
+            control.Controls.Cast<Control>().Single(value => value.GetType().Name == "UpDownEdit").Text = text;
+            typeof(NumericUpDown).GetMethod("ValidateEditText", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, null);
         }
 
         private static AnnotationSet AnnotationSet(ComboBox sets, string id)
