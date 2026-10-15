@@ -8,14 +8,18 @@ Neurocle 是一套完全離線的 Windows 桌面圖片資料集人工標記工�
 
 ## 功能
 
-- 將 PNG、JPG、JPEG、BMP 檔案或資料夾匯入受管理的本機專案。
-- 瀏覽、搜尋、排序、預覽及處理遺失的專案圖片。
-- 建立多份彼此隔離的 CLA、OBD、SEG 標註集；每份都有獨立類別、資料集分配、Retest 旗標與 Undo/Redo 歷程。
-- 支援 CLA 類別指定、OBD 矩形，以及 SEG 矩形、橢圓、多邊形、筆刷、線型與局部橡皮擦。
+- 以可見進度匯入 PNG、JPG、JPEG、BMP 圖片檔案或資料夾；PNG／JPG／JPEG 保留原格式，BMP 轉換為 PNG。
+- 瀏覽、搜尋、排序、預覽、刪除選取或全部圖片，並處理遺失的專案圖片。
+- 從同一個對話框建立多份彼此隔離的 CLA、OBD、SEG 標註集，並可在標註頁或資料集頁直接切換標註集。
+- 在圖片清單查看每張圖片現有的標記類別與標註數量，並可依兩者排序。
+- 支援 CLA 類別指定、OBD 矩形，以及 SEG 矩形、橢圓、多邊形、筆刷、線型與局部橡皮擦；SEG 筆刷閉環時只補上同類別區域中的空白像素，不會清除原有標註。
+- 每個被選取的 OBD 或 SEG 區塊都會顯示外接矩形與八個縮放控制點。
+- 新類別會取得不重複的隨機 RGB 顏色；儲存及匯出的顏色統一使用 `rgba(R, G, B, 1)`，使用者自訂色彩會加上 `-custom`。
+- 使用同步的數值欄位與滑條調整筆寬和透明度；標註與橡皮擦預覽皆使用標籤顏色及固定 40% 透明度。
 - 將圖片設為 `train`、`test`、未分配或 `not_used`；支援分層自動切分及 Retest 管理。
 - 嚴格驗證並匯入／匯出一份選取的標註集 JSON；選取圖片或所有可用圖片可獨立輸出為扁平 ZIP。
 - 保存本機資料庫備份與每日診斷日誌；在檔案替換失敗時可安全還原專案。
-- 可從可攜式 x64 ZIP 完全離線執行。
+- 可從可攜式 x64 ZIP 完全離線執行，啟動時主視窗預設最大化。
 
 ## 系統需求
 
@@ -32,7 +36,7 @@ Neurocle 是一套完全離線的 Windows 桌面圖片資料集人工標記工�
 & 'C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe' 'tests\Neurocle.Tests\bin\x64\Release\Neurocle.Tests.dll'
 ```
 
-目前自動化測試共有 86 個 MSTest。GitHub Actions 會在 `windows-2022` 執行建置、測試、封裝與可攜式執行內容檢查。
+目前自動化測試共有 135 個 MSTest。GitHub Actions 會在 `windows-2022` 執行建置、測試、封裝與可攜式執行內容檢查。
 
 ## 可攜式發佈
 
@@ -59,6 +63,7 @@ Release 驗收時請不要使用私人資料集。可改用下列命令建立三
 
 - [領域脈絡](CONTEXT.md)
 - [正式產品規格](docs/specs/ai-labeling-tool.md)
+- [標註工作流程與圖片匯入更新規格](docs/specs/annotation-workflow-import-update.md)
 - [實作計畫](docs/plans/implementation-plan.md)
 - [測試與驗收計畫](docs/plans/test-and-acceptance-plan.md)
 - [架構決策紀錄](docs/adr/)
