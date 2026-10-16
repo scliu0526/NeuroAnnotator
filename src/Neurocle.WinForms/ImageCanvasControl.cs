@@ -185,6 +185,7 @@ namespace Neurocle.WinForms
                     image = loaded.Preview;
                     loadedImagePath = path;
                     viewport.SetImageSize(loaded.OriginalSize);
+                    UpdateToolCursor();
                     Invalidate();
                     RaiseViewChanged();
                 })) loaded.Preview.Dispose();
@@ -227,6 +228,7 @@ namespace Neurocle.WinForms
             loadedImagePath = null;
             hasToolCursor = false;
             toolCursor = PointF.Empty;
+            UpdateToolCursor();
             previous?.Dispose();
             viewport.SetImageSize(Size.Empty);
             Invalidate();
@@ -410,9 +412,14 @@ namespace Neurocle.WinForms
         private void UpdateToolCursor()
         {
             RefreshToolCursor();
+            ApplyToolCursor();
+        }
+
+        private void ApplyToolCursor()
+        {
             bool crosshair = ObdEnabled && !ObdSelectMode || SegEnabled && (SegTool == SegToolKind.Rect || SegTool == SegToolKind.Ellipse || SegTool == SegToolKind.Polygon);
             bool ring = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
-            Cursor = crosshair || ring ? InvisibleCursor : Cursors.Arrow;
+            Cursor = hasToolCursor && (crosshair || ring) ? InvisibleCursor : Cursors.Arrow;
         }
 
         private static Cursor CreateInvisibleCursor()
@@ -648,6 +655,7 @@ namespace Neurocle.WinForms
             bool hadToolCursor = hasToolCursor;
             Rectangle oldCursorBounds = hadToolCursor ? GetToolCursorBounds(toolCursor) : Rectangle.Empty;
             RefreshToolCursor();
+            ApplyToolCursor();
             if (SegEnabled && image != null) segCursor = ClampPoint(viewport.ScreenToImage(args.Location));
             if (panning)
             {
@@ -724,6 +732,7 @@ namespace Neurocle.WinForms
         {
             pointerInside = false;
             hasToolCursor = false;
+            ApplyToolCursor();
             Invalidate();
             base.OnMouseLeave(args);
         }

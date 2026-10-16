@@ -780,6 +780,10 @@ namespace Neurocle.Tests
                 }
                 using (var canvas = new ImageCanvasControl { Size = new Size(100, 100) })
                 {
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor, "The system pointer should remain visible without an image.");
+                    canvas.SegEnabled = false;
                     canvas.CreateControl();
                     canvas.LoadImage(imagePath);
                     WaitForImage(canvas, imagePath);
@@ -804,6 +808,7 @@ namespace Neurocle.Tests
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 38, 50).ToArgb(), "Cursor ring should scale with canvas zoom.");
 
+                    var symbolPixelCounts = new List<int>();
                     foreach (ImageCanvasControl.SegToolKind tool in new[]
                     {
                         ImageCanvasControl.SegToolKind.Rect,
@@ -827,8 +832,10 @@ namespace Neurocle.Tests
                         Assert.AreNotEqual(Cursors.Arrow, canvas.Cursor, "{0} mode should hide the system cursor so the ring and symbol remain clear.", tool);
                         RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
                         Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "{0} should show a ring with the selected width.", tool);
-                        Assert.IsTrue(CountNonBlackPixels(canvas, new Rectangle(57, 30, 16, 16)) > 0, "{0} should show its + or − symbol.", tool);
+                        symbolPixelCounts.Add(CountNonBlackPixels(canvas, new Rectangle(57, 30, 16, 16)));
                     }
+                    Assert.AreEqual(symbolPixelCounts[0], symbolPixelCounts[1], "Brush and line should use the same + cursor symbol.");
+                    Assert.AreNotEqual(symbolPixelCounts[0], symbolPixelCounts[2], "Eraser should use the − cursor symbol.");
 
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 0, 50, 0));
@@ -840,13 +847,14 @@ namespace Neurocle.Tests
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb());
                     canvas.LoadImage(imagePath);
                     WaitForImage(canvas, imagePath);
-                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb(), "Switching images should clear the previous cursor position.");
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb(), "Switching images under the pointer should restore the cursor at its current location.");
 
                     canvas.SetZoomPercent(100);
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb());
                     RaiseEvent(canvas, "OnMouseLeave", EventArgs.Empty);
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor, "Leaving the canvas should restore the system pointer.");
                     canvas.SetZoomPercent(125);
                     Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "Zooming after pointer leave should not restore a stale cursor.");
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
