@@ -524,13 +524,13 @@ namespace Neurocle.Tests
                     CollectionAssert.AreEquivalent(new[] { "first" }, canvas.SelectedObdIds.ToArray());
 
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 30, 0));
-                    Assert.IsNotNull(Field<PointF?>(canvas, "obdSelectionStart"), "A blank-canvas press should begin a drag-selection gesture.");
+                    Assert.IsNotNull(Field<PointF?>(canvas, "selectionStart"), "A blank-canvas press should begin a drag-selection gesture.");
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 45, 45, 0));
                     Assert.AreNotEqual(Color.Black.ToArgb(), RenderPixel(canvas, 32, 33).ToArgb(), "The active selection rectangle should be visible during dragging.");
                     RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 45, 45, 0));
 
                     CollectionAssert.AreEquivalent(new[] { "second" }, canvas.SelectedObdIds.ToArray(), string.Join(",", canvas.SelectedObdIds));
-                    Assert.IsNull(Field<RectangleF?>(canvas, "obdSelectionPreview"));
+                    Assert.IsNull(Field<RectangleF?>(canvas, "selectionPreview"));
                 }
             }
             finally
@@ -612,6 +612,82 @@ namespace Neurocle.Tests
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 30, 30, 0));
                     RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 30, 30, 0));
                     CollectionAssert.AreEquivalent(new[] { "one" }, canvas.SelectedObdIds.ToArray());
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Seg_drag_selection_uses_actual_fill_and_stroke_regions_including_holes_and_partial_overlap()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    Path64 donut = SegGeometryPrototype.BridgeHole(
+                        SegGeometryPrototype.Rectangle(10, 10, 50, 50),
+                        SegGeometryPrototype.Rectangle(20, 20, 40, 40));
+                    canvas.SegRegions = new[]
+                    {
+                        new SegRegion("rect", "set", "image", "class", SegRegionType.Rect, 5, 65, 10, 10, 0),
+                        new SegRegion("donut", "set", "image", "class", SegRegionType.PolyGon, 0, 0, 0, 0, 0,
+                            donut.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray()),
+                        new SegRegion("line", "set", "image", "class", SegRegionType.PolyLine, 0, 0, 0, 0, 1,
+                            new[] { new SegPoint(60, 10), new SegPoint(90, 40) }, 8),
+                        new SegRegion("ellipse", "set", "image", "class", SegRegionType.Ellipse, 70, 80, 10, 8, 2)
+                    };
+                    canvas.ModifierKeysProvider = () => Keys.None;
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 56, 37, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 64, 45, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 64, 45, 0));
+                    Assert.AreEqual(0, canvas.SelectedSegIds.Count, "The polyline bounding-box corner is empty and should not select the stroke.");
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 30, 30, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 30, 30, 0));
+                    Assert.AreEqual(0, canvas.SelectedSegIds.Count, "The bridged polygon hole should not count as filled area.");
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 8, 8, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 15, 15, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 15, 15, 0));
+                    CollectionAssert.AreEquivalent(new[] { "donut" }, canvas.SelectedSegIds.ToArray(), "A partial overlap with the filled ring should select the polygon.");
+
+                    canvas.ModifierKeysProvider = () => Keys.Control;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 65, 25, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 75, 27, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 75, 27, 0));
+                    CollectionAssert.AreEquivalent(new[] { "donut", "line" }, canvas.SelectedSegIds.ToArray(), "Ctrl drag should union a stroke hit with the existing selection.");
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 65, 25, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 75, 27, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 75, 27, 0));
+                    CollectionAssert.AreEquivalent(new[] { "donut", "line" }, canvas.SelectedSegIds.ToArray(), "Ctrl drag must not toggle an already-selected stroke off.");
+
+                    canvas.ModifierKeysProvider = () => Keys.None;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 65, 25, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 75, 27, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 75, 27, 0));
+                    CollectionAssert.AreEquivalent(new[] { "line" }, canvas.SelectedSegIds.ToArray(), "A normal SEG drag should replace the prior selection.");
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 3, 64, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 8, 67, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 8, 67, 0));
+                    CollectionAssert.AreEquivalent(new[] { "rect" }, canvas.SelectedSegIds.ToArray(), "A partial overlap with a SEG rectangle should select it.");
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 57, 70, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 71, 81, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 71, 81, 0));
+                    CollectionAssert.AreEquivalent(new[] { "ellipse" }, canvas.SelectedSegIds.ToArray(), "A partial overlap with a SEG ellipse should select it.");
                 }
             }
             finally

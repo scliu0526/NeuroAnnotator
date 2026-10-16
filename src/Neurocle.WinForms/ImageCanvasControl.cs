@@ -9,12 +9,14 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Clipper2Lib;
 using Neurocle.Application.Projects;
+using Neurocle.Domain.Segmentation;
 
 namespace Neurocle.WinForms
 {
     internal sealed class ImageCanvasControl : Control
     {
         private const float HandleSize = 8f;
+        private const long SegSelectionScale = 1000;
         private static readonly Cursor InvisibleCursor = CreateInvisibleCursor();
         private readonly CanvasViewport viewport = new CanvasViewport(Size.Empty, Size.Empty);
         private readonly SemaphoreSlim imageLoadGate = new SemaphoreSlim(1, 1);
@@ -23,10 +25,11 @@ namespace Neurocle.WinForms
         private CancellationTokenSource imageLoad;
         private bool panning;
         private Point previousPoint;
-        private PointF? obdSelectionStart;
-        private Point obdSelectionScreenStart;
-        private RectangleF? obdSelectionPreview;
-        private bool obdSelectionAdditive;
+        private PointF? selectionStart;
+        private Point selectionScreenStart;
+        private RectangleF? selectionPreview;
+        private bool selectionAdditive;
+        private bool selectionIsSeg;
         private PointF obdStart;
         private RectangleF? obdPreview;
         private IReadOnlyDictionary<string, RectangleF> obdPreviews = new Dictionary<string, RectangleF>();
@@ -266,8 +269,8 @@ namespace Neurocle.WinForms
         {
             obdPreview = null;
             obdPreviews = new Dictionary<string, RectangleF>();
-            obdSelectionStart = null;
-            obdSelectionPreview = null;
+            selectionStart = null;
+            selectionPreview = null;
             segPreview = null;
             segPath.Clear();
             segPathDragging = false;
@@ -309,12 +312,6 @@ namespace Neurocle.WinForms
                 if (interior.Width > 0f && interior.Height > 0f)
                     using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillRectangle(fill, interior);
                 using (var pen = new Pen(PreviewTrackColor, 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
-            }
-            if (obdSelectionPreview.HasValue)
-            {
-                RectangleF rectangle = ToScreenRectangle(obdSelectionPreview.Value);
-                using (var fill = new SolidBrush(Color.FromArgb(45, Color.DeepSkyBlue))) args.Graphics.FillRectangle(fill, rectangle);
-                using (var pen = new Pen(Color.DeepSkyBlue, 1.5f) { DashStyle = DashStyle.Dash }) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             }
             foreach (SegRegion stored in segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Concat(segRegions.Where(item => selectedSegIds.Contains(item.Id))))
             {
@@ -364,6 +361,12 @@ namespace Neurocle.WinForms
                     }
                 }
                 if (selectedSegIds.Contains(region.Id)) DrawSegHandles(args.Graphics, ToScreenRectangle(GetSegBounds(region)));
+            }
+            if (selectionPreview.HasValue)
+            {
+                RectangleF rectangle = ToScreenRectangle(selectionPreview.Value);
+                using (var fill = new SolidBrush(Color.FromArgb(45, Color.DeepSkyBlue))) args.Graphics.FillRectangle(fill, rectangle);
+                using (var pen = new Pen(Color.DeepSkyBlue, 1.5f) { DashStyle = DashStyle.Dash }) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             }
             if (segPreview.HasValue)
             {
@@ -576,11 +579,7 @@ namespace Neurocle.WinForms
                         ObdAnnotation hit = TopmostObdAt(point);
                         if (hit == null)
                         {
-                            obdSelectionStart = ClampPoint(point);
-                            obdSelectionScreenStart = args.Location;
-                            obdSelectionPreview = new RectangleF(obdSelectionStart.Value, SizeF.Empty);
-                            obdSelectionAdditive = (CurrentModifierKeys & Keys.Control) == Keys.Control;
-                            Capture = true;
+                            BeginSelectionGesture(ClampPoint(point), args.Location, false);
                             Invalidate();
                             base.OnMouseDown(args);
                             return;
@@ -631,7 +630,13 @@ namespace Neurocle.WinForms
                         return;
                     }
                     SegRegion hit = TopmostSegAt(selectionPoint);
-                    if (hit == null) ClearSegSelection();
+                    if (hit == null)
+                    {
+                        BeginSelectionGesture(selectionPoint, args.Location, true);
+                        Invalidate();
+                        base.OnMouseDown(args);
+                        return;
+                    }
                     else if ((CurrentModifierKeys & Keys.Control) == Keys.Control)
                     {
                         if (!selectedSegIds.Add(hit.Id)) selectedSegIds.Remove(hit.Id);
@@ -720,9 +725,9 @@ namespace Neurocle.WinForms
                 Invalidate();
                 RaiseViewChanged();
             }
-            else if (obdSelectionStart.HasValue && (args.Button & MouseButtons.Left) == MouseButtons.Left)
+            else if (selectionStart.HasValue && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
-                obdSelectionPreview = Normalize(obdSelectionStart.Value, ClampPoint(viewport.ScreenToImage(args.Location)));
+                selectionPreview = Normalize(selectionStart.Value, ClampPoint(viewport.ScreenToImage(args.Location)));
                 Invalidate();
             }
             else if (obdDrag != ObdDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
@@ -799,27 +804,47 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseUp(MouseEventArgs args)
         {
-            if (args.Button == MouseButtons.Left && obdSelectionStart.HasValue)
+            if (args.Button == MouseButtons.Left && selectionStart.HasValue)
             {
-                bool dragged = Math.Abs(args.X - obdSelectionScreenStart.X) > 2 || Math.Abs(args.Y - obdSelectionScreenStart.Y) > 2;
-                RectangleF selection = obdSelectionPreview ?? new RectangleF(obdSelectionStart.Value, SizeF.Empty);
-                obdSelectionStart = null;
-                obdSelectionPreview = null;
+                bool dragged = Math.Abs(args.X - selectionScreenStart.X) > 2 || Math.Abs(args.Y - selectionScreenStart.Y) > 2;
+                RectangleF selection = selectionPreview ?? new RectangleF(selectionStart.Value, SizeF.Empty);
+                bool isSeg = selectionIsSeg;
+                selectionStart = null;
+                selectionPreview = null;
                 Capture = false;
-                if (!obdSelectionAdditive) ClearObdSelection();
+                if (isSeg)
+                {
+                    if (!selectionAdditive) ClearSegSelection();
+                }
+                else if (!selectionAdditive) ClearObdSelection();
                 if (dragged)
                 {
-                    foreach (ObdAnnotation annotation in obdAnnotations)
+                    if (isSeg)
                     {
-                        RectangleF annotationBounds = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
-                        if (RectanglesTouch(selection, annotationBounds))
+                        foreach (SegRegion region in segRegions)
                         {
-                            selectedObdIds.Add(annotation.Id);
-                            if (selectedObdId == null) selectedObdId = annotation.Id;
+                            if (IntersectsSegArea(region, selection))
+                            {
+                                selectedSegIds.Add(region.Id);
+                                if (selectedSegId == null) selectedSegId = region.Id;
+                            }
                         }
+                        if (!selectedSegIds.Contains(selectedSegId)) selectedSegId = selectedSegIds.FirstOrDefault();
+                    }
+                    else
+                    {
+                        foreach (ObdAnnotation annotation in obdAnnotations)
+                        {
+                            RectangleF annotationBounds = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
+                            if (RectanglesTouch(selection, annotationBounds))
+                            {
+                                selectedObdIds.Add(annotation.Id);
+                                if (selectedObdId == null) selectedObdId = annotation.Id;
+                            }
+                        }
+                        if (!selectedObdIds.Contains(selectedObdId)) selectedObdId = selectedObdIds.FirstOrDefault();
                     }
                 }
-                if (!selectedObdIds.Contains(selectedObdId)) selectedObdId = selectedObdIds.FirstOrDefault();
                 Invalidate();
             }
             else if (args.Button == MouseButtons.Left && obdDrag != ObdDragKind.None)
@@ -1135,6 +1160,48 @@ namespace Neurocle.WinForms
         private static bool RectanglesTouch(RectangleF first, RectangleF second)
         {
             return first.Left <= second.Right && first.Right >= second.Left && first.Top <= second.Bottom && first.Bottom >= second.Top;
+        }
+
+        private void BeginSelectionGesture(PointF point, Point screenPoint, bool isSeg)
+        {
+            selectionStart = point;
+            selectionScreenStart = screenPoint;
+            selectionPreview = new RectangleF(point, SizeF.Empty);
+            selectionAdditive = (CurrentModifierKeys & Keys.Control) == Keys.Control;
+            selectionIsSeg = isSeg;
+            Capture = true;
+        }
+
+        private static bool IntersectsSegArea(SegRegion region, RectangleF selection)
+        {
+            long left = ScaleSegCoordinate(selection.Left), top = ScaleSegCoordinate(selection.Top);
+            long right = ScaleSegCoordinate(selection.Right), bottom = ScaleSegCoordinate(selection.Bottom);
+            if (right <= left || bottom <= top) return false;
+
+            Paths64 area;
+            if (region.Type == SegRegionType.Rect)
+            {
+                area = new Paths64 { SegGeometryPrototype.Rectangle((long)region.X * SegSelectionScale, (long)region.Y * SegSelectionScale, (long)(region.X + region.Width) * SegSelectionScale, (long)(region.Y + region.Height) * SegSelectionScale) };
+            }
+            else if (region.Type == SegRegionType.Ellipse)
+            {
+                area = new Paths64 { SegGeometryPrototype.Ellipse((long)region.X * SegSelectionScale, (long)region.Y * SegSelectionScale, (long)region.Width * SegSelectionScale, (long)region.Height * SegSelectionScale, 32) };
+            }
+            else
+            {
+                Path64 path = new Path64(region.Points.Select(point => new Point64((long)point.X * SegSelectionScale, (long)point.Y * SegSelectionScale)).ToList());
+                area = region.Type == SegRegionType.PolyLine
+                    ? SegGeometryPrototype.Stroke(path, (long)region.StrokeWidth * SegSelectionScale)
+                    : new Paths64 { path };
+            }
+
+            Paths64 overlap = Clipper.Intersect(area, new Paths64 { SegGeometryPrototype.Rectangle(left, top, right, bottom) }, FillRule.NonZero);
+            return SegGeometryPrototype.Area(overlap) > 0d;
+        }
+
+        private static long ScaleSegCoordinate(float value)
+        {
+            return (long)Math.Round(value * SegSelectionScale, MidpointRounding.AwayFromZero);
         }
 
         private static PointF[] GetHandlePoints(RectangleF rectangle)

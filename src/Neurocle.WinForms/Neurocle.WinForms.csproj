@@ -35,6 +35,10 @@
     <PackageReference Include="Clipper2" Version="1.5.4" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Neurocle.Domain\Neurocle.Domain.csproj">
+      <Project>{7D5F7D26-66AA-4F22-9E1D-92AE3D7F6B7C}</Project>
+      <Name>Neurocle.Domain</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Neurocle.Application\Neurocle.Application.csproj">
       <Project>{2DF8F0C8-C2D7-4106-A20B-1355E83AD2C5}</Project>
       <Name>Neurocle.Application</Name>
