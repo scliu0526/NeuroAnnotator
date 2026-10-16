@@ -61,6 +61,7 @@ namespace Neurocle.WinForms
         private SegRegion segOriginal;
         private RectangleF segOriginalBounds;
         private int segStrokeWidth = 15;
+        private int segPathStrokeWidth;
         private Color previewColor = Color.White;
         private bool annotationsVisible = true;
 
@@ -309,6 +310,7 @@ namespace Neurocle.WinForms
             selectionPreview = null;
             segPreview = null;
             segPath.Clear();
+            segPathStrokeWidth = 0;
             segPathDragging = false;
             segLineStart = null;
             segPreviews = new Dictionary<string, SegRegion>();
@@ -453,7 +455,7 @@ namespace Neurocle.WinForms
             if (segPath.Count > 0)
             {
                 PointF[] points = segPath.Select(viewport.ImageToScreen).ToArray();
-                float width = SegTool == SegToolKind.Polygon ? 3f : SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
+                float width = SegTool == SegToolKind.Polygon ? 3f : SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom)) : 1f;
                 using (var pen = new Pen(PreviewTrackColor, width))
                 {
                     pen.LineJoin = LineJoin.Round;
@@ -462,7 +464,7 @@ namespace Neurocle.WinForms
                     if (points.Length > 1) args.Graphics.DrawLines(pen, points);
                     else if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
                     {
-                        float diameter = Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom));
+                        float diameter = Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom));
                         using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillEllipse(fill, points[0].X - diameter / 2f, points[0].Y - diameter / 2f, diameter, diameter);
                     }
                     if (SegTool == SegToolKind.Polygon && points.Length > 2) args.Graphics.DrawLine(pen, points[points.Length - 1], points[0]);
@@ -480,7 +482,7 @@ namespace Neurocle.WinForms
             }
             if (segLineStart.HasValue && SegTool == SegToolKind.Line)
             {
-                using (var pen = new Pen(PreviewTrackColor, Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
+                using (var pen = new Pen(PreviewTrackColor, Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
             }
             DrawToolCursor(args.Graphics);
         }
@@ -735,13 +737,14 @@ namespace Neurocle.WinForms
                 }
                 else if (SegTool == SegToolKind.Line)
                 {
-                    if (!segLineStart.HasValue) segLineStart = point;
+                    if (!segLineStart.HasValue) { segLineStart = point; segPathStrokeWidth = SegStrokeWidth; }
                     else
                     {
                         SegPoint first = ToSegPoint(segLineStart.Value);
                         SegPoint second = ToSegPoint(point);
-                        if (first.X != second.X || first.Y != second.Y) SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, SegStrokeWidth);
+                        if (first.X != second.X || first.Y != second.Y) SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, segPathStrokeWidth);
                         segLineStart = null;
+                        segPathStrokeWidth = 0;
                     }
                 }
                 else
@@ -754,7 +757,7 @@ namespace Neurocle.WinForms
                         base.OnMouseDown(args);
                         return;
                     }
-                    if (segPath.Count == 0) segPath.Add(point);
+                    if (segPath.Count == 0) { segPathStrokeWidth = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? SegStrokeWidth : 0; segPath.Add(point); }
                     else segPath.Add(point);
                     segPathDragging = false;
                     Capture = true;
@@ -982,13 +985,15 @@ namespace Neurocle.WinForms
                 }
                 else if (SegTool == SegToolKind.Brush)
                 {
-                    if (segPath.Count >= 1) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
+                    if (segPath.Count >= 1) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), segPathStrokeWidth);
                     segPath.Clear();
+                    segPathStrokeWidth = 0;
                 }
                 else if (SegTool == SegToolKind.Eraser)
                 {
-                    if (AnnotationsVisible && segPath.Count >= 1) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
+                    if (AnnotationsVisible && segPath.Count >= 1) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), segPathStrokeWidth);
                     segPath.Clear();
+                    segPathStrokeWidth = 0;
                 }
                 segPathDragging = false;
                 Invalidate();

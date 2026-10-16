@@ -1343,6 +1343,67 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Z_and_x_adjust_seg_width_with_bounds_and_leave_ctrl_undo_shortcuts_unchanged()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            Directory.CreateDirectory(directory);
+            ProjectStore store = null;
+            try
+            {
+                store = ProjectStore.Create(path);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    AnnotationSet seg = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    Invoke(form, "ReplaceProject", store);
+                    TabControl pages = form.Controls.OfType<TabControl>().Single();
+                    pages.SelectedIndex = 1;
+                    Field<ComboBox>(form, "annotationSets").SelectedItem = AnnotationSet(Field<ComboBox>(form, "annotationSets"), seg.Id);
+                    form.AnnotationCanvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.AnnotationCanvas.Focus();
+                    Assert.IsFalse((bool)typeof(MainForm).GetMethod("HasTextInputFocus", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, null));
+                    Assert.AreEqual(seg.Id, ((AnnotationSet)Field<ComboBox>(form, "annotationSets").SelectedItem).Id);
+                    NumericUpDown width = Field<NumericUpDown>(form, "segStrokeWidth");
+
+                    var decrease = new KeyEventArgs(Keys.Z);
+                    RaiseKey(form, decrease);
+                    Assert.IsTrue(decrease.Handled);
+                    Assert.AreEqual(14, width.Value);
+                    Assert.AreEqual(14, Field<TrackBar>(form, "segStrokeWidthSlider").Value);
+                    Assert.AreEqual(14, form.AnnotationCanvas.SegStrokeWidth);
+                    RaiseKey(form, new KeyEventArgs(Keys.X));
+                    Assert.AreEqual(15, width.Value);
+
+                    width.Value = 1;
+                    RaiseKey(form, new KeyEventArgs(Keys.Z));
+                    Assert.AreEqual(1, width.Value, "Z should clamp at the minimum width.");
+                    width.Value = 100;
+                    RaiseKey(form, new KeyEventArgs(Keys.X));
+                    Assert.AreEqual(100, width.Value, "X should clamp at the maximum width.");
+
+                    width.Value = 40;
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+                    Assert.AreEqual(40, width.Value, "Ctrl+Z must remain the undo shortcut and must not change stroke width.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Shift | Keys.Z));
+                    Assert.AreEqual(40, width.Value, "Ctrl+Shift+Z must remain the redo shortcut.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Y));
+                    Assert.AreEqual(40, width.Value, "Ctrl+Y must remain the redo shortcut.");
+                    width.Focus();
+                    System.Windows.Forms.Application.DoEvents();
+                    RaiseKey(form, new KeyEventArgs(Keys.Z));
+                    Assert.AreEqual(40, width.Value, "Typing in the width field must not trigger the Z shortcut.");
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
         public void Numeric_annotation_inputs_reject_non_numeric_text_and_constrain_out_of_range_values_without_diverging()
         {
             using (var form = new MainForm(new ProjectLifecycle()))
@@ -1420,7 +1481,19 @@ namespace Neurocle.Tests
                         AssertPreviewStrokeThickness(canvas, 30, 30, Math.Max(1, width / 3));
                         RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 40, 30, 0));
                     }
-                    CollectionAssert.AreEqual(new[] { 1, 1, 1, 15, 15, 15, 100, 100, 100 }, submitted);
+                    canvas.SegStrokeWidth = 12;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 40, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+                    canvas.SegStrokeWidth = 33;
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Line;
+                    canvas.SegStrokeWidth = 18;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 50, 0));
+                    canvas.SegStrokeWidth = 44;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 50, 0));
+                    CollectionAssert.AreEqual(new[] { 1, 1, 1, 15, 15, 15, 100, 100, 100, 12, 18 }, submitted);
                 }
             }
             finally

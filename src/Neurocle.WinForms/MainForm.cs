@@ -316,6 +316,13 @@ namespace Neurocle.WinForms
                     args.SuppressKeyPress = true;
                     return;
                 }
+                if (pages.SelectedTab == annotationPage && SelectedAnnotationSet?.Type == AnnotationSetType.Seg && (args.KeyCode == Keys.Z || args.KeyCode == Keys.X))
+                {
+                    SetSegStrokeWidth(Math.Max(1, Math.Min(100, (int)segStrokeWidth.Value + (args.KeyCode == Keys.Z ? -1 : 1))));
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                    return;
+                }
                 if (args.KeyCode != Keys.Up && args.KeyCode != Keys.Down) return;
                 imageBrowser.MoveSelection(args.KeyCode == Keys.Up ? -1 : 1);
                 args.Handled = true;
