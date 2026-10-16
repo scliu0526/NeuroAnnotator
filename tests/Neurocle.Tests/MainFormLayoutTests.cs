@@ -2083,6 +2083,8 @@ namespace Neurocle.Tests
                     pages.SelectedIndex = 1;
                     ComboBox sets = Field<ComboBox>(form, "annotationSets");
                     sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    form.ImageBrowser.SelectImage(image.Id);
+                    System.Windows.Forms.Application.DoEvents();
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
                     form.AnnotationCanvas.SelectAllObd();
 
@@ -2107,6 +2109,87 @@ namespace Neurocle.Tests
                     CollectionAssert.AreEqual(new[] { first.Id }, store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
                     Assert.IsTrue(store.Redo(set.Id));
                     Assert.AreEqual(3, store.GetObdAnnotations(set.Id, image.Id).Count);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_v_pastes_obd_copies_to_selected_images_skips_out_of_bounds_and_keeps_current_image()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string sourcePath = Path.Combine(directory, "source.png");
+            string smallPath = Path.Combine(directory, "small.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(sourcePath, Color.Red, 100);
+                CreateSolidImage(smallPath, Color.Blue, 30);
+                store = ProjectStore.Create(path);
+                AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                AnnotationSet otherSet = store.CreateAnnotationSet("other boxes", AnnotationSetType.Obd);
+                AnnotationClass firstClass = store.GetClasses(set.Id).Single();
+                AnnotationClass secondClass = store.AddClass(set.Id, "other", "#123456");
+                ProjectImage[] images = store.ImportFiles(new[] { sourcePath, smallPath }).ToArray();
+                ProjectImage sourceImage = images.Single(image => image.OriginalFileName == "source.png");
+                ProjectImage smallImage = images.Single(image => image.OriginalFileName == "small.png");
+                store.AddObdAnnotation(set.Id, sourceImage.Id, firstClass.Id, 10, 12, 20, 18);
+                store.AddObdAnnotation(set.Id, sourceImage.Id, secondClass.Id, 40, 35, 15, 10);
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    ListView imageList = Field<ListView>(form.ImageBrowser, "list");
+                    int sourceIndex = form.ImageBrowser.Rows.Select((row, index) => new { row, index }).Single(item => item.row.Image.Id == sourceImage.Id).index;
+                    int smallIndex = form.ImageBrowser.Rows.Select((row, index) => new { row, index }).Single(item => item.row.Image.Id == smallImage.Id).index;
+                    imageList.SelectedIndices.Clear();
+                    imageList.SelectedIndices.Add(sourceIndex);
+                    imageList.SelectedIndices.Add(smallIndex);
+                    System.Windows.Forms.Application.DoEvents();
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(sourceImage, Path.Combine(store.ImagesDirectory, sourceImage.ManagedFileName)));
+                    form.AnnotationCanvas.SelectAllObd();
+
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+
+                    ObdAnnotation[] sourceResults = store.GetObdAnnotations(set.Id, sourceImage.Id).ToArray();
+                    ObdAnnotation[] smallResults = store.GetObdAnnotations(set.Id, smallImage.Id).ToArray();
+                    Assert.AreEqual(4, sourceResults.Length, "The source image should be included when selected as a paste target.");
+                    Assert.AreEqual(1, smallResults.Length, "Only the source box that fits inside the small target should be pasted.");
+                    Assert.AreEqual(firstClass.Id, smallResults[0].ClassId);
+                    Assert.AreEqual(sourceImage.Id, Field<string>(form, "selectedImageId"), "Pasting must not switch the current image.");
+                    CollectionAssert.AreEquivalent(new[] { sourceImage.Id, smallImage.Id }, form.ImageBrowser.SelectedImageIds.ToArray());
+                    Assert.AreEqual(2, form.AnnotationCanvas.SelectedObdIds.Count, "Copies on the currently displayed image should be selected.");
+
+                    Assert.IsTrue(store.Undo(set.Id), "All cross-image copies should be undone together.");
+                    Assert.AreEqual(2, store.GetObdAnnotations(set.Id, sourceImage.Id).Count);
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, smallImage.Id).Count);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    Assert.AreEqual(4, store.GetObdAnnotations(set.Id, sourceImage.Id).Count);
+                    Assert.AreEqual(1, store.GetObdAnnotations(set.Id, smallImage.Id).Count);
+
+                    imageList.SelectedIndices.Clear();
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+                    Assert.AreEqual(4, store.GetObdAnnotations(set.Id, sourceImage.Id).Count);
+                    Assert.AreEqual(1, store.GetObdAnnotations(set.Id, smallImage.Id).Count);
+
+                    imageList.SelectedIndices.Add(sourceIndex);
+                    imageList.SelectedIndices.Add(smallIndex);
+                    sets.SelectedItem = AnnotationSet(sets, otherSet.Id);
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+                    Assert.AreEqual(0, store.GetObdAnnotations(otherSet.Id, sourceImage.Id).Count);
+                    Assert.AreEqual(0, store.GetObdAnnotations(otherSet.Id, smallImage.Id).Count);
                 }
             }
             finally

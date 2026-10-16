@@ -364,14 +364,15 @@ namespace Neurocle.WinForms
         private void PasteCopiedObdAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
-            if (annotationOperationInProgress || project == null || pages.SelectedTab != annotationPage || selected == null || selected.Type != AnnotationSetType.Obd || selectedImageId == null || copiedObdAnnotations.Count == 0) return;
-            if (copiedObdAnnotations.Any(annotation => annotation.AnnotationSetId != selected.Id || annotation.ImageId != selectedImageId)) return;
+            IReadOnlyList<string> targetImageIds = imageBrowser.SelectedImageIds;
+            if (annotationOperationInProgress || project == null || pages.SelectedTab != annotationPage || selected == null || selected.Type != AnnotationSetType.Obd || targetImageIds.Count == 0 || copiedObdAnnotations.Count == 0) return;
+            if (copiedObdAnnotations.Any(annotation => annotation.AnnotationSetId != selected.Id)) return;
             RunAnnotationCommand(() =>
             {
-                IReadOnlyList<ObdAnnotation> copies = project.AddObdAnnotationCopies(selected.Id, selectedImageId, copiedObdAnnotations);
+                IReadOnlyList<ObdAnnotation> copies = project.AddObdAnnotationCopies(selected.Id, targetImageIds, copiedObdAnnotations);
                 if (copies.Count == 0) return;
                 RefreshAnnotationClasses();
-                canvas.SelectObdAnnotations(copies.Select(annotation => annotation.Id));
+                canvas.SelectObdAnnotations(copies.Where(annotation => annotation.ImageId == selectedImageId).Select(annotation => annotation.Id));
             });
         }
 

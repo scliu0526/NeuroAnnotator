@@ -261,7 +261,7 @@ namespace Neurocle.Application.Projects
         string GetClaClassId(string annotationSetId, string imageId);
         IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId, string imageId);
         ObdAnnotation AddObdAnnotation(string annotationSetId, string imageId, string classId, int x, int y, int width, int height);
-        IReadOnlyList<ObdAnnotation> AddObdAnnotationCopies(string annotationSetId, string imageId, IEnumerable<ObdAnnotation> annotations);
+        IReadOnlyList<ObdAnnotation> AddObdAnnotationCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<ObdAnnotation> annotations);
         void UpdateObdAnnotation(string annotationId, string classId, int x, int y, int width, int height);
         void UpdateObdAnnotations(IEnumerable<ObdAnnotation> annotations);
         void DeleteObdAnnotation(string annotationId);

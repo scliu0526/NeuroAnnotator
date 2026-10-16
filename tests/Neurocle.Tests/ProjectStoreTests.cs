@@ -1309,16 +1309,22 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
-        public void Adding_obd_annotation_copies_creates_new_ids_and_uses_one_undo_redo_step()
+        public void Adding_obd_annotation_copies_skips_out_of_bounds_and_uses_one_undo_redo_step()
         {
             string path = TemporaryProjectPath();
             string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string smallPath = Path.Combine(Path.GetDirectoryName(path), "small.png");
+            string largePath = Path.Combine(Path.GetDirectoryName(path), "large.png");
             try
             {
                 CreateBitmap(source, Color.Red, ImageFormat.Png, 30, 20);
+                CreateBitmap(smallPath, Color.Green, ImageFormat.Png, 12, 6);
+                CreateBitmap(largePath, Color.Blue, ImageFormat.Png, 40, 30);
                 using (var store = ProjectStore.Create(path))
                 {
                     ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    ProjectImage small = store.ImportFiles(new[] { smallPath })[0];
+                    ProjectImage large = store.ImportFiles(new[] { largePath })[0];
                     AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
                     AnnotationClass firstClass = store.GetClasses(set.Id).Single();
                     AnnotationClass secondClass = store.AddClass(set.Id, "other", "#123456");
@@ -1326,24 +1332,66 @@ namespace Neurocle.Tests
                     ObdAnnotation second = store.AddObdAnnotation(set.Id, image.Id, secondClass.Id, 10, 8, 7, 6);
                     ObdAnnotation[] originals = { first, second };
 
-                    IReadOnlyList<ObdAnnotation> copies = store.AddObdAnnotationCopies(set.Id, image.Id, originals);
-                    Assert.AreEqual(2, copies.Count);
-                    CollectionAssert.AreNotEqual(originals.Select(value => value.Id).ToArray(), copies.Select(value => value.Id).ToArray());
-                    CollectionAssert.AreEqual(new[] { firstClass.Id, secondClass.Id }, copies.Select(value => value.ClassId).ToArray());
-                    CollectionAssert.AreEqual(new[] { new Rectangle(1, 2, 5, 4), new Rectangle(10, 8, 7, 6) }, copies.Select(value => new Rectangle(value.X, value.Y, value.Width, value.Height)).ToArray());
-                    CollectionAssert.AreEqual(new[] { 2, 3 }, copies.Select(value => value.ZOrder).ToArray());
+                    IReadOnlyList<ObdAnnotation> copies = store.AddObdAnnotationCopies(set.Id, new[] { image.Id, small.Id, large.Id }, originals);
+                    Assert.AreEqual(5, copies.Count);
+                    Assert.AreEqual(5, copies.Select(value => value.Id).Distinct(StringComparer.Ordinal).Count());
+                    CollectionAssert.AreEqual(new[] { firstClass.Id, secondClass.Id, firstClass.Id, firstClass.Id, secondClass.Id }, copies.Select(value => value.ClassId).ToArray());
+                    CollectionAssert.AreEqual(new[] { image.Id, image.Id, small.Id, large.Id, large.Id }, copies.Select(value => value.ImageId).ToArray());
+                    CollectionAssert.AreEqual(new[] { new Rectangle(1, 2, 5, 4), new Rectangle(10, 8, 7, 6), new Rectangle(1, 2, 5, 4), new Rectangle(1, 2, 5, 4), new Rectangle(10, 8, 7, 6) }, copies.Select(value => new Rectangle(value.X, value.Y, value.Width, value.Height)).ToArray());
+                    CollectionAssert.AreEqual(new[] { 2, 3, 0, 0, 1 }, copies.Select(value => value.ZOrder).ToArray());
 
                     Assert.IsTrue(store.Undo(set.Id));
                     CollectionAssert.AreEqual(originals.Select(value => value.Id).ToArray(), store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, small.Id).Count);
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, large.Id).Count);
                     Assert.IsTrue(store.Redo(set.Id));
-                    CollectionAssert.AreEqual(originals.Concat(copies).Select(value => value.Id).ToArray(), store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
+                    CollectionAssert.AreEqual(originals.Concat(copies.Where(value => value.ImageId == image.Id)).Select(value => value.Id).ToArray(), store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
+                    Assert.AreEqual(1, store.GetObdAnnotations(set.Id, small.Id).Count);
+                    Assert.AreEqual(2, store.GetObdAnnotations(set.Id, large.Id).Count);
 
                     bool canUndoBeforeEmptyCopy = store.CanUndo(set.Id);
-                    Assert.AreEqual(0, store.AddObdAnnotationCopies(set.Id, image.Id, new ObdAnnotation[0]).Count);
+                    Assert.AreEqual(0, store.AddObdAnnotationCopies(set.Id, new[] { image.Id }, new ObdAnnotation[0]).Count);
                     Assert.AreEqual(canUndoBeforeEmptyCopy, store.CanUndo(set.Id));
                 }
             }
-            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); if (File.Exists(smallPath)) File.Delete(smallPath); if (File.Exists(largePath)) File.Delete(largePath); }
+        }
+
+        [TestMethod]
+        public void Obd_annotation_copy_batch_rolls_back_all_targets_when_a_persisted_insert_fails()
+        {
+            string path = TemporaryProjectPath();
+            string firstSource = Path.Combine(Path.GetDirectoryName(path), "first.png");
+            string secondSource = Path.Combine(Path.GetDirectoryName(path), "second.png");
+            try
+            {
+                CreateBitmap(firstSource, Color.Red, ImageFormat.Png, 40, 30);
+                CreateBitmap(secondSource, Color.Blue, ImageFormat.Png, 40, 30);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage firstImage = store.ImportFiles(new[] { firstSource })[0];
+                    ProjectImage secondImage = store.ImportFiles(new[] { secondSource })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    var source = new[] { new ObdAnnotation("snapshot", set.Id, firstImage.Id, value.Id, 2, 3, 10, 8, 0) };
+                    bool canUndoBefore = store.CanUndo(set.Id);
+                    store.CompleteOperation((db, transaction) =>
+                    {
+                        using (var command = db.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "CREATE TRIGGER FailSecondObdCopy BEFORE INSERT ON ObdAnnotation WHEN NEW.ImageId = '" + secondImage.Id + "' BEGIN SELECT RAISE(ABORT, 'injected copy failure'); END;";
+                            command.ExecuteNonQuery();
+                        }
+                    });
+
+                    Assert.ThrowsException<SqliteException>(() => store.AddObdAnnotationCopies(set.Id, new[] { firstImage.Id, secondImage.Id }, source));
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, firstImage.Id).Count);
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, secondImage.Id).Count);
+                    Assert.AreEqual(canUndoBefore, store.CanUndo(set.Id), "A failed batch must not leave a history entry.");
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(firstSource)) File.Delete(firstSource); if (File.Exists(secondSource)) File.Delete(secondSource); }
         }
 
         [TestMethod]
