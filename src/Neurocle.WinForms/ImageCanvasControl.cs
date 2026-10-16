@@ -129,6 +129,17 @@ namespace Neurocle.WinForms
             selectedObdId = selectedObdIds.FirstOrDefault();
             Invalidate();
         }
+        public void SelectObdAnnotations(IEnumerable<string> annotationIds)
+        {
+            selectedObdIds.Clear();
+            if (AnnotationsVisible && annotationIds != null)
+            {
+                HashSet<string> existingIds = new HashSet<string>(obdAnnotations.Select(annotation => annotation.Id), StringComparer.Ordinal);
+                foreach (string id in annotationIds) if (existingIds.Contains(id)) selectedObdIds.Add(id);
+            }
+            selectedObdId = selectedObdIds.FirstOrDefault();
+            Invalidate();
+        }
         public void SelectAllSeg()
         {
             if (!AnnotationsVisible) return;

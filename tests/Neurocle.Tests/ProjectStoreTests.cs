@@ -1309,6 +1309,44 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Adding_obd_annotation_copies_creates_new_ids_and_uses_one_undo_redo_step()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 30, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    AnnotationClass firstClass = store.GetClasses(set.Id).Single();
+                    AnnotationClass secondClass = store.AddClass(set.Id, "other", "#123456");
+                    ObdAnnotation first = store.AddObdAnnotation(set.Id, image.Id, firstClass.Id, 1, 2, 5, 4);
+                    ObdAnnotation second = store.AddObdAnnotation(set.Id, image.Id, secondClass.Id, 10, 8, 7, 6);
+                    ObdAnnotation[] originals = { first, second };
+
+                    IReadOnlyList<ObdAnnotation> copies = store.AddObdAnnotationCopies(set.Id, image.Id, originals);
+                    Assert.AreEqual(2, copies.Count);
+                    CollectionAssert.AreNotEqual(originals.Select(value => value.Id).ToArray(), copies.Select(value => value.Id).ToArray());
+                    CollectionAssert.AreEqual(new[] { firstClass.Id, secondClass.Id }, copies.Select(value => value.ClassId).ToArray());
+                    CollectionAssert.AreEqual(new[] { new Rectangle(1, 2, 5, 4), new Rectangle(10, 8, 7, 6) }, copies.Select(value => new Rectangle(value.X, value.Y, value.Width, value.Height)).ToArray());
+                    CollectionAssert.AreEqual(new[] { 2, 3 }, copies.Select(value => value.ZOrder).ToArray());
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(originals.Select(value => value.Id).ToArray(), store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
+                    Assert.IsTrue(store.Redo(set.Id));
+                    CollectionAssert.AreEqual(originals.Concat(copies).Select(value => value.Id).ToArray(), store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
+
+                    bool canUndoBeforeEmptyCopy = store.CanUndo(set.Id);
+                    Assert.AreEqual(0, store.AddObdAnnotationCopies(set.Id, image.Id, new ObdAnnotation[0]).Count);
+                    Assert.AreEqual(canUndoBeforeEmptyCopy, store.CanUndo(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Seg_rectangles_and_ellipses_are_bounded_undoable_and_persist_after_reopen()
         {
             string path = TemporaryProjectPath();

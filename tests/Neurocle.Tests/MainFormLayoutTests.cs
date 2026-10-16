@@ -2057,6 +2057,66 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Ctrl_c_and_ctrl_v_duplicate_the_selected_obd_snapshot_and_select_the_copies()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                store = ProjectStore.Create(path);
+                AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                AnnotationClass firstClass = store.GetClasses(set.Id).Single();
+                AnnotationClass secondClass = store.AddClass(set.Id, "other", "#123456");
+                ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                ObdAnnotation first = store.AddObdAnnotation(set.Id, image.Id, firstClass.Id, 10, 12, 20, 18);
+                ObdAnnotation second = store.AddObdAnnotation(set.Id, image.Id, secondClass.Id, 40, 35, 15, 10);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    TabControl pages = form.Controls.OfType<TabControl>().Single();
+                    pages.SelectedIndex = 1;
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    form.AnnotationCanvas.SelectAllObd();
+
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
+                    store.UpdateObdAnnotation(first.Id, firstClass.Id, 5, 6, 7, 8);
+                    store.DeleteObdAnnotation(second.Id);
+                    Invoke(form, "RefreshAnnotationClasses");
+                    form.AnnotationCanvas.SelectObdAnnotations(new string[0]);
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+
+                    ObdAnnotation[] afterPaste = store.GetObdAnnotations(set.Id, image.Id).ToArray();
+                    Assert.AreEqual(3, afterPaste.Length);
+                    ObdAnnotation[] copies = afterPaste.Where(value => value.Id != first.Id && value.Id != second.Id).OrderBy(value => value.ZOrder).ToArray();
+                    Assert.AreEqual(2, copies.Length);
+                    Assert.AreNotEqual(first.Id, copies[0].Id);
+                    CollectionAssert.AreEqual(new[] { firstClass.Id, secondClass.Id }, copies.Select(value => value.ClassId).ToArray());
+                    CollectionAssert.AreEqual(new[] { new Rectangle(10, 12, 20, 18), new Rectangle(40, 35, 15, 10) }, copies.Select(value => new Rectangle(value.X, value.Y, value.Width, value.Height)).ToArray());
+                    CollectionAssert.AreEqual(copies.Select(value => value.Id).ToArray(), form.AnnotationCanvas.SelectedObdIds.OrderBy(id => copies.Single(value => value.Id == id).ZOrder).ToArray());
+
+                    Assert.IsTrue(store.Undo(set.Id), "Pasting two boxes must be one undo step.");
+                    CollectionAssert.AreEqual(new[] { first.Id }, store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
+                    Assert.IsTrue(store.Redo(set.Id));
+                    Assert.AreEqual(3, store.GetObdAnnotations(set.Id, image.Id).Count);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Ctrl_click_adds_and_removes_annotations_only_in_selection_modes()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

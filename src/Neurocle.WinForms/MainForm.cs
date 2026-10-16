@@ -21,6 +21,8 @@ namespace Neurocle.WinForms
         private readonly ImageBrowserControl imageBrowser;
         private readonly ImageCanvasControl imageCanvas;
         private readonly ImageCanvasControl canvas;
+        private readonly TabControl pages;
+        private readonly TabPage annotationPage;
         private ImageCanvasControl activeCanvas;
         private readonly DatasetAssignmentControl datasetAssignments;
         private readonly ComboBox annotationSets;
@@ -56,6 +58,7 @@ namespace Neurocle.WinForms
         private bool refreshingAnnotationSets;
         private bool synchronizingAnnotationSetSelection;
         private string displayedAnnotationSetId;
+        private IReadOnlyList<ObdAnnotation> copiedObdAnnotations = new ObdAnnotation[0];
         private Func<string, bool> confirmImageDeletion;
 
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
@@ -127,14 +130,14 @@ namespace Neurocle.WinForms
                 if (annotationOperationInProgress) pendingImageSelection = args;
                 else ApplyImageSelection(args);
             };
-            var pages = new TabControl { Dock = DockStyle.Fill };
+            pages = new TabControl { Dock = DockStyle.Fill };
             var imagesPage = new TabPage(Strings.ImagesPage);
             var imageHeader = new Panel { Dock = DockStyle.Top, Height = 56 };
             var imageControls = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
             imageHeader.Controls.Add(imageControls);
             imagesPage.Controls.Add(imageCanvasHost);
             imagesPage.Controls.Add(imageHeader);
-            var annotationPage = new TabPage(Strings.AnnotationPage);
+            annotationPage = new TabPage(Strings.AnnotationPage);
             var annotationHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
             annotationHeader.SizeChanged += (sender, args) => imageHeader.Height = annotationHeader.Height;
             annotationSets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
@@ -293,6 +296,8 @@ namespace Neurocle.WinForms
                 if (!args.Control) return;
                 if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
                 else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
+                else if (args.KeyCode == Keys.C && !HasTextInputFocus()) CopySelectedObdAnnotations();
+                else if (args.KeyCode == Keys.V && !HasTextInputFocus()) PasteCopiedObdAnnotations();
                 else if (args.KeyCode == Keys.A && pages.SelectedTab == annotationPage && !HasTextInputFocus()) SelectAllAnnotations();
                 else return;
                 args.Handled = true;
@@ -347,6 +352,27 @@ namespace Neurocle.WinForms
             if (selected == null) return;
             if (selected.Type == AnnotationSetType.Obd && canvas.ObdEnabled) canvas.SelectAllObd();
             else if (selected.Type == AnnotationSetType.Seg && canvas.SegEnabled) canvas.SelectAllSeg();
+        }
+
+        private void CopySelectedObdAnnotations()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (pages.SelectedTab != annotationPage || selected == null || selected.Type != AnnotationSetType.Obd || !canvas.ObdSelectMode || canvas.SelectedObdIds.Count == 0) return;
+            copiedObdAnnotations = canvas.ObdAnnotations.Where(annotation => canvas.SelectedObdIds.Contains(annotation.Id)).ToArray();
+        }
+
+        private void PasteCopiedObdAnnotations()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (annotationOperationInProgress || project == null || pages.SelectedTab != annotationPage || selected == null || selected.Type != AnnotationSetType.Obd || selectedImageId == null || copiedObdAnnotations.Count == 0) return;
+            if (copiedObdAnnotations.Any(annotation => annotation.AnnotationSetId != selected.Id || annotation.ImageId != selectedImageId)) return;
+            RunAnnotationCommand(() =>
+            {
+                IReadOnlyList<ObdAnnotation> copies = project.AddObdAnnotationCopies(selected.Id, selectedImageId, copiedObdAnnotations);
+                if (copies.Count == 0) return;
+                RefreshAnnotationClasses();
+                canvas.SelectObdAnnotations(copies.Select(annotation => annotation.Id));
+            });
         }
 
         private void SetSegStrokeWidth(int width)

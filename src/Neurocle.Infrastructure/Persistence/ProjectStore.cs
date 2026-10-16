@@ -795,7 +795,12 @@ namespace Neurocle.Infrastructure.Persistence
 
         private void InsertObdRaw(ObdAnnotation value)
         {
-            Execute(connection, historyTransaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder));
+            InsertObdRaw(connection, historyTransaction, value);
+        }
+
+        private static void InsertObdRaw(SqliteConnection db, SqliteTransaction transaction, ObdAnnotation value)
+        {
+            Execute(db, transaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder));
         }
 
         private void UpdateObdRaw(ObdAnnotation value)
@@ -941,6 +946,22 @@ namespace Neurocle.Infrastructure.Persistence
             InsertObdRaw(value);
             Record(annotationSetId, () => DeleteObdRaw(value.Id), () => InsertObdRaw(value), EstimateHistoryBytes(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId));
             return value;
+        }
+
+        public IReadOnlyList<ObdAnnotation> AddObdAnnotationCopies(string annotationSetId, string imageId, IEnumerable<ObdAnnotation> annotations)
+        {
+            if (annotations == null) throw new ArgumentNullException(nameof(annotations));
+            ObdAnnotation[] source = annotations.ToArray();
+            if (source.Length == 0) return new List<ObdAnnotation>();
+            int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
+            ObdAnnotation[] copies = source.Select((value, index) =>
+            {
+                ValidateObd(annotationSetId, imageId, value.ClassId, value.X, value.Y, value.Width, value.Height);
+                return new ObdAnnotation(Guid.NewGuid().ToString("D"), annotationSetId, imageId, value.ClassId, value.X, value.Y, value.Width, value.Height, firstZOrder + index);
+            }).ToArray();
+            CompleteOperation((db, transaction) => { foreach (ObdAnnotation value in copies) InsertObdRaw(db, transaction, value); });
+            Record(annotationSetId, () => { foreach (ObdAnnotation value in copies) DeleteObdRaw(value.Id); }, () => { foreach (ObdAnnotation value in copies) InsertObdRaw(value); }, EstimateHistoryBytes(copies));
+            return copies;
         }
 
         public IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId, string imageId)
