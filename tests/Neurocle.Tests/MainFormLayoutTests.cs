@@ -499,6 +499,128 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Obd_drag_selection_replaces_existing_selection_and_previews_partial_overlap()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), ObdEnabled = true, ObdSelectMode = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdAnnotations = new[]
+                    {
+                        new ObdAnnotation("first", "set", "image", "class", 5, 5, 15, 15, 0),
+                        new ObdAnnotation("second", "set", "image", "class", 40, 40, 15, 15, 1),
+                        new ObdAnnotation("third", "set", "image", "class", 65, 65, 15, 15, 2)
+                    };
+                    canvas.ModifierKeysProvider = () => Keys.None;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 10, 10, 0));
+                    CollectionAssert.AreEquivalent(new[] { "first" }, canvas.SelectedObdIds.ToArray());
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 30, 0));
+                    Assert.IsNotNull(Field<PointF?>(canvas, "obdSelectionStart"), "A blank-canvas press should begin a drag-selection gesture.");
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 45, 45, 0));
+                    Assert.AreNotEqual(Color.Black.ToArgb(), RenderPixel(canvas, 32, 33).ToArgb(), "The active selection rectangle should be visible during dragging.");
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 45, 45, 0));
+
+                    CollectionAssert.AreEquivalent(new[] { "second" }, canvas.SelectedObdIds.ToArray(), string.Join(",", canvas.SelectedObdIds));
+                    Assert.IsNull(Field<RectangleF?>(canvas, "obdSelectionPreview"));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_obd_drag_selection_unions_with_existing_selection_and_empty_click_preserves_it()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), ObdEnabled = true, ObdSelectMode = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdAnnotations = new[]
+                    {
+                        new ObdAnnotation("first", "set", "image", "class", 5, 5, 15, 15, 0),
+                        new ObdAnnotation("second", "set", "image", "class", 40, 40, 15, 15, 1),
+                        new ObdAnnotation("third", "set", "image", "class", 65, 65, 15, 15, 2)
+                    };
+                    canvas.ModifierKeysProvider = () => Keys.None;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 10, 10, 0));
+                    canvas.ModifierKeysProvider = () => Keys.Control;
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 30, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 80, 80, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 80, 80, 0));
+                    CollectionAssert.AreEquivalent(new[] { "first", "second", "third" }, canvas.SelectedObdIds.ToArray(), string.Join(",", canvas.SelectedObdIds));
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 2, 2, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 2, 2, 0));
+                    CollectionAssert.AreEquivalent(new[] { "first", "second", "third" }, canvas.SelectedObdIds.ToArray());
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Empty_obd_drag_selection_clears_selection_and_object_drag_still_moves()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), ObdEnabled = true, ObdSelectMode = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdAnnotations = new[] { new ObdAnnotation("one", "set", "image", "class", 20, 20, 20, 20, 0) };
+                    canvas.ModifierKeysProvider = () => Keys.None;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 2, 2, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 2, 2, 0));
+                    Assert.AreEqual(0, canvas.SelectedObdIds.Count, "A plain click on empty space should clear the selection.");
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 2, 2, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
+                    Assert.AreEqual(0, canvas.SelectedObdIds.Count);
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 25, 25, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 30, 30, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 30, 30, 0));
+                    CollectionAssert.AreEquivalent(new[] { "one" }, canvas.SelectedObdIds.ToArray());
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Every_selected_obd_and_seg_region_renders_a_bounding_box_and_eight_handles_after_view_changes()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

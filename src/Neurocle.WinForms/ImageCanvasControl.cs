@@ -23,6 +23,10 @@ namespace Neurocle.WinForms
         private CancellationTokenSource imageLoad;
         private bool panning;
         private Point previousPoint;
+        private PointF? obdSelectionStart;
+        private Point obdSelectionScreenStart;
+        private RectangleF? obdSelectionPreview;
+        private bool obdSelectionAdditive;
         private PointF obdStart;
         private RectangleF? obdPreview;
         private IReadOnlyDictionary<string, RectangleF> obdPreviews = new Dictionary<string, RectangleF>();
@@ -262,6 +266,8 @@ namespace Neurocle.WinForms
         {
             obdPreview = null;
             obdPreviews = new Dictionary<string, RectangleF>();
+            obdSelectionStart = null;
+            obdSelectionPreview = null;
             segPreview = null;
             segPath.Clear();
             segPathDragging = false;
@@ -303,6 +309,12 @@ namespace Neurocle.WinForms
                 if (interior.Width > 0f && interior.Height > 0f)
                     using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillRectangle(fill, interior);
                 using (var pen = new Pen(PreviewTrackColor, 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            }
+            if (obdSelectionPreview.HasValue)
+            {
+                RectangleF rectangle = ToScreenRectangle(obdSelectionPreview.Value);
+                using (var fill = new SolidBrush(Color.FromArgb(45, Color.DeepSkyBlue))) args.Graphics.FillRectangle(fill, rectangle);
+                using (var pen = new Pen(Color.DeepSkyBlue, 1.5f) { DashStyle = DashStyle.Dash }) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             }
             foreach (SegRegion stored in segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Concat(segRegions.Where(item => selectedSegIds.Contains(item.Id))))
             {
@@ -564,7 +576,11 @@ namespace Neurocle.WinForms
                         ObdAnnotation hit = TopmostObdAt(point);
                         if (hit == null)
                         {
-                            ClearObdSelection();
+                            obdSelectionStart = ClampPoint(point);
+                            obdSelectionScreenStart = args.Location;
+                            obdSelectionPreview = new RectangleF(obdSelectionStart.Value, SizeF.Empty);
+                            obdSelectionAdditive = (CurrentModifierKeys & Keys.Control) == Keys.Control;
+                            Capture = true;
                             Invalidate();
                             base.OnMouseDown(args);
                             return;
@@ -704,6 +720,11 @@ namespace Neurocle.WinForms
                 Invalidate();
                 RaiseViewChanged();
             }
+            else if (obdSelectionStart.HasValue && (args.Button & MouseButtons.Left) == MouseButtons.Left)
+            {
+                obdSelectionPreview = Normalize(obdSelectionStart.Value, ClampPoint(viewport.ScreenToImage(args.Location)));
+                Invalidate();
+            }
             else if (obdDrag != ObdDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
                 PointF point = ClampPoint(viewport.ScreenToImage(args.Location));
@@ -778,7 +799,30 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseUp(MouseEventArgs args)
         {
-            if (args.Button == MouseButtons.Left && obdDrag != ObdDragKind.None)
+            if (args.Button == MouseButtons.Left && obdSelectionStart.HasValue)
+            {
+                bool dragged = Math.Abs(args.X - obdSelectionScreenStart.X) > 2 || Math.Abs(args.Y - obdSelectionScreenStart.Y) > 2;
+                RectangleF selection = obdSelectionPreview ?? new RectangleF(obdSelectionStart.Value, SizeF.Empty);
+                obdSelectionStart = null;
+                obdSelectionPreview = null;
+                Capture = false;
+                if (!obdSelectionAdditive) ClearObdSelection();
+                if (dragged)
+                {
+                    foreach (ObdAnnotation annotation in obdAnnotations)
+                    {
+                        RectangleF annotationBounds = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
+                        if (RectanglesTouch(selection, annotationBounds))
+                        {
+                            selectedObdIds.Add(annotation.Id);
+                            if (selectedObdId == null) selectedObdId = annotation.Id;
+                        }
+                    }
+                }
+                if (!selectedObdIds.Contains(selectedObdId)) selectedObdId = selectedObdIds.FirstOrDefault();
+                Invalidate();
+            }
+            else if (args.Button == MouseButtons.Left && obdDrag != ObdDragKind.None)
             {
                 ObdDragKind completed = obdDrag;
                 var previews = obdPreviews.ToDictionary(item => item.Key, item => item.Value);
@@ -1086,6 +1130,11 @@ namespace Neurocle.WinForms
         {
             selectedObdIds.Clear();
             selectedObdId = null;
+        }
+
+        private static bool RectanglesTouch(RectangleF first, RectangleF second)
+        {
+            return first.Left <= second.Right && first.Right >= second.Left && first.Top <= second.Bottom && first.Bottom >= second.Top;
         }
 
         private static PointF[] GetHandlePoints(RectangleF rectangle)
