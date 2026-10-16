@@ -19,6 +19,7 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 | CLA 標註 | 一張圖片在單一 CLA 標註集中的零或一個類別。 |
 | OBD 物件 | 一個帶類別的軸對齊矩形框。 |
 | SEG 區域 | 一個帶類別、可編輯且可有洞的填色區域；同類別由新繪製造成面積重疊時合併，既有物件經變形造成重疊時保持獨立。 |
+| 標註複本 | 在同一標註集內，依 OBD 物件或 SEG 區域的既有幾何與類別建立、具有新身分的獨立物件。 |
 | 標註數量 | 一張圖片在單一 OBD 或 SEG 標註集中，目前實際存在的 OBD 物件或 SEG 區域總數；不計操作次數、類別數或面積。 |
 | 空洞橋接 | SEG 區域以單一路徑表示外圈與洞時，連接內外輪廓且往返重合的路徑段；它不增加填色面積。 |
 | 可用圖片（Available Image） | 受管理圖片檔仍存在且可讀取的圖片。缺失圖片不匯出。 |
@@ -32,6 +33,7 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 - 新匯入圖片會出現在所有標註集，初始為未分配、無標註、Retest 0。
 - 所有標註幾何必須位於圖片邊界內；邊界判斷以外接矩形為準。
 - SEG 不同類別可以覆蓋同一像素；同類別只有「新繪製」造成面積重疊時自動聯集。
+- 標註複本即使與同類別既有 SEG 區域重疊，也維持獨立，不視為新繪製所造成的聯集。
 - 永久刪除圖片會刪除該圖片在所有標註集中的資料；永久刪除標註集會刪除其全部資料。
 - JSON 是交換格式，不是專案的完整持久化格式。
 - 新匯入 BMP 的顯示檔名反映轉換後 PNG 格式；既有專案圖片不因新匯入規則改名。
@@ -57,9 +59,11 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 - 正式產品規格：`docs/specs/ai-labeling-tool.md`
 - 標註介面與 SEG 增量規格：`docs/specs/annotation-ui-seg-performance.md`
 - 圖片匯入與標註操作增量規格：`docs/specs/annotation-workflow-import-update.md`
+- 畫布互動、標註複製與集體旋轉增量規格：`docs/specs/annotation-canvas-interactions.md`
 - 實作順序：`docs/plans/implementation-plan.md`
 - 標註介面與 SEG 增量計畫：`docs/plans/annotation-ui-seg-performance.md`
 - 圖片匯入與標註操作增量計畫：`docs/plans/annotation-workflow-import-update.md`
+- 畫布互動、標註複製與集體旋轉增量計畫：`docs/plans/annotation-canvas-interactions.md`
 - 測試與驗收：`docs/plans/test-and-acceptance-plan.md`
 - 已知風險：`docs/plans/known-risks.md`
 - 架構決策：`docs/adr/`

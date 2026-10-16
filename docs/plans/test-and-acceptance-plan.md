@@ -4,6 +4,8 @@
 
 圖片匯入與標註操作的後續驗收條件依[增量實施計畫](annotation-workflow-import-update.md)與[增量正式規格](../specs/annotation-workflow-import-update.md)執行；與下方舊顏色或圖片格式案例衝突時，以後續增量為準。
 
+畫布互動、標註複製與集體旋轉的後續驗收條件依[增量實施計畫](annotation-canvas-interactions.md)與[增量正式規格](../specs/annotation-canvas-interactions.md)執行；與下方單物件旋轉或筆刷閉合案例衝突時，以本次增量為準。
+
 ## 1. 測試策略
 
 | 測試縫 | 主要責任 | 執行位置 |
