@@ -21,6 +21,12 @@ namespace Neurocle.Application.Projects
         public double Zoom { get; private set; }
         public PointF Origin { get; private set; }
         public bool IsFitted { get { return isFitted; } }
+        public bool CanScrollHorizontally { get { return HorizontalScrollMaximum > 0; } }
+        public bool CanScrollVertically { get { return VerticalScrollMaximum > 0; } }
+        public int HorizontalScrollMaximum { get { return GetScrollMaximum(ImageSize.Width * Zoom, ViewportSize.Width); } }
+        public int VerticalScrollMaximum { get { return GetScrollMaximum(ImageSize.Height * Zoom, ViewportSize.Height); } }
+        public int HorizontalScrollPosition { get { return CanScrollHorizontally ? (int)Math.Round(-Origin.X) : 0; } }
+        public int VerticalScrollPosition { get { return CanScrollVertically ? (int)Math.Round(-Origin.Y) : 0; } }
 
         public void SetImageSize(Size imageSize)
         {
@@ -65,6 +71,15 @@ namespace Neurocle.Application.Projects
             ClampOrigin();
         }
 
+        public void SetScrollPosition(int horizontal, int vertical)
+        {
+            isFitted = false;
+            Origin = new PointF(
+                -Math.Max(0, Math.Min(horizontal, HorizontalScrollMaximum)),
+                -Math.Max(0, Math.Min(vertical, VerticalScrollMaximum)));
+            ClampOrigin();
+        }
+
         public void SetView(double zoom, PointF origin, bool fitted)
         {
             isFitted = fitted;
@@ -86,6 +101,12 @@ namespace Neurocle.Application.Projects
         private static double Clamp(double zoom)
         {
             return Math.Max(MinimumZoom, Math.Min(MaximumZoom, zoom));
+        }
+
+        private static int GetScrollMaximum(double imageLength, int viewportLength)
+        {
+            double overflow = imageLength - viewportLength;
+            return overflow <= 0d ? 0 : (int)Math.Ceiling(overflow);
         }
 
         private void ClampOrigin()

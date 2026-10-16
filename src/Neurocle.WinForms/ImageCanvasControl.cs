@@ -159,6 +159,8 @@ namespace Neurocle.WinForms
         }
 
         public double Zoom { get { return viewport.Zoom; } }
+        internal int HorizontalScrollMaximum { get { return viewport.HorizontalScrollMaximum; } }
+        internal int VerticalScrollMaximum { get { return viewport.VerticalScrollMaximum; } }
         public event EventHandler ZoomChanged;
         public event EventHandler ViewChanged;
         internal string LoadedImagePath { get { return loadedImagePath; } }
@@ -260,6 +262,14 @@ namespace Neurocle.WinForms
         public void SetZoomPercent(double percent)
         {
             viewport.SetZoomAt(percent / 100d, new PointF(ClientSize.Width / 2f, ClientSize.Height / 2f));
+            RefreshToolCursor();
+            Invalidate();
+            RaiseViewChanged();
+        }
+
+        internal void SetScrollPosition(int horizontal, int vertical)
+        {
+            viewport.SetScrollPosition(horizontal, vertical);
             RefreshToolCursor();
             Invalidate();
             RaiseViewChanged();
@@ -552,7 +562,12 @@ namespace Neurocle.WinForms
         protected override void OnMouseDown(MouseEventArgs args)
         {
             Focus();
-            panning = args.Button == MouseButtons.Left && (CurrentModifierKeys & Keys.Space) == Keys.Space;
+            panning = image != null && (args.Button == MouseButtons.Right || (args.Button == MouseButtons.Left && (CurrentModifierKeys & Keys.Space) == Keys.Space));
+            if (panning)
+            {
+                previousPoint = args.Location;
+                Capture = true;
+            }
             if (args.Button == MouseButtons.Left && ObdEnabled && !panning && image != null)
             {
                 PointF point = viewport.ScreenToImage(args.Location);
@@ -926,6 +941,7 @@ namespace Neurocle.WinForms
                 segPathDragging = false;
                 Invalidate();
             }
+            if (panning) Capture = false;
             panning = false;
             base.OnMouseUp(args);
         }

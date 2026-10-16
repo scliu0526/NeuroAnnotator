@@ -103,6 +103,8 @@ namespace Neurocle.WinForms
             imageBrowser = new ImageBrowserControl { Dock = DockStyle.Left, Width = 300 };
             imageCanvas = new ImageCanvasControl { Dock = DockStyle.Fill };
             canvas = new ImageCanvasControl { Dock = DockStyle.Fill };
+            var imageCanvasHost = new CanvasScrollHost(imageCanvas) { Dock = DockStyle.Fill };
+            var annotationCanvasHost = new CanvasScrollHost(canvas) { Dock = DockStyle.Fill };
             activeCanvas = imageCanvas;
             imageCanvas.ViewChanged += (sender, args) => SynchronizeCanvasView(imageCanvas, canvas);
             canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
@@ -129,7 +131,7 @@ namespace Neurocle.WinForms
             var imageHeader = new Panel { Dock = DockStyle.Top, Height = 56 };
             var imageControls = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
             imageHeader.Controls.Add(imageControls);
-            imagesPage.Controls.Add(imageCanvas);
+            imagesPage.Controls.Add(imageCanvasHost);
             imagesPage.Controls.Add(imageHeader);
             var annotationPage = new TabPage(Strings.AnnotationPage);
             var annotationHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
@@ -216,7 +218,7 @@ namespace Neurocle.WinForms
             imageZoom.SelectedIndexChanged += (sender, args) => setZoom(imageZoom.SelectedItem as string);
             imageCanvas.ZoomChanged += (sender, args) => updateZoomText();
             canvas.ZoomChanged += (sender, args) => updateZoomText();
-            annotationPage.Controls.Add(canvas);
+            annotationPage.Controls.Add(annotationCanvasHost);
             annotationSidebar.Controls.Add(annotationClasses);
             annotationSidebar.Controls.Add(annotationTools);
             annotationSidebar.Controls.Add(addClass);

@@ -77,6 +77,9 @@
     <Compile Include="DatasetAssignmentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="CanvasScrollHost.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="ImageCanvasControl.cs">
       <SubType>Component</SubType>
     </Compile>

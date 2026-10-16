@@ -1088,6 +1088,34 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Canvas_viewport_scroll_positions_follow_overflowing_axes_and_clamp_to_image_edges()
+        {
+            var viewport = new CanvasViewport(new Size(2000, 1000), new Size(1000, 500));
+            viewport.SetZoomAt(1d, new PointF(500f, 250f));
+
+            Assert.IsTrue(viewport.CanScrollHorizontally);
+            Assert.IsTrue(viewport.CanScrollVertically);
+            Assert.AreEqual(1000, viewport.HorizontalScrollMaximum);
+            Assert.AreEqual(500, viewport.VerticalScrollMaximum);
+            viewport.SetScrollPosition(1000, 500);
+            Assert.AreEqual(new PointF(-1000f, -500f), viewport.Origin);
+            Assert.AreEqual(1000, viewport.HorizontalScrollPosition);
+            Assert.AreEqual(500, viewport.VerticalScrollPosition);
+
+            viewport.SetScrollPosition(-100, 900);
+            Assert.AreEqual(0f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(-500f, viewport.Origin.Y, 0.001f);
+
+            viewport.SetImageSize(new Size(400, 200));
+            viewport.SetZoomAt(1d, new PointF(500f, 250f));
+            Assert.IsFalse(viewport.CanScrollHorizontally);
+            Assert.IsFalse(viewport.CanScrollVertically);
+            Assert.AreEqual(0, viewport.HorizontalScrollPosition);
+            Assert.AreEqual(300f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(150f, viewport.Origin.Y, 0.001f);
+        }
+
+        [TestMethod]
         public void Annotation_sets_classes_and_cla_assignments_are_isolated_and_persist_after_reopen()
         {
             string path = TemporaryProjectPath();

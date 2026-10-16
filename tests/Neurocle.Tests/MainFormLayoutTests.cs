@@ -162,8 +162,8 @@ namespace Neurocle.Tests
 
                 var pages = form.Controls.OfType<TabControl>().Single();
                 Assert.IsTrue(form.Controls.Contains(form.ImageBrowser));
-                Assert.IsTrue(pages.TabPages[0].Controls.Contains(form.ImageCanvas));
-                Assert.IsTrue(pages.TabPages[1].Controls.Contains(form.AnnotationCanvas));
+                Assert.IsTrue(pages.TabPages[0].Controls.Contains(CanvasHost(form.ImageCanvas)));
+                Assert.IsTrue(pages.TabPages[1].Controls.Contains(CanvasHost(form.AnnotationCanvas)));
 
                 form.AnnotationCanvas.SetZoomPercent(150);
                 Assert.AreEqual(form.AnnotationCanvas.Zoom, form.ImageCanvas.Zoom, 0.0001d);
@@ -190,7 +190,7 @@ namespace Neurocle.Tests
 
                 Assert.AreEqual(form.ImageCanvas.Height, form.AnnotationCanvas.Height);
                 Assert.IsTrue(form.AnnotationCanvas.Height >= annotations.ClientSize.Height * 0.75d);
-                Assert.IsTrue(header.Bottom <= form.AnnotationCanvas.Top);
+                Assert.IsTrue(header.Bottom <= CanvasHost(form.AnnotationCanvas).Top);
             }
         }
 
@@ -224,10 +224,10 @@ namespace Neurocle.Tests
                     Assert.IsTrue(form.ClientSize.Height < form.Height, "The test must use a 1920x1080 window rather than a 1920x1080 client area.");
                     Assert.AreEqual(form.ImageCanvas.Height, form.AnnotationCanvas.Height);
                     Assert.IsTrue(form.AnnotationCanvas.Height >= annotations.ClientSize.Height * 0.75d);
-                    Assert.IsTrue(imageHeader.Bottom <= form.ImageCanvas.Top);
-                    Assert.IsTrue(annotationHeader.Bottom <= form.AnnotationCanvas.Top);
+                    Assert.IsTrue(imageHeader.Bottom <= CanvasHost(form.ImageCanvas).Top);
+                    Assert.IsTrue(annotationHeader.Bottom <= CanvasHost(form.AnnotationCanvas).Top);
                     Assert.IsTrue(sidebar.Right <= annotations.ClientSize.Width);
-                    Assert.IsTrue(form.AnnotationCanvas.Right <= sidebar.Left);
+                    Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Right <= sidebar.Left);
                     pages.SelectedIndex = 0;
                     System.Windows.Forms.Application.DoEvents();
                     AssertControlsAreUsable(imageControls.Controls.Cast<Control>(), imageControls);
@@ -284,8 +284,8 @@ namespace Neurocle.Tests
 
                     Assert.IsTrue(header.Bottom <= annotations.ClientSize.Height, "Header exceeds page height at {0:P0} DPI.", scale);
                     Assert.IsTrue(sidebar.Right <= annotations.ClientSize.Width, "Sidebar exceeds page width at {0:P0} DPI.", scale);
-                    Assert.IsTrue(form.AnnotationCanvas.Top >= header.Bottom, "Canvas overlaps header at {0:P0} DPI.", scale);
-                    Assert.IsTrue(form.AnnotationCanvas.Right <= sidebar.Left, "Canvas overlaps sidebar at {0:P0} DPI.", scale);
+                    Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Top >= header.Bottom, "Canvas overlaps header at {0:P0} DPI.", scale);
+                    Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Right <= sidebar.Left, "Canvas overlaps sidebar at {0:P0} DPI.", scale);
                 }
             }
         }
@@ -612,6 +612,160 @@ namespace Neurocle.Tests
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 30, 30, 0));
                     RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 30, 30, 0));
                     CollectionAssert.AreEquivalent(new[] { "one" }, canvas.SelectedObdIds.ToArray());
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Canvas_scrollbars_show_only_overflowing_axes_and_right_drag_shares_the_bounded_view()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string wideImagePath = Path.Combine(directory, "wide.png");
+            string squareImagePath = Path.Combine(directory, "square.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var bitmap = new Bitmap(200, 50))
+                {
+                    using (Graphics graphics = Graphics.FromImage(bitmap)) graphics.Clear(Color.Black);
+                    bitmap.Save(wideImagePath, ImageFormat.Png);
+                }
+                CreateSolidImage(squareImagePath, Color.Black, 200);
+                using (var canvas = new ImageCanvasControl())
+                using (var host = new CanvasScrollHost(canvas))
+                using (var form = new Form { ClientSize = new Size(140, 140) })
+                {
+                    form.Controls.Add(host);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    canvas.LoadImage(wideImagePath);
+                    WaitForImage(canvas, wideImagePath);
+                    canvas.SetZoomPercent(100d);
+                    Assert.IsTrue(host.HorizontalScrollBar.Visible);
+                    Assert.IsFalse(host.VerticalScrollBar.Visible);
+
+                    canvas.LoadImage(squareImagePath);
+                    WaitForImage(canvas, squareImagePath);
+                    canvas.SetZoomPercent(100d);
+                    Assert.IsTrue(host.HorizontalScrollBar.Visible);
+                    Assert.IsTrue(host.VerticalScrollBar.Visible);
+
+                    PointF beforeDrag = canvas.ViewState.Origin;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Right, 1, 60, 60, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Right, 0, 80, 70, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Right, 0, 80, 70, 0));
+                    Assert.AreEqual(beforeDrag.X + 20f, canvas.ViewState.Origin.X, 0.001f);
+                    Assert.AreEqual(beforeDrag.Y + 10f, canvas.ViewState.Origin.Y, 0.001f);
+                    Assert.AreEqual((int)Math.Round(-canvas.ViewState.Origin.X), host.HorizontalScrollBar.Value);
+                    Assert.AreEqual((int)Math.Round(-canvas.ViewState.Origin.Y), host.VerticalScrollBar.Value);
+
+                    int oldScroll = host.HorizontalScrollBar.Value;
+                    int newScroll = Math.Min(oldScroll + 10, host.HorizontalScrollBar.Maximum - host.HorizontalScrollBar.LargeChange + 1);
+                    host.HorizontalScrollBar.Value = newScroll;
+                    RaiseScroll(host.HorizontalScrollBar, new ScrollEventArgs(ScrollEventType.ThumbPosition, oldScroll, newScroll, ScrollOrientation.HorizontalScroll));
+                    Assert.AreEqual(-newScroll, canvas.ViewState.Origin.X, 0.001f, string.Format("Moving the horizontal scrollbar should pan the same viewport (old={0}, new={1}, value={2}, max={3}, large={4}).", oldScroll, newScroll, host.HorizontalScrollBar.Value, host.HorizontalScrollBar.Maximum, host.HorizontalScrollBar.LargeChange));
+
+                    canvas.SetScrollPosition(int.MaxValue, int.MaxValue);
+                    Assert.AreEqual(canvas.ClientSize.Width - 200f, canvas.ViewState.Origin.X, 0.001f);
+                    Assert.AreEqual(canvas.ClientSize.Height - 200f, canvas.ViewState.Origin.Y, 0.001f);
+                    canvas.SetScrollPosition(int.MinValue, int.MinValue);
+                    Assert.AreEqual(0f, canvas.ViewState.Origin.X, 0.001f);
+                    Assert.AreEqual(0f, canvas.ViewState.Origin.Y, 0.001f);
+
+                    canvas.SetZoomPercent(25d);
+                    Assert.IsFalse(host.HorizontalScrollBar.Visible);
+                    Assert.IsFalse(host.VerticalScrollBar.Visible);
+
+                    form.ClientSize = new Size(300, 300);
+                    System.Windows.Forms.Application.DoEvents();
+                    canvas.SetZoomPercent(100d);
+                    Assert.IsFalse(host.HorizontalScrollBar.Visible);
+                    Assert.IsFalse(host.VerticalScrollBar.Visible);
+
+                    form.ClientSize = new Size(140, 140);
+                    System.Windows.Forms.Application.DoEvents();
+                    Assert.IsTrue(host.HorizontalScrollBar.Visible);
+                    Assert.IsTrue(host.VerticalScrollBar.Visible);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Main_form_scrollbars_and_right_drag_keep_image_and_annotation_views_synchronized()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "large.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 1600);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    form.WindowState = FormWindowState.Normal;
+                    form.ClientSize = new Size(1200, 800);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.ImageCanvas.LoadImage(imagePath);
+                    form.AnnotationCanvas.LoadImage(imagePath);
+                    WaitForImage(form.ImageCanvas, imagePath);
+                    WaitForImage(form.AnnotationCanvas, imagePath);
+                    form.ImageCanvas.SetZoomPercent(100d);
+
+                    CanvasScrollHost imageHost = CanvasHost(form.ImageCanvas);
+                    CanvasScrollHost annotationHost = CanvasHost(form.AnnotationCanvas);
+                    TabControl pages = form.Controls.OfType<TabControl>().Single();
+                    pages.SelectedIndex = 1;
+                    System.Windows.Forms.Application.DoEvents();
+                    Assert.IsTrue(annotationHost.HorizontalScrollBar.Visible && annotationHost.VerticalScrollBar.Visible);
+
+                    int oldScroll = annotationHost.HorizontalScrollBar.Value;
+                    int newScroll = 100;
+                    annotationHost.HorizontalScrollBar.Value = newScroll;
+                    RaiseScroll(annotationHost.HorizontalScrollBar, new ScrollEventArgs(ScrollEventType.ThumbPosition, oldScroll, newScroll, ScrollOrientation.HorizontalScroll));
+                    Assert.AreEqual(form.ImageCanvas.ViewState.Origin.X, form.AnnotationCanvas.ViewState.Origin.X, 0.001f);
+                    Assert.AreEqual(newScroll, imageHost.HorizontalScrollBar.Value);
+                    int oldVerticalScroll = annotationHost.VerticalScrollBar.Value;
+                    int newVerticalScroll = 100;
+                    annotationHost.VerticalScrollBar.Value = newVerticalScroll;
+                    RaiseScroll(annotationHost.VerticalScrollBar, new ScrollEventArgs(ScrollEventType.ThumbPosition, oldVerticalScroll, newVerticalScroll, ScrollOrientation.VerticalScroll));
+                    Assert.AreEqual(-newVerticalScroll, form.AnnotationCanvas.ViewState.Origin.Y, 0.001f);
+                    pages.SelectedIndex = 0;
+                    System.Windows.Forms.Application.DoEvents();
+                    Assert.IsTrue(imageHost.HorizontalScrollBar.Visible && imageHost.VerticalScrollBar.Visible);
+
+                    RaiseMouse(form.ImageCanvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Right, 1, 60, 60, 0));
+                    RaiseMouse(form.ImageCanvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Right, 0, 70, 80, 0));
+                    RaiseMouse(form.ImageCanvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Right, 0, 70, 80, 0));
+                    Assert.AreEqual(form.ImageCanvas.ViewState.Origin, form.AnnotationCanvas.ViewState.Origin);
+                    Assert.AreEqual((int)Math.Round(-form.ImageCanvas.ViewState.Origin.Y), imageHost.VerticalScrollBar.Value);
+                    Assert.AreEqual((int)Math.Round(-form.AnnotationCanvas.ViewState.Origin.Y), annotationHost.VerticalScrollBar.Value);
+
+                    ImageCanvasControl.CanvasViewState viewBeforeWheel = form.ImageCanvas.ViewState;
+                    RaiseMouse(form.ImageCanvas, "OnMouseWheel", new MouseEventArgs(MouseButtons.None, 0, 70, 80, 120));
+                    Assert.IsTrue(form.ImageCanvas.Zoom != viewBeforeWheel.Zoom || form.ImageCanvas.ViewState.Origin != viewBeforeWheel.Origin, "The wheel should pan or zoom the viewport.");
+                    Assert.AreEqual(form.ImageCanvas.ViewState.Origin, form.AnnotationCanvas.ViewState.Origin);
+                    Assert.AreEqual((int)Math.Round(-form.ImageCanvas.ViewState.Origin.Y), imageHost.VerticalScrollBar.Value);
+                    Assert.AreEqual((int)Math.Round(-form.AnnotationCanvas.ViewState.Origin.Y), annotationHost.VerticalScrollBar.Value);
+
+                    form.ImageCanvas.SetZoomPercent(125d);
+                    Assert.AreEqual(form.ImageCanvas.Zoom, form.AnnotationCanvas.Zoom, 0.001d);
+                    Assert.AreEqual((int)Math.Round(-form.ImageCanvas.ViewState.Origin.X), imageHost.HorizontalScrollBar.Value);
+                    Assert.AreEqual((int)Math.Round(-form.AnnotationCanvas.ViewState.Origin.X), annotationHost.HorizontalScrollBar.Value);
+
+                    pages.SelectedIndex = 1;
+                    form.ClientSize = new Size(1100, 740);
+                    System.Windows.Forms.Application.DoEvents();
+                    Assert.AreEqual(form.ImageCanvas.ViewState.Origin, form.AnnotationCanvas.ViewState.Origin);
+                    Assert.AreEqual((int)Math.Round(-form.ImageCanvas.ViewState.Origin.X), imageHost.HorizontalScrollBar.Value);
+                    Assert.AreEqual((int)Math.Round(-form.AnnotationCanvas.ViewState.Origin.X), annotationHost.HorizontalScrollBar.Value);
                 }
             }
             finally
@@ -2061,6 +2215,11 @@ namespace Neurocle.Tests
             typeof(ImageCanvasControl).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
         }
 
+        private static void RaiseScroll(ScrollBar scrollBar, ScrollEventArgs args)
+        {
+            typeof(ScrollBar).GetMethod("OnScroll", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(scrollBar, new object[] { args });
+        }
+
         private static void RaiseKey(Control control, KeyEventArgs args)
         {
             typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
@@ -2115,7 +2274,16 @@ namespace Neurocle.Tests
         private static void AssertCanvasIsUsable(Control canvas, TabPage page)
         {
             Assert.IsTrue(canvas.Width > 0, "The canvas has no horizontal working area.");
-            Assert.IsTrue(page.ClientRectangle.Contains(canvas.Bounds), "The canvas exceeds its page.");
+            Control host = CanvasHost(canvas);
+            Assert.IsTrue(ReferenceEquals(page, host.Parent), "The canvas host is not on the expected page.");
+            Assert.IsTrue(host.Width > 0 && host.Height > 0, "The canvas host has no usable area.");
+            Assert.IsTrue(page.ClientRectangle.Contains(host.Bounds), "The canvas host exceeds its page.");
+            Assert.IsTrue(canvas.Parent.ClientRectangle.Contains(canvas.Bounds), "The canvas exceeds its layout area.");
+        }
+
+        private static CanvasScrollHost CanvasHost(Control canvas)
+        {
+            return (CanvasScrollHost)canvas.Parent.Parent;
         }
 
         private static IEnumerable<T> Descendants<T>(Control control) where T : Control
