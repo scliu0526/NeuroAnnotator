@@ -41,6 +41,7 @@ namespace Neurocle.WinForms
         private PointF segCursor;
         private PointF toolCursor;
         private Point lastMousePosition;
+        private bool pointerInside;
         private bool hasToolCursor;
         private IReadOnlyList<SegRegion> segRegions = new List<SegRegion>();
         private IReadOnlyDictionary<string, AnnotationClass> segClasses = new Dictionary<string, AnnotationClass>();
@@ -642,6 +643,7 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseMove(MouseEventArgs args)
         {
+            pointerInside = true;
             lastMousePosition = args.Location;
             bool hadToolCursor = hasToolCursor;
             Rectangle oldCursorBounds = hadToolCursor ? GetToolCursorBounds(toolCursor) : Rectangle.Empty;
@@ -711,7 +713,7 @@ namespace Neurocle.WinForms
 
         private void RefreshToolCursor()
         {
-            hasToolCursor = image != null;
+            hasToolCursor = pointerInside && image != null;
             if (!hasToolCursor) return;
             PointF imagePoint = viewport.ScreenToImage(lastMousePosition);
             bool widthTool = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
@@ -720,6 +722,7 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseLeave(EventArgs args)
         {
+            pointerInside = false;
             hasToolCursor = false;
             Invalidate();
             base.OnMouseLeave(args);

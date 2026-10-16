@@ -842,6 +842,16 @@ namespace Neurocle.Tests
                     WaitForImage(canvas, imagePath);
                     Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb(), "Switching images should clear the previous cursor position.");
 
+                    canvas.SetZoomPercent(100);
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb());
+                    RaiseEvent(canvas, "OnMouseLeave", EventArgs.Empty);
+                    canvas.SetZoomPercent(125);
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "Zooming after pointer leave should not restore a stale cursor.");
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "Moving back over the canvas should restore its cursor.");
+
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
                     Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
                 }
@@ -1652,6 +1662,11 @@ namespace Neurocle.Tests
         }
 
         private static void RaiseMouse(Control control, string methodName, MouseEventArgs args)
+        {
+            typeof(ImageCanvasControl).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
+        }
+
+        private static void RaiseEvent(Control control, string methodName, EventArgs args)
         {
             typeof(ImageCanvasControl).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
         }
