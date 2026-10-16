@@ -871,6 +871,73 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Obd_rectangle_and_seg_rectangle_ellipse_previews_fill_at_fixed_forty_percent()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), PreviewColor = Color.FromArgb(200, 80, 40) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    foreach (ImageCanvasControl.SegToolKind? tool in new ImageCanvasControl.SegToolKind?[] { null, ImageCanvasControl.SegToolKind.Rect, ImageCanvasControl.SegToolKind.Ellipse })
+                    {
+                        Color? baseline = null;
+                        foreach (float resultOpacity in new[] { 0f, 0.4f, 1f })
+                        {
+                            canvas.ObdEnabled = !tool.HasValue;
+                            canvas.ObdSelectMode = false;
+                            canvas.SegEnabled = tool.HasValue;
+                            canvas.SegTool = tool;
+                            canvas.ObdOpacity = resultOpacity;
+                            canvas.SegOpacity = resultOpacity;
+                            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                            RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 60, 60, 0));
+
+                            Color fill = RenderPixel(canvas, 40, 40);
+                            AssertFortyPercentBlend(fill, canvas.PreviewColor);
+                            Point edge = tool == ImageCanvasControl.SegToolKind.Ellipse ? new Point(40, 20) : new Point(20, 40);
+                            Assert.IsTrue(RenderPixel(canvas, edge.X, edge.Y).R > 0, "{0} should show a visible outline.", tool.HasValue ? tool.ToString() : "OBD rectangle");
+                            if (baseline.HasValue) Assert.AreEqual(baseline.Value.ToArgb(), fill.ToArgb(), "Preview fill should not follow result opacity for {0}.", tool.HasValue ? tool.ToString() : "OBD rectangle");
+                            else baseline = fill;
+
+                            RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+                            AssertFortyPercentBlend(RenderPixel(canvas, 30, 30), canvas.PreviewColor);
+                            Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 50, 50).ToArgb(), "Preview should follow the pointer for {0}.", tool.HasValue ? tool.ToString() : "OBD rectangle");
+
+                            RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+                            Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 40, 40).ToArgb(), "Preview should disappear after release.");
+                        }
+                    }
+
+                    foreach (ImageCanvasControl.SegToolKind? tool in new ImageCanvasControl.SegToolKind?[] { null, ImageCanvasControl.SegToolKind.Rect, ImageCanvasControl.SegToolKind.Ellipse })
+                    {
+                        canvas.ObdEnabled = !tool.HasValue;
+                        canvas.SegEnabled = tool.HasValue;
+                        canvas.SegTool = tool;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 60, 60, 0));
+                        AssertFortyPercentBlend(RenderPixel(canvas, 40, 40), canvas.PreviewColor);
+                        canvas.DiscardUnfinishedShape();
+                        Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 40, 40).ToArgb(), "Preview should disappear after cancellation for {0}.", tool.HasValue ? tool.ToString() : "OBD rectangle");
+                    }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Annotation_and_eraser_previews_use_the_current_class_color_at_fixed_forty_percent()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

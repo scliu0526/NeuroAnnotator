@@ -298,7 +298,11 @@ namespace Neurocle.WinForms
             if (obdPreview.HasValue)
             {
                 RectangleF rectangle = ToScreenRectangle(obdPreview.Value.X, obdPreview.Value.Y, obdPreview.Value.Width, obdPreview.Value.Height);
-                using (var pen = new Pen(PreviewTrackColor, 1f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                RectangleF interior = rectangle;
+                interior.Inflate(-1f, -1f);
+                if (interior.Width > 0f && interior.Height > 0f)
+                    using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillRectangle(fill, interior);
+                using (var pen = new Pen(PreviewTrackColor, 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             }
             foreach (SegRegion stored in segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Concat(segRegions.Where(item => selectedSegIds.Contains(item.Id))))
             {
@@ -341,11 +345,21 @@ namespace Neurocle.WinForms
             if (segPreview.HasValue)
             {
                 RectangleF rectangle = ToScreenRectangle(segPreview.Value.X, segPreview.Value.Y, segPreview.Value.Width, segPreview.Value.Height);
-                float width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
-                using (var pen = new Pen(PreviewTrackColor, width))
+                RectangleF interior = rectangle;
+                interior.Inflate(-1f, -1f);
+                using (var fill = new SolidBrush(PreviewTrackColor))
+                using (var pen = new Pen(PreviewTrackColor, 2f))
                 {
-                    if (SegTool == SegToolKind.Ellipse) args.Graphics.DrawEllipse(pen, rectangle);
-                    else args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                    if (SegTool == SegToolKind.Ellipse)
+                    {
+                        if (interior.Width > 0f && interior.Height > 0f) args.Graphics.FillEllipse(fill, interior);
+                        args.Graphics.DrawEllipse(pen, rectangle);
+                    }
+                    else
+                    {
+                        if (interior.Width > 0f && interior.Height > 0f) args.Graphics.FillRectangle(fill, interior);
+                        args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                    }
                 }
             }
             if (segPath.Count > 0)
