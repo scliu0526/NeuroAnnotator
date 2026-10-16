@@ -299,6 +299,7 @@ namespace Neurocle.WinForms
                 if (args.Control || HasTextInputFocus() || (pages.SelectedTab != imagesPage && pages.SelectedTab != annotationPage)) return;
                 if (args.KeyCode == Keys.F)
                 {
+                    activeCanvas.CancelInProgressGesture();
                     activeCanvas.FitToWindow();
                     args.Handled = true;
                     args.SuppressKeyPress = true;

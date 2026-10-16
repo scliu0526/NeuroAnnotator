@@ -321,6 +321,132 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void F_fits_both_canvas_pages_in_every_annotation_tool_mode()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                var pages = form.Controls.OfType<TabControl>().Single();
+                form.AnnotationCanvas.SegEnabled = true;
+                foreach (ImageCanvasControl.SegToolKind tool in new[]
+                {
+                    ImageCanvasControl.SegToolKind.Select,
+                    ImageCanvasControl.SegToolKind.Rect,
+                    ImageCanvasControl.SegToolKind.Ellipse,
+                    ImageCanvasControl.SegToolKind.Polygon,
+                    ImageCanvasControl.SegToolKind.Brush,
+                    ImageCanvasControl.SegToolKind.Line,
+                    ImageCanvasControl.SegToolKind.Eraser
+                })
+                {
+                    pages.SelectedIndex = 1;
+                    form.AnnotationCanvas.SegTool = tool;
+                    form.AnnotationCanvas.SetZoomPercent(150);
+                    RaiseKey(form, new KeyEventArgs(Keys.F));
+                    Assert.IsTrue(form.AnnotationCanvas.ViewState.IsFitted, "F should fit the canvas in {0} mode.", tool);
+                }
+
+                form.AnnotationCanvas.SegEnabled = false;
+                form.AnnotationCanvas.ObdEnabled = true;
+                foreach (bool selectMode in new[] { false, true })
+                {
+                    form.AnnotationCanvas.ObdSelectMode = selectMode;
+                    form.AnnotationCanvas.SetZoomPercent(150);
+                    RaiseKey(form, new KeyEventArgs(Keys.F));
+                    Assert.IsTrue(form.AnnotationCanvas.ViewState.IsFitted, "F should fit the canvas in OBD {0} mode.", selectMode ? "selection" : "drawing");
+                }
+
+                pages.SelectedIndex = 0;
+                form.ImageCanvas.SetZoomPercent(150);
+                RaiseKey(form, new KeyEventArgs(Keys.F));
+                Assert.IsTrue(form.ImageCanvas.ViewState.IsFitted, "F should fit the image page.");
+            }
+        }
+
+        [STATestMethod]
+        public void F_discards_unfinished_seg_draw_and_move_gestures_without_submitting_them()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "canvas.png");
+            try
+            {
+                Directory.CreateDirectory(directory);
+                CreateSolidImage(path, Color.Black, 40);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    var pages = form.Controls.OfType<TabControl>().Single();
+                    pages.SelectedIndex = 1;
+                    ImageCanvasControl canvas = form.AnnotationCanvas;
+                    canvas.CreateControl();
+                    canvas.LoadImage(path);
+                    WaitForImage(canvas, path);
+                    canvas.SegEnabled = true;
+
+                    int created = 0;
+                    canvas.SegRegionCreated += (type, rectangle) => created++;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
+                    Point start = ImagePointToScreen(canvas, 5, 5);
+                    Point end = ImagePointToScreen(canvas, 25, 25);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+                    RaiseKey(form, new KeyEventArgs(Keys.F));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
+                    Assert.AreEqual(0, created, "F should cancel the unfinished rectangle before mouse release.");
+
+                    int pathsCreated = 0;
+                    canvas.SegPathCreated += (type, points, width) => pathsCreated++;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    start = ImagePointToScreen(canvas, 5, 5);
+                    end = ImagePointToScreen(canvas, 25, 25);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+                    RaiseKey(form, new KeyEventArgs(Keys.F));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
+                    Assert.AreEqual(0, pathsCreated, "F should cancel the unfinished brush path before mouse release.");
+
+                    int obdCreated = 0;
+                    canvas.ObdRectangleCreated += rectangle => obdCreated++;
+                    canvas.SegEnabled = false;
+                    canvas.ObdEnabled = true;
+                    canvas.ObdSelectMode = false;
+                    start = ImagePointToScreen(canvas, 5, 5);
+                    end = ImagePointToScreen(canvas, 25, 25);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+                    RaiseKey(form, new KeyEventArgs(Keys.F));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
+                    Assert.AreEqual(0, obdCreated, "F should cancel the unfinished OBD rectangle before mouse release.");
+
+                    SegRegion original = new SegRegion("region", "set", "image", "class", SegRegionType.Rect, 5, 5, 15, 15, 0);
+                    canvas.ObdEnabled = false;
+                    canvas.SegEnabled = true;
+                    canvas.SegRegions = new[] { original };
+                    canvas.SelectAllSeg();
+                    int changed = 0;
+                    canvas.SegRegionsChanged += regions => changed++;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    start = ImagePointToScreen(canvas, 10, 10);
+                    end = ImagePointToScreen(canvas, 18, 18);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+                    RaiseKey(form, new KeyEventArgs(Keys.F));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
+                    Assert.AreEqual(0, changed, "F should discard a move preview without submitting an annotation change.");
+                    Assert.AreEqual(5, canvas.SegRegions.Single().X, 0.001f);
+                    Assert.AreEqual(5, canvas.SegRegions.Single().Y, 0.001f);
+                    CollectionAssert.Contains(canvas.SelectedSegIds.ToArray(), original.Id);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Up_and_down_select_images_in_visible_order_without_intercepting_text_input()
         {
             ProjectImage[] images =

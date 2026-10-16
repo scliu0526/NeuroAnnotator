@@ -277,6 +277,13 @@ namespace Neurocle.WinForms
 
         public void DiscardUnfinishedShape()
         {
+            CancelInProgressGesture();
+            selectedSegIds.Clear();
+            selectedSegId = null;
+        }
+
+        internal void CancelInProgressGesture()
+        {
             obdPreview = null;
             obdPreviews = new Dictionary<string, RectangleF>();
             selectionStart = null;
@@ -285,12 +292,11 @@ namespace Neurocle.WinForms
             segPath.Clear();
             segPathDragging = false;
             segLineStart = null;
-            selectedSegIds.Clear();
-            selectedSegId = null;
             segPreviews = new Dictionary<string, SegRegion>();
             segDrag = SegDragKind.None;
             activeObd = null;
             obdDrag = ObdDragKind.None;
+            panning = false;
             Capture = false;
             Invalidate();
         }
