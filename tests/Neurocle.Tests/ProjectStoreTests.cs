@@ -1395,6 +1395,120 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Adding_seg_region_copies_preserves_overlapping_regions_skips_bounds_and_uses_one_undo_redo_step()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string smallPath = Path.Combine(Path.GetDirectoryName(path), "small.png");
+            string largePath = Path.Combine(Path.GetDirectoryName(path), "large.png");
+            string exportedJson = Path.Combine(Path.GetDirectoryName(path), "regions.json");
+            string setId = null;
+            string imageId = null;
+            string smallImageId = null;
+            string largeImageId = null;
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 30, 20);
+                CreateBitmap(smallPath, Color.Green, ImageFormat.Png, 12, 8);
+                CreateBitmap(largePath, Color.Blue, ImageFormat.Png, 40, 30);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    ProjectImage small = store.ImportFiles(new[] { smallPath })[0];
+                    ProjectImage large = store.ImportFiles(new[] { largePath })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    setId = set.Id;
+                    imageId = image.Id;
+                    smallImageId = small.Id;
+                    largeImageId = large.Id;
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    SegRegion rectangle = store.AddSegRegion(set.Id, image.Id, value.Id, SegRegionType.Rect, 1, 2, 5, 4);
+                    SegRegion ellipse = store.AddSegRegion(set.Id, image.Id, value.Id, SegRegionType.Ellipse, 20, 5, 2, 2);
+                    SegRegion polygon = store.AddSegPath(set.Id, image.Id, value.Id, SegRegionType.PolyGon, new[] { new SegPoint(10, 10), new SegPoint(15, 10), new SegPoint(12, 15) }, 0);
+                    SegRegion line = store.AddSegPath(set.Id, image.Id, value.Id, SegRegionType.PolyLine, new[] { new SegPoint(20, 15), new SegPoint(25, 15) }, 3);
+                    SegRegion[] originals = { rectangle, ellipse, polygon, line };
+
+                    IReadOnlyList<SegRegion> copies = store.AddSegRegionCopies(set.Id, new[] { image.Id, small.Id, large.Id }, originals);
+
+                    Assert.AreEqual(9, copies.Count);
+                    Assert.AreEqual(9, copies.Select(region => region.Id).Distinct(StringComparer.Ordinal).Count());
+                    CollectionAssert.AreEqual(new[] { image.Id, image.Id, image.Id, image.Id, small.Id, large.Id, large.Id, large.Id, large.Id }, copies.Select(region => region.ImageId).ToArray());
+                    CollectionAssert.AreEqual(new[] { SegRegionType.Rect, SegRegionType.Ellipse, SegRegionType.PolyGon, SegRegionType.PolyLine, SegRegionType.Rect, SegRegionType.Rect, SegRegionType.Ellipse, SegRegionType.PolyGon, SegRegionType.PolyLine }, copies.Select(region => region.Type).ToArray());
+                    Assert.AreEqual(8, store.GetSegRegions(set.Id, image.Id).Count, "An exact same-class overlap must remain an independent copy.");
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, small.Id).Count, "Only the rectangle fits the small image.");
+                    Assert.AreEqual(4, store.GetSegRegions(set.Id, large.Id).Count);
+                    foreach (SegRegion expected in originals)
+                    {
+                        SegRegion copy = copies.Single(region => region.ImageId == large.Id && region.Type == expected.Type);
+                        Assert.AreEqual(expected.ClassId, copy.ClassId);
+                        Assert.AreEqual(expected.X, copy.X);
+                        Assert.AreEqual(expected.Y, copy.Y);
+                        Assert.AreEqual(expected.Width, copy.Width);
+                        Assert.AreEqual(expected.Height, copy.Height);
+                        Assert.AreEqual(expected.StrokeWidth, copy.StrokeWidth);
+                        CollectionAssert.AreEqual(expected.Points.Select(point => new Point(point.X, point.Y)).ToArray(), copy.Points.Select(point => new Point(point.X, point.Y)).ToArray());
+                    }
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(originals.Select(region => region.Id).ToArray(), store.GetSegRegions(set.Id, image.Id).Select(region => region.Id).ToArray());
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, small.Id).Count);
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, large.Id).Count);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    Assert.AreEqual(8, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, small.Id).Count);
+                    Assert.AreEqual(4, store.GetSegRegions(set.Id, large.Id).Count);
+                    store.ExportAnnotationJson(set.Id, exportedJson);
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    Assert.AreEqual(8, reopened.GetSegRegions(setId, imageId).Count);
+                    Assert.AreEqual(1, reopened.GetSegRegions(setId, smallImageId).Count);
+                    Assert.AreEqual(4, reopened.GetSegRegions(setId, largeImageId).Count);
+                    AnnotationSet imported = reopened.ImportAnnotationJson(File.ReadAllText(exportedJson), "regions roundtrip", false);
+                    Assert.AreEqual(8, reopened.GetSegRegions(imported.Id, imageId).Count, "JSON roundtrip must retain same-class overlapping copies as separate regions.");
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); if (File.Exists(smallPath)) File.Delete(smallPath); if (File.Exists(largePath)) File.Delete(largePath); if (File.Exists(exportedJson)) File.Delete(exportedJson); }
+        }
+
+        [TestMethod]
+        public void Seg_region_copy_batch_rolls_back_all_targets_when_persisted_insert_fails()
+        {
+            string path = TemporaryProjectPath();
+            string firstSource = Path.Combine(Path.GetDirectoryName(path), "first.png");
+            string secondSource = Path.Combine(Path.GetDirectoryName(path), "second.png");
+            try
+            {
+                CreateBitmap(firstSource, Color.Red, ImageFormat.Png, 40, 30);
+                CreateBitmap(secondSource, Color.Blue, ImageFormat.Png, 40, 30);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage firstImage = store.ImportFiles(new[] { firstSource })[0];
+                    ProjectImage secondImage = store.ImportFiles(new[] { secondSource })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    SegRegion source = store.AddSegPath(set.Id, firstImage.Id, value.Id, SegRegionType.PolyGon, new[] { new SegPoint(2, 3), new SegPoint(20, 3), new SegPoint(10, 20) }, 0);
+                    bool canUndoBefore = store.CanUndo(set.Id);
+                    store.CompleteOperation((db, transaction) =>
+                    {
+                        using (var command = db.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "CREATE TRIGGER FailSecondSegCopy BEFORE INSERT ON SegRegion WHEN NEW.ImageId = '" + secondImage.Id + "' BEGIN SELECT RAISE(ABORT, 'injected copy failure'); END;";
+                            command.ExecuteNonQuery();
+                        }
+                    });
+
+                    Assert.ThrowsException<SqliteException>(() => store.AddSegRegionCopies(set.Id, new[] { firstImage.Id, secondImage.Id }, new[] { source }));
+                    CollectionAssert.AreEqual(new[] { source.Id }, store.GetSegRegions(set.Id, firstImage.Id).Select(region => region.Id).ToArray());
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, secondImage.Id).Count);
+                    Assert.AreEqual(canUndoBefore, store.CanUndo(set.Id), "A failed batch must not leave a history entry.");
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(firstSource)) File.Delete(firstSource); if (File.Exists(secondSource)) File.Delete(secondSource); }
+        }
+
+        [TestMethod]
         public void Seg_rectangles_and_ellipses_are_bounded_undoable_and_persist_after_reopen()
         {
             string path = TemporaryProjectPath();

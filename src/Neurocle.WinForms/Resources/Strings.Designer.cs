@@ -138,6 +138,7 @@ namespace Neurocle.WinForms.Resources
         internal static string DeleteAnnotationClass { get { return ResourceManager.GetString("DeleteAnnotationClass", CultureInfo.CurrentUICulture); } }
         internal static string DeleteAnnotationClassPrompt { get { return ResourceManager.GetString("DeleteAnnotationClassPrompt", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationValidationFailed { get { return ResourceManager.GetString("AnnotationValidationFailed", CultureInfo.CurrentUICulture); } }
+        internal static string CopiedAnnotationClassDeleted { get { return ResourceManager.GetString("CopiedAnnotationClassDeleted", CultureInfo.CurrentUICulture); } }
         internal static string Ok { get { return ResourceManager.GetString("Ok", CultureInfo.CurrentUICulture); } }
         internal static string Diagnostics { get { return ResourceManager.GetString("Diagnostics", CultureInfo.CurrentUICulture); } }
         internal static string DiagnosticsTitle { get { return ResourceManager.GetString("DiagnosticsTitle", CultureInfo.CurrentUICulture); } }

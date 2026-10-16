@@ -2200,6 +2200,234 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Ctrl_c_and_ctrl_v_copy_seg_regions_to_selected_images_as_independent_regions()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string sourcePath = Path.Combine(directory, "source.png");
+            string targetPath = Path.Combine(directory, "target.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(sourcePath, Color.Red, 100);
+                CreateSolidImage(targetPath, Color.Blue, 100);
+                store = ProjectStore.Create(path);
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                ProjectImage[] images = store.ImportFiles(new[] { sourcePath, targetPath }).ToArray();
+                ProjectImage sourceImage = images.Single(image => image.OriginalFileName == "source.png");
+                ProjectImage targetImage = images.Single(image => image.OriginalFileName == "target.png");
+                SegRegion first = store.AddSegRegion(set.Id, sourceImage.Id, annotationClass.Id, SegRegionType.Rect, 10, 12, 20, 18);
+                SegRegion second = store.AddSegPath(set.Id, sourceImage.Id, annotationClass.Id, SegRegionType.PolyGon, new[] { new SegPoint(40, 40), new SegPoint(60, 40), new SegPoint(50, 60) }, 0);
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    ListView imageList = Field<ListView>(form.ImageBrowser, "list");
+                    int sourceIndex = form.ImageBrowser.Rows.Select((row, index) => new { row, index }).Single(item => item.row.Image.Id == sourceImage.Id).index;
+                    int targetIndex = form.ImageBrowser.Rows.Select((row, index) => new { row, index }).Single(item => item.row.Image.Id == targetImage.Id).index;
+                    imageList.SelectedIndices.Clear();
+                    imageList.SelectedIndices.Add(sourceIndex);
+                    imageList.SelectedIndices.Add(targetIndex);
+                    System.Windows.Forms.Application.DoEvents();
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(sourceImage, Path.Combine(store.ImagesDirectory, sourceImage.ManagedFileName)));
+                    Field<Button>(form, "segSelect").PerformClick();
+                    form.AnnotationCanvas.SelectAllSeg();
+
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+
+                    SegRegion[] sourceResults = store.GetSegRegions(set.Id, sourceImage.Id).ToArray();
+                    SegRegion[] targetResults = store.GetSegRegions(set.Id, targetImage.Id).ToArray();
+                    Assert.AreEqual(4, sourceResults.Length, "Same-class copies exactly overlapping their originals must remain separate.");
+                    Assert.AreEqual(2, targetResults.Length);
+                    SegRegion[] sourceCopies = sourceResults.Where(region => region.Id != first.Id && region.Id != second.Id).ToArray();
+                    Assert.AreEqual(2, sourceCopies.Length);
+                    Assert.AreNotEqual(first.Id, sourceCopies.Single(region => region.Type == SegRegionType.Rect).Id);
+                    CollectionAssert.AreEqual(new[] { SegRegionType.Rect, SegRegionType.PolyGon }, targetResults.Select(region => region.Type).ToArray());
+                    Assert.AreEqual(sourceImage.Id, Field<string>(form, "selectedImageId"), "Pasting must not switch the current image.");
+                    CollectionAssert.AreEquivalent(new[] { sourceImage.Id, targetImage.Id }, form.ImageBrowser.SelectedImageIds.ToArray());
+                    Assert.AreEqual(2, form.AnnotationCanvas.SelectedSegIds.Count, "Copies on the current image should be selected.");
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEquivalent(new[] { first.Id, second.Id }, store.GetSegRegions(set.Id, sourceImage.Id).Select(region => region.Id).ToArray());
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, targetImage.Id).Count);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    Assert.AreEqual(4, store.GetSegRegions(set.Id, sourceImage.Id).Count);
+                    Assert.AreEqual(2, store.GetSegRegions(set.Id, targetImage.Id).Count);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_v_shows_toast_and_changes_nothing_when_a_copied_seg_class_was_deleted()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                store = ProjectStore.Create(path);
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass copiedClass = store.GetClasses(set.Id).Single();
+                store.AddClass(set.Id, "remaining", "#123456");
+                ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                store.AddSegRegion(set.Id, image.Id, copiedClass.Id, SegRegionType.Rect, 10, 12, 20, 18);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    form.ImageBrowser.SelectImage(image.Id);
+                    System.Windows.Forms.Application.DoEvents();
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    Field<Button>(form, "segSelect").PerformClick();
+                    form.AnnotationCanvas.SelectAllSeg();
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
+
+                    store.DeleteClass(copiedClass.Id);
+                    Invoke(form, "RefreshAnnotationClasses");
+                    bool canUndoBeforePaste = store.CanUndo(set.Id);
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.IsTrue(Field<Label>(form, "toastMessage").Visible);
+                    Assert.AreEqual("複製標註所屬類別已刪除，無法貼上。", Field<Label>(form, "toastMessage").Text);
+                    Assert.AreEqual(canUndoBeforePaste, store.CanUndo(set.Id), "A rejected paste must not create an undo record.");
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_v_shows_toast_and_changes_nothing_when_a_copied_obd_class_was_deleted()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                store = ProjectStore.Create(path);
+                AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                AnnotationClass copiedClass = store.GetClasses(set.Id).Single();
+                store.AddClass(set.Id, "remaining", "#123456");
+                ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                store.AddObdAnnotation(set.Id, image.Id, copiedClass.Id, 10, 12, 20, 18);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    form.ImageBrowser.SelectImage(image.Id);
+                    System.Windows.Forms.Application.DoEvents();
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    form.AnnotationCanvas.SelectAllObd();
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
+
+                    store.DeleteClass(copiedClass.Id);
+                    Invoke(form, "RefreshAnnotationClasses");
+                    bool canUndoBeforePaste = store.CanUndo(set.Id);
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, image.Id).Count);
+                    Assert.IsTrue(Field<Label>(form, "toastMessage").Visible);
+                    Assert.AreEqual("複製標註所屬類別已刪除，無法貼上。", Field<Label>(form, "toastMessage").Text);
+                    Assert.AreEqual(canUndoBeforePaste, store.CanUndo(set.Id), "A rejected paste must not create an undo record.");
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_c_replaces_the_previous_copied_annotation_type()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "image.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                store = ProjectStore.Create(path);
+                AnnotationSet obdSet = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                AnnotationClass obdClass = store.GetClasses(obdSet.Id).Single();
+                AnnotationSet segSet = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass segClass = store.GetClasses(segSet.Id).Single();
+                ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                store.AddObdAnnotation(obdSet.Id, image.Id, obdClass.Id, 10, 12, 20, 18);
+                store.AddSegRegion(segSet.Id, image.Id, segClass.Id, SegRegionType.Rect, 40, 42, 20, 18);
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, obdSet.Id);
+                    form.ImageBrowser.SelectImage(image.Id);
+                    System.Windows.Forms.Application.DoEvents();
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    form.AnnotationCanvas.SelectAllObd();
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
+
+                    sets.SelectedItem = AnnotationSet(sets, segSet.Id);
+                    System.Windows.Forms.Application.DoEvents();
+                    Field<Button>(form, "segSelect").PerformClick();
+                    form.AnnotationCanvas.SelectAllSeg();
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
+
+                    sets.SelectedItem = AnnotationSet(sets, obdSet.Id);
+                    System.Windows.Forms.Application.DoEvents();
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+                    Assert.AreEqual(1, store.GetObdAnnotations(obdSet.Id, image.Id).Count, "The earlier OBD snapshot must be replaced by the later SEG copy.");
+
+                    sets.SelectedItem = AnnotationSet(sets, segSet.Id);
+                    System.Windows.Forms.Application.DoEvents();
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.V));
+                    Assert.AreEqual(2, store.GetSegRegions(segSet.Id, image.Id).Count, "The most recently copied SEG snapshot should still paste in its own set.");
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Ctrl_click_adds_and_removes_annotations_only_in_selection_modes()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

@@ -148,6 +148,17 @@ namespace Neurocle.WinForms
             selectedSegId = selectedSegIds.FirstOrDefault();
             Invalidate();
         }
+        public void SelectSegRegions(IEnumerable<string> regionIds)
+        {
+            selectedSegIds.Clear();
+            if (AnnotationsVisible && regionIds != null)
+            {
+                HashSet<string> existingIds = new HashSet<string>(segRegions.Select(region => region.Id), StringComparer.Ordinal);
+                foreach (string id in regionIds) if (existingIds.Contains(id)) selectedSegIds.Add(id);
+            }
+            selectedSegId = selectedSegIds.FirstOrDefault();
+            Invalidate();
+        }
         public IReadOnlyList<ObdAnnotation> ObdAnnotations
         {
             get { return obdAnnotations; }

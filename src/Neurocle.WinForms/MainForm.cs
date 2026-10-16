@@ -17,6 +17,8 @@ namespace Neurocle.WinForms
         private readonly DiagnosticLog diagnosticLog;
         private IProjectSession project;
         private readonly Label status;
+        private Label toastMessage;
+        private Timer toastTimer;
         private readonly ToolStripMenuItem projectMenu;
         private readonly ImageBrowserControl imageBrowser;
         private readonly ImageCanvasControl imageCanvas;
@@ -59,6 +61,7 @@ namespace Neurocle.WinForms
         private bool synchronizingAnnotationSetSelection;
         private string displayedAnnotationSetId;
         private IReadOnlyList<ObdAnnotation> copiedObdAnnotations = new ObdAnnotation[0];
+        private IReadOnlyList<SegRegion> copiedSegRegions = new SegRegion[0];
         private Func<string, bool> confirmImageDeletion;
 
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
@@ -138,6 +141,7 @@ namespace Neurocle.WinForms
             imagesPage.Controls.Add(imageCanvasHost);
             imagesPage.Controls.Add(imageHeader);
             annotationPage = new TabPage(Strings.AnnotationPage);
+            annotationPage.Resize += (sender, args) => PositionToastMessage();
             var annotationHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
             annotationHeader.SizeChanged += (sender, args) => imageHeader.Height = annotationHeader.Height;
             annotationSets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
@@ -290,14 +294,14 @@ namespace Neurocle.WinForms
             {
                 if (importInProgress || exportInProgress || annotationOperationInProgress) args.Cancel = true;
             };
-            FormClosed += (sender, args) => project?.Dispose();
+            FormClosed += (sender, args) => { DisposeToastMessage(); project?.Dispose(); };
             KeyDown += (sender, args) =>
             {
                 if (!args.Control) return;
                 if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
                 else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
-                else if (args.KeyCode == Keys.C && !HasTextInputFocus()) CopySelectedObdAnnotations();
-                else if (args.KeyCode == Keys.V && !HasTextInputFocus()) PasteCopiedObdAnnotations();
+                else if (args.KeyCode == Keys.C && !HasTextInputFocus()) CopySelectedAnnotations();
+                else if (args.KeyCode == Keys.V && !HasTextInputFocus()) PasteCopiedAnnotations();
                 else if (args.KeyCode == Keys.A && pages.SelectedTab == annotationPage && !HasTextInputFocus()) SelectAllAnnotations();
                 else return;
                 args.Handled = true;
@@ -354,26 +358,95 @@ namespace Neurocle.WinForms
             else if (selected.Type == AnnotationSetType.Seg && canvas.SegEnabled) canvas.SelectAllSeg();
         }
 
-        private void CopySelectedObdAnnotations()
+        private void CopySelectedAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
-            if (pages.SelectedTab != annotationPage || selected == null || selected.Type != AnnotationSetType.Obd || !canvas.ObdSelectMode || canvas.SelectedObdIds.Count == 0) return;
-            copiedObdAnnotations = canvas.ObdAnnotations.Where(annotation => canvas.SelectedObdIds.Contains(annotation.Id)).ToArray();
+            if (pages.SelectedTab != annotationPage || selected == null) return;
+            if (selected.Type == AnnotationSetType.Obd && canvas.ObdSelectMode && canvas.SelectedObdIds.Count > 0)
+            {
+                copiedObdAnnotations = canvas.ObdAnnotations.Where(annotation => canvas.SelectedObdIds.Contains(annotation.Id)).ToArray();
+                copiedSegRegions = new SegRegion[0];
+            }
+            else if (selected.Type == AnnotationSetType.Seg && canvas.SegTool == ImageCanvasControl.SegToolKind.Select && canvas.SelectedSegIds.Count > 0)
+            {
+                copiedSegRegions = canvas.SegRegions.Where(region => canvas.SelectedSegIds.Contains(region.Id)).ToArray();
+                copiedObdAnnotations = new ObdAnnotation[0];
+            }
         }
 
-        private void PasteCopiedObdAnnotations()
+        private void PasteCopiedAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
             IReadOnlyList<string> targetImageIds = imageBrowser.SelectedImageIds;
-            if (annotationOperationInProgress || project == null || pages.SelectedTab != annotationPage || selected == null || selected.Type != AnnotationSetType.Obd || targetImageIds.Count == 0 || copiedObdAnnotations.Count == 0) return;
-            if (copiedObdAnnotations.Any(annotation => annotation.AnnotationSetId != selected.Id)) return;
-            RunAnnotationCommand(() =>
+            if (annotationOperationInProgress || project == null || pages.SelectedTab != annotationPage || selected == null || targetImageIds.Count == 0) return;
+            if (selected.Type == AnnotationSetType.Obd && copiedObdAnnotations.Count > 0 && copiedObdAnnotations.All(annotation => annotation.AnnotationSetId == selected.Id))
             {
-                IReadOnlyList<ObdAnnotation> copies = project.AddObdAnnotationCopies(selected.Id, targetImageIds, copiedObdAnnotations);
-                if (copies.Count == 0) return;
-                RefreshAnnotationClasses();
-                canvas.SelectObdAnnotations(copies.Where(annotation => annotation.ImageId == selectedImageId).Select(annotation => annotation.Id));
-            });
+                HashSet<string> classIds = new HashSet<string>(project.GetClasses(selected.Id).Select(value => value.Id), StringComparer.Ordinal);
+                if (copiedObdAnnotations.Any(annotation => !classIds.Contains(annotation.ClassId)))
+                {
+                    ShowToastMessage(Strings.CopiedAnnotationClassDeleted);
+                    return;
+                }
+            }
+            if (selected.Type == AnnotationSetType.Seg && copiedSegRegions.Count > 0 && copiedSegRegions.All(region => region.AnnotationSetId == selected.Id))
+            {
+                HashSet<string> classIds = new HashSet<string>(project.GetClasses(selected.Id).Select(value => value.Id), StringComparer.Ordinal);
+                if (copiedSegRegions.Any(region => !classIds.Contains(region.ClassId)))
+                {
+                    ShowToastMessage(Strings.CopiedAnnotationClassDeleted);
+                    return;
+                }
+            }
+            if (selected.Type == AnnotationSetType.Obd && copiedObdAnnotations.Count > 0 && copiedObdAnnotations.All(annotation => annotation.AnnotationSetId == selected.Id))
+            {
+                RunAnnotationCommand(() =>
+                {
+                    IReadOnlyList<ObdAnnotation> copies = project.AddObdAnnotationCopies(selected.Id, targetImageIds, copiedObdAnnotations);
+                    if (copies.Count == 0) return;
+                    RefreshAnnotationClasses();
+                    canvas.SelectObdAnnotations(copies.Where(annotation => annotation.ImageId == selectedImageId).Select(annotation => annotation.Id));
+                });
+            }
+            else if (selected.Type == AnnotationSetType.Seg && copiedSegRegions.Count > 0 && copiedSegRegions.All(region => region.AnnotationSetId == selected.Id))
+            {
+                RunAnnotationCommand(() =>
+                {
+                    IReadOnlyList<SegRegion> copies = project.AddSegRegionCopies(selected.Id, targetImageIds, copiedSegRegions);
+                    if (copies.Count == 0) return;
+                    RefreshAnnotationClasses();
+                    canvas.SelectSegRegions(copies.Where(region => region.ImageId == selectedImageId).Select(region => region.Id));
+                });
+            }
+        }
+
+        private void ShowToastMessage(string message)
+        {
+            DisposeToastMessage();
+            toastMessage = new Label { AutoSize = true, BackColor = Color.FromArgb(48, 48, 48), ForeColor = Color.White, Padding = new Padding(12, 8, 12, 8), Text = message };
+            annotationPage.Controls.Add(toastMessage);
+            PositionToastMessage();
+            toastMessage.BringToFront();
+            toastTimer = new Timer { Interval = 2600 };
+            toastTimer.Tick += (sender, args) =>
+            {
+                DisposeToastMessage();
+            };
+            toastTimer.Start();
+        }
+
+        private void DisposeToastMessage()
+        {
+            if (toastTimer != null) { toastTimer.Stop(); toastTimer.Dispose(); toastTimer = null; }
+            if (toastMessage == null) return;
+            annotationPage.Controls.Remove(toastMessage);
+            toastMessage.Dispose();
+            toastMessage = null;
+        }
+
+        private void PositionToastMessage()
+        {
+            if (toastMessage == null) return;
+            toastMessage.Location = new Point(Math.Max(0, (annotationPage.ClientSize.Width - toastMessage.Width) / 2), Math.Max(0, annotationPage.ClientSize.Height - toastMessage.Height - 24));
         }
 
         private void SetSegStrokeWidth(int width)

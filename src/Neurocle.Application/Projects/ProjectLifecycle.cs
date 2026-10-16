@@ -267,6 +267,7 @@ namespace Neurocle.Application.Projects
         void DeleteObdAnnotation(string annotationId);
         void DeleteObdAnnotations(IEnumerable<string> annotationIds);
         IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId, string imageId);
+        IReadOnlyList<SegRegion> AddSegRegionCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<SegRegion> regions);
         SegRegion AddSegRegion(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height);
         SegRegion AddSegPath(string annotationSetId, string imageId, string classId, SegRegionType type, IReadOnlyList<SegPoint> points, int strokeWidth);
         void EraseSegPath(string annotationSetId, string imageId, string classId, IReadOnlyList<SegPoint> points, int strokeWidth);

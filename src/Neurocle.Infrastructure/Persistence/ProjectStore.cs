@@ -1012,6 +1012,40 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        public IReadOnlyList<SegRegion> AddSegRegionCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<SegRegion> regions)
+        {
+            if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
+            if (regions == null) throw new ArgumentNullException(nameof(regions));
+            string[] targets = imageIds.Distinct(StringComparer.Ordinal).ToArray();
+            SegRegion[] source = regions.ToArray();
+            if (source.Length == 0 || targets.Length == 0) return new List<SegRegion>();
+            object type = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
+            if (type == null || Convert.ToInt32(type) != (int)AnnotationSetType.Seg) throw new ArgumentException("The annotation set is not SEG.", nameof(annotationSetId));
+            HashSet<string> classIds = new HashSet<string>(GetClasses(annotationSetId).Select(value => value.Id), StringComparer.Ordinal);
+            if (source.Any(value => value.AnnotationSetId != annotationSetId || !classIds.Contains(value.ClassId))) throw new ArgumentException("The source regions must use classes in the target annotation set.", nameof(regions));
+            var copies = new List<SegRegion>();
+            foreach (string imageId in targets)
+            {
+                Size imageSize = GetImageSize(imageId);
+                int zOrder = NextSegZOrder(annotationSetId, imageId);
+                foreach (SegRegion value in source)
+                {
+                    var candidate = new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, zOrder, value.Points.ToArray(), value.StrokeWidth);
+                    try { ValidateSegGeometry(imageSize, candidate); }
+                    catch (ArgumentException) { continue; }
+                    copies.Add(candidate);
+                    zOrder++;
+                }
+            }
+            if (copies.Count == 0) return copies;
+            CompleteOperation((db, transaction) => { foreach (SegRegion value in copies) InsertSegRegionRaw(db, transaction, value); });
+            Record(annotationSetId,
+                () => { foreach (SegRegion value in copies) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", value.Id)); },
+                () => { foreach (SegRegion value in copies) InsertSegRegionRaw(value); },
+                EstimateHistoryBytes(copies));
+            return copies;
+        }
+
         public SegRegion AddSegRegion(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height)
         {
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
