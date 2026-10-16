@@ -40,6 +40,7 @@ namespace Neurocle.WinForms
         private PointF? segLineStart;
         private PointF segCursor;
         private PointF toolCursor;
+        private Point lastMousePosition;
         private bool hasToolCursor;
         private IReadOnlyList<SegRegion> segRegions = new List<SegRegion>();
         private IReadOnlyDictionary<string, AnnotationClass> segClasses = new Dictionary<string, AnnotationClass>();
@@ -77,6 +78,7 @@ namespace Neurocle.WinForms
             {
                 if (value < 1 || value > 100) throw new ArgumentOutOfRangeException(nameof(value));
                 segStrokeWidth = value;
+                RefreshToolCursor();
                 Invalidate();
             }
         }
@@ -144,7 +146,7 @@ namespace Neurocle.WinForms
             DoubleBuffered = true;
             BackColor = Color.FromArgb(45, 45, 48);
             TabStop = true;
-            Resize += (sender, args) => { viewport.SetViewportSize(ClientSize); Invalidate(); RaiseViewChanged(); };
+            Resize += (sender, args) => { viewport.SetViewportSize(ClientSize); RefreshToolCursor(); Invalidate(); RaiseViewChanged(); };
         }
 
         public double Zoom { get { return viewport.Zoom; } }
@@ -156,6 +158,7 @@ namespace Neurocle.WinForms
         internal void SetViewState(CanvasViewState state)
         {
             viewport.SetView(state.Zoom, state.Origin, state.IsFitted);
+            RefreshToolCursor();
             Invalidate();
             RaiseViewChanged();
         }
@@ -242,10 +245,11 @@ namespace Neurocle.WinForms
             }
             catch (InvalidOperationException) { return false; }
         }
-        public void FitToWindow() { viewport.FitToWindow(); Invalidate(); RaiseViewChanged(); }
+        public void FitToWindow() { viewport.FitToWindow(); RefreshToolCursor(); Invalidate(); RaiseViewChanged(); }
         public void SetZoomPercent(double percent)
         {
             viewport.SetZoomAt(percent / 100d, new PointF(ClientSize.Width / 2f, ClientSize.Height / 2f));
+            RefreshToolCursor();
             Invalidate();
             RaiseViewChanged();
         }
@@ -404,6 +408,7 @@ namespace Neurocle.WinForms
 
         private void UpdateToolCursor()
         {
+            RefreshToolCursor();
             bool crosshair = ObdEnabled && !ObdSelectMode || SegEnabled && (SegTool == SegToolKind.Rect || SegTool == SegToolKind.Ellipse || SegTool == SegToolKind.Polygon);
             bool ring = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
             Cursor = crosshair || ring ? InvisibleCursor : Cursors.Arrow;
@@ -476,6 +481,7 @@ namespace Neurocle.WinForms
             if ((ModifierKeys & Keys.Control) == Keys.Control) viewport.SetZoomAt(viewport.Zoom * (args.Delta > 0 ? 1.1d : 1d / 1.1d), args.Location);
             else if ((ModifierKeys & Keys.Shift) == Keys.Shift) viewport.Pan(args.Delta / 120f * 48f, 0f);
             else viewport.Pan(0f, args.Delta / 120f * 48f);
+            RefreshToolCursor();
             Invalidate();
             RaiseViewChanged();
             base.OnMouseWheel(args);
@@ -636,20 +642,16 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseMove(MouseEventArgs args)
         {
+            lastMousePosition = args.Location;
             bool hadToolCursor = hasToolCursor;
             Rectangle oldCursorBounds = hadToolCursor ? GetToolCursorBounds(toolCursor) : Rectangle.Empty;
-            hasToolCursor = image != null;
-            if (image != null)
-            {
-                PointF imagePoint = viewport.ScreenToImage(args.Location);
-                bool widthTool = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
-                toolCursor = viewport.ImageToScreen(widthTool ? ClampSegPathPoint(imagePoint) : ClampPoint(imagePoint));
-            }
+            RefreshToolCursor();
             if (SegEnabled && image != null) segCursor = ClampPoint(viewport.ScreenToImage(args.Location));
             if (panning)
             {
                 viewport.Pan(args.X - previousPoint.X, args.Y - previousPoint.Y);
                 previousPoint = args.Location;
+                RefreshToolCursor();
                 Invalidate();
                 RaiseViewChanged();
             }
@@ -705,6 +707,15 @@ namespace Neurocle.WinForms
                 ? (float)(SegStrokeWidth * viewport.Zoom / 2d + 14f)
                 : 8f;
             return Rectangle.Round(new RectangleF(center.X - radius, center.Y - radius, radius * 2f, radius * 2f));
+        }
+
+        private void RefreshToolCursor()
+        {
+            hasToolCursor = image != null;
+            if (!hasToolCursor) return;
+            PointF imagePoint = viewport.ScreenToImage(lastMousePosition);
+            bool widthTool = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
+            toolCursor = viewport.ImageToScreen(widthTool ? ClampSegPathPoint(imagePoint) : ClampPoint(imagePoint));
         }
 
         protected override void OnMouseLeave(EventArgs args)

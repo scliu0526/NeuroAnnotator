@@ -833,12 +833,14 @@ namespace Neurocle.Tests
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 0, 50, 0));
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 0, 50).ToArgb(), "Brush cursor ring should reach the image edge after its center is clamped inward.");
+                    canvas.SegStrokeWidth = 30;
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 0, 50).ToArgb(), "Changing width with the pointer stationary should recalculate the edge-clamped center.");
 
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
-                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb());
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb());
                     canvas.LoadImage(imagePath);
                     WaitForImage(canvas, imagePath);
-                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "Switching images should clear the previous cursor position.");
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb(), "Switching images should clear the previous cursor position.");
 
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
                     Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
