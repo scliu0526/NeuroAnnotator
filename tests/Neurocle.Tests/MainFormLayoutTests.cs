@@ -796,12 +796,42 @@ namespace Neurocle.Tests
                     canvas.SegStrokeWidth = 12;
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
-                    Assert.AreEqual(Cursors.Cross, canvas.Cursor);
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "Brush width should define the cursor ring diameter at 100% zoom.");
 
                     canvas.SetZoomPercent(200);
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 38, 50).ToArgb(), "Cursor ring should scale with canvas zoom.");
+
+                    foreach (ImageCanvasControl.SegToolKind tool in new[]
+                    {
+                        ImageCanvasControl.SegToolKind.Rect,
+                        ImageCanvasControl.SegToolKind.Ellipse,
+                        ImageCanvasControl.SegToolKind.Polygon
+                    })
+                    {
+                        canvas.SegTool = tool;
+                        Assert.AreEqual(Cursors.Cross, canvas.Cursor, "{0} mode should use a crosshair.", tool);
+                    }
+
+                    canvas.SetZoomPercent(100);
+                    foreach (ImageCanvasControl.SegToolKind tool in new[]
+                    {
+                        ImageCanvasControl.SegToolKind.Brush,
+                        ImageCanvasControl.SegToolKind.Line,
+                        ImageCanvasControl.SegToolKind.Eraser
+                    })
+                    {
+                        canvas.SegTool = tool;
+                        Assert.AreEqual(Cursors.Arrow, canvas.Cursor, "{0} mode should keep the landing point at the arrow tip.", tool);
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                        Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "{0} should show a ring with the selected width.", tool);
+                        Assert.IsTrue(CountNonBlackPixels(canvas, new Rectangle(57, 30, 16, 16)) > 0, "{0} should show its + or − symbol.", tool);
+                    }
+
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 0, 50, 0));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 0, 50).ToArgb(), "Brush cursor ring should reach the image edge after its center is clamped inward.");
 
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
                     Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
@@ -1459,6 +1489,19 @@ namespace Neurocle.Tests
             {
                 canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
                 return rendered.GetPixel(x, y);
+            }
+        }
+
+        private static int CountNonBlackPixels(ImageCanvasControl canvas, Rectangle bounds)
+        {
+            using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                int count = 0;
+                for (int x = bounds.Left; x < bounds.Right; x++)
+                    for (int y = bounds.Top; y < bounds.Bottom; y++)
+                        if (rendered.GetPixel(x, y).ToArgb() != Color.Black.ToArgb()) count++;
+                return count;
             }
         }
 

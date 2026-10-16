@@ -400,7 +400,8 @@ namespace Neurocle.WinForms
 
         private void UpdateToolCursor()
         {
-            Cursor = SegEnabled && SegTool.HasValue && SegTool != SegToolKind.Select || ObdEnabled && !ObdSelectMode ? Cursors.Cross : Cursors.Arrow;
+            bool crosshair = ObdEnabled && !ObdSelectMode || SegEnabled && (SegTool == SegToolKind.Rect || SegTool == SegToolKind.Ellipse || SegTool == SegToolKind.Polygon);
+            Cursor = crosshair ? Cursors.Cross : Cursors.Arrow;
         }
 
         private Color PreviewTrackColor { get { return Color.FromArgb(ToAlpha(0.4f), previewColor); } }
@@ -596,6 +597,8 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseMove(MouseEventArgs args)
         {
+            bool hadToolCursor = hasToolCursor;
+            Rectangle oldCursorBounds = hadToolCursor ? GetToolCursorBounds(toolCursor) : Rectangle.Empty;
             hasToolCursor = image != null;
             if (image != null)
             {
@@ -649,8 +652,20 @@ namespace Neurocle.WinForms
                 }
                 Invalidate();
             }
-            else Invalidate();
+            else if (hasToolCursor)
+            {
+                Rectangle newCursorBounds = GetToolCursorBounds(toolCursor);
+                Invalidate(hadToolCursor ? Rectangle.Union(oldCursorBounds, newCursorBounds) : newCursorBounds);
+            }
             base.OnMouseMove(args);
+        }
+
+        private Rectangle GetToolCursorBounds(PointF center)
+        {
+            float radius = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser)
+                ? (float)(SegStrokeWidth * viewport.Zoom / 2d + 14f)
+                : 8f;
+            return Rectangle.Round(new RectangleF(center.X - radius, center.Y - radius, radius * 2f, radius * 2f));
         }
 
         protected override void OnMouseLeave(EventArgs args)
