@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -350,11 +351,17 @@ namespace Neurocle.WinForms
             if (segPath.Count > 0)
             {
                 PointF[] points = segPath.Select(viewport.ImageToScreen).ToArray();
-                float width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
+                float width = SegTool == SegToolKind.Polygon ? 3f : SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
                 using (var pen = new Pen(PreviewTrackColor, width))
                 {
+                    pen.LineJoin = LineJoin.Round;
                     if (points.Length > 1) args.Graphics.DrawLines(pen, points);
                     if (SegTool == SegToolKind.Polygon && points.Length > 2) args.Graphics.DrawLine(pen, points[points.Length - 1], points[0]);
+                }
+                if (SegTool == SegToolKind.Polygon)
+                {
+                    PointF start = points[0];
+                    using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillEllipse(fill, start.X - 4f, start.Y - 4f, 8f, 8f);
                 }
                 if (SegTool == SegToolKind.Polygon && DistanceInScreenPixels(segPath[0], segCursor) <= 8f)
                 {

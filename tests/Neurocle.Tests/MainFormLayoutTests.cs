@@ -962,6 +962,56 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Seg_polygon_preview_uses_three_pixel_track_and_eight_pixel_solid_start_at_each_zoom()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(300, 300))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(300, 300), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Polygon, PreviewColor = Color.White })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    foreach (double zoom in new[] { 100d, 200d })
+                    {
+                        canvas.DiscardUnfinishedShape();
+                        canvas.SetZoomPercent(zoom);
+                        Point start = ImagePointToScreen(canvas, 80, 150);
+                        Point end = ImagePointToScreen(canvas, 220, 150);
+                        Point third = ImagePointToScreen(canvas, 220, 220);
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, third.X, third.Y, 0));
+
+                        using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+                        {
+                            canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                            int strokePixels = Enumerable.Range(Math.Max(0, end.Y - 5), 11).Count(y => rendered.GetPixel(canvas.Width / 2, y).R > 80);
+                            int startPixels = Enumerable.Range(start.Y - 6, 13).Count(y => rendered.GetPixel(start.X, y).R > 80);
+                            Assert.IsTrue(Math.Abs(strokePixels - 3) <= 1, "Expected a 3px preview track at {0}% zoom, received {1}px.", zoom, strokePixels);
+                            Assert.IsTrue(startPixels >= 6 && startPixels <= 9, "Expected an approximately 8px solid start marker at {0}% zoom, received {1}px.", zoom, startPixels);
+                        }
+
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 10, 10, 0));
+                        Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, start.X, start.Y - 4).ToArgb(), "The start marker should disappear when polygon annotation is completed.");
+                    }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Closed_seg_brush_path_submits_a_filled_polygon()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
