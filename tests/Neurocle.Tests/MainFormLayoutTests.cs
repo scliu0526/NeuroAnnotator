@@ -91,7 +91,40 @@ namespace Neurocle.Tests
         {
             using (var form = new MainForm(new ProjectLifecycle()))
             {
-                Assert.IsTrue(form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single().DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "診斷資訊"));
+                Assert.IsTrue(form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "專案").DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "診斷資訊"));
+            }
+        }
+
+        [STATestMethod]
+        public void Help_menu_lists_shortcuts_with_their_scope_and_text_focus_conditions()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            using (var shortcuts = new KeyboardShortcutsForm())
+            {
+                ToolStripMenuItem help = form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "說明");
+                Assert.IsTrue(help.DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "快捷鍵"));
+                Assert.AreEqual(3, shortcuts.Shortcuts.Columns.Count);
+                string[] rows = shortcuts.Shortcuts.Items.Cast<ListViewItem>().Select(item => item.Text).ToArray();
+                CollectionAssert.IsSubsetOf(new[] { "Ctrl+Z", "Ctrl+Shift+Z", "Ctrl+Y", "Ctrl+C", "Ctrl+V", "Ctrl+A", "F", "[", "Z", "X", "↑／↓", "Delete", "Esc" }, rows);
+                StringAssert.Contains(shortcuts.Shortcuts.Items.Cast<ListViewItem>().Single(item => item.Text == "Ctrl+C").SubItems[2].Text, "文字輸入時");
+                StringAssert.Contains(shortcuts.Shortcuts.Items.Cast<ListViewItem>().Single(item => item.Text == "Ctrl+V").SubItems[2].Text, "多張圖片");
+                StringAssert.Contains(shortcuts.Shortcuts.Items.Cast<ListViewItem>().Single(item => item.Text == "Ctrl+V").SubItems[2].Text, "複製快照須屬於目前");
+                StringAssert.Contains(shortcuts.Shortcuts.Items.Cast<ListViewItem>().Single(item => item.Text == "Ctrl+A").SubItems[2].Text, "不限制目前工具");
+                StringAssert.Contains(shortcuts.Shortcuts.Items.Cast<ListViewItem>().Single(item => item.Text == "Delete").SubItems[2].Text, "不限制目前工具");
+                StringAssert.Contains(shortcuts.Shortcuts.Items.Cast<ListViewItem>().Single(item => item.Text == "Delete").SubItems[2].Text, "取得焦點");
+                StringAssert.Contains(shortcuts.Shortcuts.Items.Cast<ListViewItem>().Single(item => item.Text == "F").SubItems[2].Text, "文字輸入時不觸發");
+                Assert.IsTrue(rows.Contains("滑鼠右鍵拖曳"));
+                Assert.IsTrue(rows.Contains("Ctrl+滑鼠滾輪"));
+
+                var textInput = new TextBox { Bounds = new Rectangle(20, 20, 120, 24) };
+                form.Controls.Add(textInput);
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                textInput.Focus();
+                Assert.IsTrue((bool)typeof(MainForm).GetMethod("HasTextInputFocus", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, null));
+                var textUndo = new KeyEventArgs(Keys.Control | Keys.Z);
+                RaiseKey(form, textUndo);
+                Assert.IsFalse(textUndo.Handled, "Ctrl+Z must remain available to the focused text input.");
             }
         }
 

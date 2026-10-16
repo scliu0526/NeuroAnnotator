@@ -99,6 +99,12 @@ namespace Neurocle.WinForms
             projectMenu.DropDownItems.Add(Strings.ManageBackups, null, (sender, args) => ManageBackups());
             projectMenu.DropDownItems.Add(Strings.Diagnostics, null, (sender, args) => ManageDiagnostics());
             menu.Items.Add(projectMenu);
+            var helpMenu = new ToolStripMenuItem("說明");
+            helpMenu.DropDownItems.Add("快捷鍵", null, (sender, args) =>
+            {
+                using (var dialog = new KeyboardShortcutsForm()) dialog.ShowDialog(this);
+            });
+            menu.Items.Add(helpMenu);
 
             status = new Label
             {
@@ -298,6 +304,7 @@ namespace Neurocle.WinForms
             KeyDown += (sender, args) =>
             {
                 if (!args.Control) return;
+                if (HasTextInputFocus() && (args.KeyCode == Keys.Z || args.KeyCode == Keys.Y)) return;
                 if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
                 else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
                 else if (args.KeyCode == Keys.C && !HasTextInputFocus()) CopySelectedAnnotations();
