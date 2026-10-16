@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,6 +14,7 @@ namespace Neurocle.WinForms
     internal sealed class ImageCanvasControl : Control
     {
         private const float HandleSize = 8f;
+        private static readonly Cursor InvisibleCursor = CreateInvisibleCursor();
         private readonly CanvasViewport viewport = new CanvasViewport(Size.Empty, Size.Empty);
         private readonly SemaphoreSlim imageLoadGate = new SemaphoreSlim(1, 1);
         private Image image;
@@ -219,6 +221,8 @@ namespace Neurocle.WinForms
             Image previous = image;
             image = null;
             loadedImagePath = null;
+            hasToolCursor = false;
+            toolCursor = PointF.Empty;
             previous?.Dispose();
             viewport.SetImageSize(Size.Empty);
             Invalidate();
@@ -401,7 +405,42 @@ namespace Neurocle.WinForms
         private void UpdateToolCursor()
         {
             bool crosshair = ObdEnabled && !ObdSelectMode || SegEnabled && (SegTool == SegToolKind.Rect || SegTool == SegToolKind.Ellipse || SegTool == SegToolKind.Polygon);
-            Cursor = crosshair ? Cursors.Cross : Cursors.Arrow;
+            bool ring = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
+            Cursor = crosshair || ring ? InvisibleCursor : Cursors.Arrow;
+        }
+
+        private static Cursor CreateInvisibleCursor()
+        {
+            using (var stream = new MemoryStream())
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write((ushort)0);
+                writer.Write((ushort)2);
+                writer.Write((ushort)1);
+                writer.Write((byte)1);
+                writer.Write((byte)1);
+                writer.Write((byte)0);
+                writer.Write((byte)0);
+                writer.Write((ushort)0);
+                writer.Write((ushort)0);
+                writer.Write((uint)48);
+                writer.Write((uint)22);
+                writer.Write((uint)40);
+                writer.Write((int)1);
+                writer.Write((int)2);
+                writer.Write((ushort)1);
+                writer.Write((ushort)32);
+                writer.Write((uint)0);
+                writer.Write((uint)4);
+                writer.Write((int)0);
+                writer.Write((int)0);
+                writer.Write((uint)0);
+                writer.Write((uint)0);
+                writer.Write(new byte[4]);
+                writer.Write(new byte[] { 255, 255, 255, 255 });
+                stream.Position = 0;
+                return new Cursor(stream);
+            }
         }
 
         private Color PreviewTrackColor { get { return Color.FromArgb(ToAlpha(0.4f), previewColor); } }

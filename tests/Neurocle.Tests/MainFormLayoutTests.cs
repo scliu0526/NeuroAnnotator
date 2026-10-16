@@ -786,7 +786,8 @@ namespace Neurocle.Tests
                     canvas.ObdEnabled = true;
                     canvas.ObdSelectMode = false;
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
-                    Assert.AreEqual(Cursors.Cross, canvas.Cursor);
+                    Assert.AreNotEqual(Cursors.Arrow, canvas.Cursor, "OBD rectangle mode should hide the system cursor and draw the small crosshair.");
+                    Assert.AreNotEqual(Cursors.Cross.Handle, canvas.Cursor.Handle, "The system crosshair should not overlap the custom crosshair.");
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "OBD rectangle mode should show a centered crosshair.");
 
                     canvas.ObdSelectMode = true;
@@ -796,7 +797,7 @@ namespace Neurocle.Tests
                     canvas.SegStrokeWidth = 12;
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
-                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
+                    Assert.AreNotEqual(Cursors.Arrow, canvas.Cursor);
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "Brush width should define the cursor ring diameter at 100% zoom.");
 
                     canvas.SetZoomPercent(200);
@@ -811,7 +812,7 @@ namespace Neurocle.Tests
                     })
                     {
                         canvas.SegTool = tool;
-                        Assert.AreEqual(Cursors.Cross, canvas.Cursor, "{0} mode should use a crosshair.", tool);
+                        Assert.AreNotEqual(Cursors.Arrow, canvas.Cursor, "{0} mode should hide the system cursor and draw a small crosshair.", tool);
                     }
 
                     canvas.SetZoomPercent(100);
@@ -823,7 +824,7 @@ namespace Neurocle.Tests
                     })
                     {
                         canvas.SegTool = tool;
-                        Assert.AreEqual(Cursors.Arrow, canvas.Cursor, "{0} mode should keep the landing point at the arrow tip.", tool);
+                        Assert.AreNotEqual(Cursors.Arrow, canvas.Cursor, "{0} mode should hide the system cursor so the ring and symbol remain clear.", tool);
                         RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
                         Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "{0} should show a ring with the selected width.", tool);
                         Assert.IsTrue(CountNonBlackPixels(canvas, new Rectangle(57, 30, 16, 16)) > 0, "{0} should show its + or − symbol.", tool);
@@ -832,6 +833,12 @@ namespace Neurocle.Tests
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 0, 50, 0));
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 0, 50).ToArgb(), "Brush cursor ring should reach the image edge after its center is clamped inward.");
+
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb());
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "Switching images should clear the previous cursor position.");
 
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
                     Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
