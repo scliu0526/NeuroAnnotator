@@ -60,6 +60,7 @@ namespace Neurocle.WinForms
         private SegDragKind segDrag;
         private SegRegion segOriginal;
         private RectangleF segOriginalBounds;
+        private double segRotationAngle;
         private int segStrokeWidth = 15;
         private int segPathStrokeWidth;
         private Color previewColor = Color.White;
@@ -337,6 +338,7 @@ namespace Neurocle.WinForms
             segLineStart = null;
             segPreviews = new Dictionary<string, SegRegion>();
             segDrag = SegDragKind.None;
+            segRotationAngle = 0d;
             activeObd = null;
             obdDrag = ObdDragKind.None;
             panning = false;
@@ -364,6 +366,7 @@ namespace Neurocle.WinForms
             {
                 segPreviews = new Dictionary<string, SegRegion>();
                 segDrag = SegDragKind.None;
+                segRotationAngle = 0d;
                 cancelCapture = true;
             }
             if (cancelCapture) Capture = false;
@@ -446,7 +449,11 @@ namespace Neurocle.WinForms
                         }
                     }
                 }
-                if (selectedSegIds.Contains(region.Id)) DrawSegHandles(args.Graphics, ToScreenRectangle(GetSegBounds(region)));
+                if (selectedSegIds.Contains(stored.Id))
+                {
+                    if (segDrag == SegDragKind.Rotate && segPreviews.ContainsKey(stored.Id)) DrawRotatedSegHandles(args.Graphics, stored, segRotationAngle);
+                    else DrawSegHandles(args.Graphics, ToScreenRectangle(GetSegBounds(region)));
+                }
             }
             if (selectionPreview.HasValue)
             {
@@ -624,6 +631,32 @@ namespace Neurocle.WinForms
             using (var pen = new Pen(Color.Black)) graphics.DrawEllipse(pen, rotation.X - 5f, rotation.Y - 5f, 10f, 10f);
         }
 
+        private void DrawRotatedSegHandles(Graphics graphics, SegRegion region, double angle)
+        {
+            RectangleF bounds = GetSegBounds(region);
+            PointF center = new PointF(bounds.Left + bounds.Width / 2f, bounds.Top + bounds.Height / 2f);
+            PointF[] points = GetHandlePoints(bounds).Select(point => viewport.ImageToScreen(RotatePoint(point, center, angle))).ToArray();
+            using (var outline = new Pen(Color.Black, 3f)) graphics.DrawPolygon(outline, points);
+            using (var outline = new Pen(Color.White, 1f)) graphics.DrawPolygon(outline, points);
+            foreach (PointF point in points)
+            {
+                var handle = new RectangleF(point.X - HandleSize / 2f, point.Y - HandleSize / 2f, HandleSize, HandleSize);
+                using (var fill = new SolidBrush(Color.White)) graphics.FillRectangle(fill, handle);
+                using (var pen = new Pen(Color.Black)) graphics.DrawRectangle(pen, handle.X, handle.Y, handle.Width, handle.Height);
+            }
+            PointF top = points[1];
+            PointF rotation = new PointF(top.X + (float)Math.Sin(angle) * 24f, top.Y - (float)Math.Cos(angle) * 24f);
+            using (var pen = new Pen(Color.Black)) graphics.DrawLine(pen, top, rotation);
+            using (var fill = new SolidBrush(Color.White)) graphics.FillEllipse(fill, rotation.X - 5f, rotation.Y - 5f, 10f, 10f);
+            using (var pen = new Pen(Color.Black)) graphics.DrawEllipse(pen, rotation.X - 5f, rotation.Y - 5f, 10f, 10f);
+        }
+
+        private static PointF RotatePoint(PointF point, PointF center, double angle)
+        {
+            double cosine = Math.Cos(angle), sine = Math.Sin(angle);
+            return new PointF((float)(center.X + (point.X - center.X) * cosine - (point.Y - center.Y) * sine), (float)(center.Y + (point.X - center.X) * sine + (point.Y - center.Y) * cosine));
+        }
+
         protected override void OnMouseWheel(MouseEventArgs args)
         {
             if ((ModifierKeys & Keys.Control) == Keys.Control) viewport.SetZoomAt(viewport.Zoom * (args.Delta > 0 ? 1.1d : 1d / 1.1d), args.Location);
@@ -716,6 +749,7 @@ namespace Neurocle.WinForms
                         segOriginalBounds = GetSegBounds(segOriginal);
                         segDragStart = selectionPoint;
                         segDrag = handle;
+                        segRotationAngle = 0d;
                         Capture = true;
                         base.OnMouseDown(args);
                         return;
@@ -837,7 +871,16 @@ namespace Neurocle.WinForms
             {
                 PointF point = ClampPoint(viewport.ScreenToImage(args.Location));
                 if (segDrag == SegDragKind.Move) segPreviews = MoveSegRegions(point);
-                else if (segDrag == SegDragKind.Rotate) segPreviews = new Dictionary<string, SegRegion> { { segOriginal.Id, RotateSegRegion(segOriginal, point) } };
+                else if (segDrag == SegDragKind.Rotate)
+                {
+                    IReadOnlyDictionary<string, SegRegion> previews;
+                    double angle;
+                    if (TryRotateSegRegions(point, out previews, out angle))
+                    {
+                        segPreviews = previews;
+                        segRotationAngle = angle;
+                    }
+                }
                 else segPreviews = new Dictionary<string, SegRegion> { { segOriginal.Id, ResizeSegRegion(segOriginal, point) } };
                 Invalidate();
             }
@@ -973,6 +1016,7 @@ namespace Neurocle.WinForms
                 segDrag = SegDragKind.None;
                 Capture = false;
                 if (changed.Length > 0) SegRegionsChanged?.Invoke(changed);
+                segRotationAngle = 0d;
                 Invalidate();
             }
             else if (args.Button == MouseButtons.Left && segPreview.HasValue)
@@ -1181,18 +1225,44 @@ namespace Neurocle.WinForms
         }
 
 
-        private SegRegion RotateSegRegion(SegRegion region, PointF point)
+        private bool TryRotateSegRegions(PointF point, out IReadOnlyDictionary<string, SegRegion> previews, out double angle)
         {
-            PointF center = new PointF(segOriginalBounds.Left + segOriginalBounds.Width / 2f, segOriginalBounds.Top + segOriginalBounds.Height / 2f);
-            double start = Math.Atan2(segDragStart.Y - center.Y, segDragStart.X - center.X);
-            double current = Math.Atan2(point.Y - center.Y, point.X - center.X);
-            double cosine = Math.Cos(current - start), sine = Math.Sin(current - start);
-            IEnumerable<SegPoint> points = GetRotationPoints(region).Select(value => new SegPoint((int)Math.Round(center.X + (value.X - center.X) * cosine - (value.Y - center.Y) * sine, MidpointRounding.AwayFromZero), (int)Math.Round(center.Y + (value.X - center.X) * sine + (value.Y - center.Y) * cosine, MidpointRounding.AwayFromZero)));
-            SegPoint[] transformed = points.ToArray();
-            SegRegion rotated = new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, region.ClassId, region.Type == SegRegionType.PolyLine ? SegRegionType.PolyLine : SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, transformed, region.StrokeWidth);
-            RectangleF bounds = GetSegBounds(rotated);
-            if (transformed.Any(value => value.X < 0 || value.Y < 0 || value.X > viewport.ImageSize.Width || value.Y > viewport.ImageSize.Height) || bounds.Left < 0 || bounds.Top < 0 || bounds.Right > viewport.ImageSize.Width || bounds.Bottom > viewport.ImageSize.Height) return region;
-            return rotated;
+            PointF pivot = new PointF(segOriginalBounds.Left + segOriginalBounds.Width / 2f, segOriginalBounds.Top + segOriginalBounds.Height / 2f);
+            double start = Math.Atan2(segDragStart.Y - pivot.Y, segDragStart.X - pivot.X);
+            double current = Math.Atan2(point.Y - pivot.Y, point.X - pivot.X);
+            angle = current - start;
+            if (angle > Math.PI) angle -= 2d * Math.PI;
+            else if (angle < -Math.PI) angle += 2d * Math.PI;
+            SegRegion[] selected = segRegions.Where(region => selectedSegIds.Contains(region.Id)).ToArray();
+            var result = new Dictionary<string, SegRegion>();
+            foreach (SegRegion region in selected)
+            {
+                SegRegion rotated = RotateSegRegion(region, angle);
+                if (rotated == null)
+                {
+                    previews = null;
+                    return false;
+                }
+                result.Add(region.Id, rotated);
+            }
+            previews = result;
+            return true;
+        }
+
+        private SegRegion RotateSegRegion(SegRegion region, double angle)
+        {
+            RectangleF bounds = GetSegBounds(region);
+            PointF center = new PointF(bounds.Left + bounds.Width / 2f, bounds.Top + bounds.Height / 2f);
+            if (Math.Abs(angle) < 0.000001d) return region;
+            SegPoint[] transformed = GetRotationPoints(region).Select(value =>
+            {
+                PointF rotated = RotatePoint(new PointF(value.X, value.Y), center, angle);
+                return new SegPoint((int)Math.Round(rotated.X, MidpointRounding.AwayFromZero), (int)Math.Round(rotated.Y, MidpointRounding.AwayFromZero));
+            }).ToArray();
+            SegRegion result = new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, region.ClassId, region.Type == SegRegionType.PolyLine ? SegRegionType.PolyLine : SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, transformed, region.StrokeWidth);
+            RectangleF rotatedBounds = GetSegBounds(result);
+            if (transformed.Any(value => value.X < 0 || value.Y < 0 || value.X > viewport.ImageSize.Width || value.Y > viewport.ImageSize.Height) || rotatedBounds.Left < 0 || rotatedBounds.Top < 0 || rotatedBounds.Right > viewport.ImageSize.Width || rotatedBounds.Bottom > viewport.ImageSize.Height) return null;
+            return result;
         }
 
         private static IEnumerable<SegPoint> GetRotationPoints(SegRegion region)

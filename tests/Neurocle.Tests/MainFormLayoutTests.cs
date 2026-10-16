@@ -1239,6 +1239,188 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Rotating_a_selected_seg_handle_rotates_every_region_around_its_own_center_and_previews_rotated_handles()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetViewState(new ImageCanvasControl.CanvasViewState(1d, PointF.Empty, false));
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#00FF00") } };
+                    Path64 donut = SegGeometryPrototype.BridgeHole(SegGeometryPrototype.Rectangle(45, 60, 65, 80), SegGeometryPrototype.Rectangle(50, 65, 60, 75));
+                    SegRegion[] regions =
+                    {
+                        new SegRegion("rect", "set", "image", "class", SegRegionType.Rect, 20, 30, 20, 10, 0),
+                        new SegRegion("ellipse", "set", "image", "class", SegRegionType.Ellipse, 60, 40, 6, 10, 1),
+                        new SegRegion("polygon", "set", "image", "class", SegRegionType.PolyGon, 0, 0, 0, 0, 2, donut.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray()),
+                        new SegRegion("line", "set", "image", "class", SegRegionType.PolyLine, 0, 0, 0, 0, 3, new[] { new SegPoint(20, 75), new SegPoint(35, 75) }, 4)
+                    };
+                    canvas.SegRegions = regions;
+                    canvas.SelectAllSeg();
+                    IReadOnlyList<SegRegion> changed = null;
+                    canvas.SegRegionsChanged += value =>
+                    {
+                        changed = value;
+                        Dictionary<string, SegRegion> updates = value.ToDictionary(region => region.Id, StringComparer.Ordinal);
+                        canvas.SegRegions = regions.Select(region => updates.ContainsKey(region.Id) ? updates[region.Id] : region).ToArray();
+                    };
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 6, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 58, 35, 0));
+
+                    AssertWhiteRotatedHandleCenters(canvas, new RectangleF(20, 30, 20, 10), new PointF(30, 35), Math.PI / 2d);
+                    AssertWhiteRotatedHandleCenters(canvas, new RectangleF(54, 30, 12, 20), new PointF(60, 40), Math.PI / 2d);
+                    AssertWhiteRotatedHandleCenters(canvas, new RectangleF(45, 60, 20, 20), new PointF(55, 70), Math.PI / 2d);
+                    AssertWhiteRotatedHandleCenters(canvas, new RectangleF(18, 73, 19, 4), new PointF(27.5f, 75), Math.PI / 2d);
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 58, 35, 0));
+
+                    Assert.IsNotNull(changed);
+                    Assert.AreEqual(4, changed.Count, "A single rotation gesture must update every selected region.");
+                    CollectionAssert.AreEquivalent(new[] { "rect", "ellipse", "polygon", "line" }, changed.Select(region => region.Id).ToArray());
+                    Assert.AreEqual(SegRegionType.PolyGon, changed.Single(region => region.Id == "rect").Type);
+                    Assert.AreEqual(SegRegionType.PolyGon, changed.Single(region => region.Id == "ellipse").Type);
+                    Assert.AreEqual(SegRegionType.PolyLine, changed.Single(region => region.Id == "line").Type);
+                    Assert.AreEqual(4, changed.Single(region => region.Id == "line").StrokeWidth);
+                    Assert.AreEqual(regions.Single(region => region.Id == "polygon").Points.Count, changed.Single(region => region.Id == "polygon").Points.Count, "Rotation must retain the bridged hole path.");
+                    CollectionAssert.AreEqual(
+                        regions.Single(region => region.Id == "polygon").Points.Select(point => RotateTestPoint(new PointF(point.X, point.Y), new PointF(55, 70), Math.PI / 2d)).Select(point => new Point((int)Math.Round(point.X, MidpointRounding.AwayFromZero), (int)Math.Round(point.Y, MidpointRounding.AwayFromZero))).ToArray(),
+                        changed.Single(region => region.Id == "polygon").Points.Select(point => new Point(point.X, point.Y)).ToArray(),
+                        "The bridged polygon path must rotate as a whole and retain its hole bridge.");
+                    foreach (SegRegion region in changed)
+                    {
+                        RectangleF oldBounds = GetTestSegBounds(regions.Single(value => value.Id == region.Id));
+                        RectangleF newBounds = GetTestSegBounds(region);
+                        Assert.AreEqual(oldBounds.Left + oldBounds.Width / 2f, newBounds.Left + newBounds.Width / 2f, 1f, "Rotation must keep each region's own centre.");
+                        Assert.AreEqual(oldBounds.Top + oldBounds.Height / 2f, newBounds.Top + newBounds.Height / 2f, 1f, "Rotation must keep each region's own centre.");
+                    }
+                    AssertWhiteHandleCenters(canvas, new Rectangle(25, 25, 10, 20));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Multi_seg_rotation_keeps_the_last_legal_preview_when_any_region_would_leave_the_image()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetViewState(new ImageCanvasControl.CanvasViewState(1d, PointF.Empty, false));
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#00FF00") } };
+                    canvas.SegRegions = new[]
+                    {
+                        new SegRegion("pivot", "set", "image", "class", SegRegionType.Rect, 20, 30, 20, 10, 0),
+                        new SegRegion("edge", "set", "image", "class", SegRegionType.Rect, 89, 30, 10, 10, 1)
+                    };
+                    canvas.SelectAllSeg();
+                    IReadOnlyList<SegRegion> changed = null;
+                    canvas.SegRegionsChanged += value => changed = value;
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 6, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 35, 6, 0));
+                    using (Bitmap lastLegalPreview = RenderCanvas(canvas))
+                    {
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 51, 15, 0));
+                        using (Bitmap afterRejectedAngle = RenderCanvas(canvas)) AssertBitmapEquals(lastLegalPreview, afterRejectedAngle, "If one region would exceed the image, the whole group must keep its last legal preview.");
+                    }
+
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 51, 15, 0));
+
+                    Assert.IsNotNull(changed);
+                    Assert.AreEqual(2, changed.Count);
+                    Assert.IsTrue(changed.All(region => region.Type == SegRegionType.PolyGon), "All selected regions must receive the same last accepted rotation.");
+                    Assert.IsTrue(changed.SelectMany(region => region.Points).All(point => point.X >= 0 && point.Y >= 0 && point.X <= 100 && point.Y <= 100));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Multi_seg_rotation_updates_as_one_undo_redo_operation_and_persists_after_reopen()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                store = ProjectStore.Create(path);
+                ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                SegRegion rectangle = store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 20, 30, 20, 10);
+                SegRegion ellipse = store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Ellipse, 70, 40, 6, 10);
+                string setId = set.Id;
+                string imageId = image.Id;
+                SegRegion[] original = { rectangle, ellipse };
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetViewState(new ImageCanvasControl.CanvasViewState(1d, PointF.Empty, false));
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { annotationClass.Id, annotationClass } };
+                    canvas.SegRegions = original;
+                    canvas.SelectAllSeg();
+                    canvas.SegRegionsChanged += value =>
+                    {
+                        store.UpdateSegRegions(value);
+                        canvas.SegRegions = store.GetSegRegions(setId, imageId);
+                    };
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 6, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 58, 35, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 58, 35, 0));
+
+                    SegRegion[] rotated = store.GetSegRegions(setId, imageId).ToArray();
+                    Assert.AreEqual(2, rotated.Length);
+                    Assert.IsTrue(rotated.All(region => region.Type == SegRegionType.PolyGon));
+                    Assert.IsTrue(store.Undo(setId));
+                    CollectionAssert.AreEqual(new[] { SegRegionType.Rect, SegRegionType.Ellipse }, store.GetSegRegions(setId, imageId).Select(region => region.Type).ToArray());
+                    Assert.IsTrue(store.Redo(setId));
+                    CollectionAssert.AreEqual(rotated.Select(region => region.Id).ToArray(), store.GetSegRegions(setId, imageId).Select(region => region.Id).ToArray());
+                    foreach (SegRegion expected in rotated)
+                    {
+                        SegRegion actual = store.GetSegRegions(setId, imageId).Single(region => region.Id == expected.Id);
+                        CollectionAssert.AreEqual(expected.Points.Select(point => new Point(point.X, point.Y)).ToArray(), actual.Points.Select(point => new Point(point.X, point.Y)).ToArray());
+                    }
+                }
+                store.Dispose();
+                store = ProjectStore.Open(path);
+                Assert.AreEqual(2, store.GetSegRegions(setId, imageId).Count);
+                Assert.IsTrue(store.GetSegRegions(setId, imageId).All(region => region.Type == SegRegionType.PolyGon));
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Dragging_a_handle_changes_only_the_selected_obd_or_seg_region_that_owns_it()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
@@ -2811,6 +2993,21 @@ namespace Neurocle.Tests
             }
         }
 
+        private static Bitmap RenderCanvas(ImageCanvasControl canvas)
+        {
+            var rendered = new Bitmap(canvas.Width, canvas.Height);
+            canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+            return rendered;
+        }
+
+        private static void AssertBitmapEquals(Bitmap expected, Bitmap actual, string message)
+        {
+            Assert.AreEqual(expected.Size, actual.Size);
+            for (int y = 0; y < expected.Height; y++)
+                for (int x = 0; x < expected.Width; x++)
+                    Assert.AreEqual(expected.GetPixel(x, y).ToArgb(), actual.GetPixel(x, y).ToArgb(), "{0} First differing pixel: ({1}, {2}).", message, x, y);
+        }
+
         private static int CountNonBlackPixels(ImageCanvasControl canvas, Rectangle bounds)
         {
             using (var rendered = new Bitmap(canvas.Width, canvas.Height))
@@ -2879,6 +3076,52 @@ namespace Neurocle.Tests
                     Assert.IsTrue(whitePixels >= 12, "Expected a visible selection handle at {0}.", center);
                 }
             }
+        }
+
+        private static void AssertWhiteRotatedHandleCenters(ImageCanvasControl canvas, RectangleF bounds, PointF center, double angle)
+        {
+            PointF[] points =
+            {
+                new PointF(bounds.Left, bounds.Top), new PointF(bounds.Left + bounds.Width / 2f, bounds.Top), new PointF(bounds.Right, bounds.Top),
+                new PointF(bounds.Right, bounds.Top + bounds.Height / 2f), new PointF(bounds.Right, bounds.Bottom),
+                new PointF(bounds.Left + bounds.Width / 2f, bounds.Bottom), new PointF(bounds.Left, bounds.Bottom),
+                new PointF(bounds.Left, bounds.Top + bounds.Height / 2f)
+            };
+            foreach (PointF point in points)
+            {
+                PointF rotated = RotateTestPoint(point, center, angle);
+                AssertWhitePixelsAt(canvas, new Point((int)Math.Round(rotated.X), (int)Math.Round(rotated.Y)), 5, "Expected a selection handle on the rotated bounding box.");
+            }
+            PointF top = RotateTestPoint(points[1], center, angle);
+            PointF rotationHandle = new PointF(top.X + (float)Math.Sin(angle) * 24f, top.Y - (float)Math.Cos(angle) * 24f);
+            AssertWhitePixelsAt(canvas, new Point((int)Math.Round(rotationHandle.X), (int)Math.Round(rotationHandle.Y)), 5, "Expected the rotation handle to follow the rotated bounding box.");
+        }
+
+        private static PointF RotateTestPoint(PointF point, PointF center, double angle)
+        {
+            double cosine = Math.Cos(angle), sine = Math.Sin(angle);
+            return new PointF((float)(center.X + (point.X - center.X) * cosine - (point.Y - center.Y) * sine), (float)(center.Y + (point.X - center.X) * sine + (point.Y - center.Y) * cosine));
+        }
+
+        private static void AssertWhitePixelsAt(ImageCanvasControl canvas, Point center, int radius, string message)
+        {
+            using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+            {
+                canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                int whitePixels = 0;
+                for (int x = Math.Max(0, center.X - radius); x <= Math.Min(rendered.Width - 1, center.X + radius); x++)
+                    for (int y = Math.Max(0, center.Y - radius); y <= Math.Min(rendered.Height - 1, center.Y + radius); y++)
+                        if (rendered.GetPixel(x, y).ToArgb() == Color.White.ToArgb()) whitePixels++;
+                Assert.IsTrue(whitePixels >= 12, "{0} Center: {1}.", message, center);
+            }
+        }
+
+        private static RectangleF GetTestSegBounds(SegRegion region)
+        {
+            if (region.Type == SegRegionType.Rect) return new RectangleF(region.X, region.Y, region.Width, region.Height);
+            if (region.Type == SegRegionType.Ellipse) return new RectangleF(region.X - region.Width, region.Y - region.Height, region.Width * 2, region.Height * 2);
+            float inset = region.Type == SegRegionType.PolyLine ? region.StrokeWidth / 2f : 0f;
+            return RectangleF.FromLTRB(region.Points.Min(point => point.X) - inset, region.Points.Min(point => point.Y) - inset, region.Points.Max(point => point.X) + inset, region.Points.Max(point => point.Y) + inset);
         }
 
         private static void AssertNoWhiteHandle(ImageCanvasControl canvas, Point center)
