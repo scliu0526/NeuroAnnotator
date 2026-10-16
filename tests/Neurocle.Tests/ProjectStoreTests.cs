@@ -1372,6 +1372,69 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Single_point_brush_and_eraser_use_round_strokes_and_roundtrip_through_json()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string exportedJson = Path.Combine(Path.GetDirectoryName(path), "single-point.json");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                string setId;
+                string imageId;
+                string brushClassId;
+                double dotAreaSize;
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("single-point", AnnotationSetType.Seg);
+                    setId = set.Id;
+                    imageId = image.Id;
+                    AnnotationClass eraseClass = store.GetClasses(set.Id).Single();
+                    AnnotationClass brushClass = store.AddClass(set.Id, "dots", "#123456");
+                    brushClassId = brushClass.Id;
+                    store.AddSegRegion(set.Id, image.Id, eraseClass.Id, SegRegionType.Rect, 0, 20, 20, 20);
+                    SegRegion dot = store.AddSegPath(set.Id, image.Id, brushClass.Id, SegRegionType.PolyLine, new[] { new SegPoint(60, 60) }, 10);
+                    Assert.AreEqual(1, dot.Points.Count);
+                    Assert.AreEqual(10, dot.StrokeWidth);
+                    Paths64 dotArea = SegGeometryPrototype.Stroke(new Path64 { new Point64(60, 60) }, 10);
+                    dotAreaSize = SegGeometryPrototype.Area(dotArea);
+                    Assert.IsTrue(dotAreaSize > 70d && dotAreaSize < 90d);
+
+                    store.EraseSegPath(set.Id, image.Id, eraseClass.Id, new[] { new SegPoint(5, 30) }, 10);
+                    SegRegion erasedRectangle = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == eraseClass.Id);
+                    Assert.AreEqual(SegRegionType.PolyGon, erasedRectangle.Type);
+                    Assert.IsTrue(erasedRectangle.Points.All(point => point.X >= 0 && point.Y >= 0 && point.X <= 100 && point.Y <= 100));
+                    Assert.IsTrue(SegGeometryPrototype.Area(new Paths64 { new Path64(erasedRectangle.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }) < 400d,
+                        "A one-click eraser should remove a round area from the annotation.");
+                    Assert.IsTrue(store.Undo(set.Id));
+                    SegRegion restoredBeforeErase = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == eraseClass.Id);
+                    Assert.AreEqual(SegRegionType.Rect, restoredBeforeErase.Type);
+                    Assert.AreEqual(400d, SegGeometryPrototype.Area(new Paths64 { SegGeometryPrototype.Rectangle(restoredBeforeErase.X, restoredBeforeErase.Y, restoredBeforeErase.X + restoredBeforeErase.Width, restoredBeforeErase.Y + restoredBeforeErase.Height) }));
+                    Assert.IsTrue(store.Redo(set.Id));
+                    erasedRectangle = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == eraseClass.Id);
+                    Assert.IsTrue(SegGeometryPrototype.Area(new Paths64 { new Path64(erasedRectangle.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }) < 400d);
+                    store.ExportAnnotationJson(set.Id, exportedJson);
+                    store.Save();
+                }
+
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    SegRegion restoredDot = reopened.GetSegRegions(setId, imageId).Single(value => value.ClassId == brushClassId);
+                    Assert.AreEqual(1, restoredDot.Points.Count);
+                    Assert.AreEqual(10, restoredDot.StrokeWidth);
+                    AnnotationSet imported = reopened.ImportAnnotationJson(File.ReadAllText(exportedJson), "single-point-copy", false);
+                    SegRegion importedDot = reopened.GetSegRegions(imported.Id, imageId).Single(value => value.ClassId == reopened.GetClasses(imported.Id).Single(value => value.Name == "dots").Id);
+                    Assert.AreEqual(1, importedDot.Points.Count);
+                    Assert.AreEqual(10, importedDot.StrokeWidth);
+                    Paths64 importedDotArea = SegGeometryPrototype.Stroke(new Path64(importedDot.Points.Select(point => new Point64(point.X, point.Y)).ToList()), importedDot.StrokeWidth);
+                    Assert.AreEqual(dotAreaSize, SegGeometryPrototype.Area(importedDotArea));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); if (File.Exists(exportedJson)) File.Delete(exportedJson); }
+        }
+
+        [TestMethod]
         [TestCategory("ManualPerformance")]
         public void Seventeen_thousand_point_seg_paths_complete_within_one_second_and_remain_undoable()
         {

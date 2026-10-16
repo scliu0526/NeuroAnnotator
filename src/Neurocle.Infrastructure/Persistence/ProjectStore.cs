@@ -998,7 +998,10 @@ namespace Neurocle.Infrastructure.Persistence
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
             SegPoint[] values = points.ToArray();
             if (values.Any(point => point == null)) throw new ArgumentException("The path contains a null point.", nameof(points));
-            if (values.Length < (type == SegRegionType.PolyGon ? 3 : 2) || values.Distinct(new SegPointComparer()).Count() < (type == SegRegionType.PolyGon ? 3 : 2)) throw new ArgumentException("The path has too few distinct points.", nameof(points));
+            int distinctPointCount = values.Distinct(new SegPointComparer()).Count();
+            if (values.Length < (type == SegRegionType.PolyGon ? 3 : 1) ||
+                (type == SegRegionType.PolyGon && distinctPointCount < 3) ||
+                (type == SegRegionType.PolyLine && values.Length > 1 && distinctPointCount < 2)) throw new ArgumentException("The path has too few distinct points.", nameof(points));
             if (type == SegRegionType.PolyGon && AreCollinear(values)) throw new ArgumentException("The polygon points are collinear.", nameof(points));
             if (type == SegRegionType.PolyLine && (strokeWidth < 1 || strokeWidth > 100)) throw new ArgumentOutOfRangeException(nameof(strokeWidth));
             Size imageSize = GetImageSize(imageId);
@@ -1020,7 +1023,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Seg) throw new ArgumentException("The annotation set is not SEG.", nameof(annotationSetId));
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
             SegPoint[] values = points.ToArray();
-            if (values.Length < 2 || values.Any(point => point == null)) throw new ArgumentException("The eraser path is invalid.", nameof(points));
+            if (values.Length < 1 || values.Any(point => point == null)) throw new ArgumentException("The eraser path is invalid.", nameof(points));
             if (strokeWidth < 1 || strokeWidth > 100) throw new ArgumentOutOfRangeException(nameof(strokeWidth));
             Size imageSize = GetImageSize(imageId);
             if (values.Any(point => point.X < 0 || point.Y < 0 || point.X >= imageSize.Width || point.Y >= imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(points));
@@ -1200,7 +1203,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (value.Type == SegRegionType.PolyGon && (value.Points.Distinct(new SegPointComparer()).Count() < 3 || AreCollinear(value.Points))) throw new ArgumentException("The polygon is invalid.", nameof(value));
             if (value.Type == SegRegionType.PolyLine)
             {
-                if (value.Points.Distinct(new SegPointComparer()).Count() < 2 || value.StrokeWidth < 1 || value.StrokeWidth > 100) throw new ArgumentException("The line is invalid.", nameof(value));
+                if (value.Points.Count < 1 || (value.Points.Count > 1 && value.Points.Distinct(new SegPointComparer()).Count() < 2) || value.StrokeWidth < 1 || value.StrokeWidth > 100) throw new ArgumentException("The line is invalid.", nameof(value));
                 int inset = (value.StrokeWidth + 1) / 2;
                 if (value.Points.Any(point => point.X < inset || point.Y < inset || point.X > imageSize.Width - inset || point.Y > imageSize.Height - inset)) throw new ArgumentOutOfRangeException(nameof(value));
             }

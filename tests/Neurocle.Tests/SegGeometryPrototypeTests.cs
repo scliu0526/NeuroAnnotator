@@ -163,6 +163,63 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void StrokeTurnsOnePointIntoARoundDotAtTheRequestedWidth()
+        {
+            Paths64 result = SegGeometryPrototype.Stroke(new Path64 { new Point64(20, 20) }, 10);
+
+            Assert.AreEqual(1, result.Count);
+            Assert.IsTrue(SegGeometryPrototype.Area(result) > 70d && SegGeometryPrototype.Area(result) < 90d);
+            Assert.AreEqual(15, result[0].Min(point => point.X));
+            Assert.AreEqual(25, result[0].Max(point => point.X));
+            Assert.AreEqual(15, result[0].Min(point => point.Y));
+            Assert.AreEqual(25, result[0].Max(point => point.Y));
+
+            Paths64 edgeDot = SegGeometryPrototype.Stroke(new Path64 { new Point64(5, 50) }, 10);
+            Assert.AreEqual(0, edgeDot[0].Min(point => point.X), "Clamping the center to half the width keeps the dot inside the image edge.");
+            Assert.AreEqual(10, edgeDot[0].Max(point => point.X));
+        }
+
+        [TestMethod]
+        public void StrokeFoldbackDoesNotFillTheUnbrushedAreaBetweenPasses()
+        {
+            Paths64 result = SegGeometryPrototype.Stroke(new Path64
+            {
+                new Point64(20, 20), new Point64(80, 20), new Point64(20, 20)
+            }, 10);
+            Paths64 unbrushedCenter = Clipper.Intersect(result, new Paths64 { Rectangle(45, 27, 55, 33) }, FillRule.NonZero);
+
+            Assert.AreEqual(0d, SegGeometryPrototype.Area(unbrushedCenter));
+            Assert.IsTrue(SegGeometryPrototype.Area(result) > 600d && SegGeometryPrototype.Area(result) < 700d);
+        }
+
+        [TestMethod]
+        public void StrokeSelfIntersectionRemainsARoundUnionOfBrushPasses()
+        {
+            Paths64 result = SegGeometryPrototype.Stroke(new Path64
+            {
+                new Point64(20, 20), new Point64(80, 80), new Point64(20, 80), new Point64(80, 20)
+            }, 10);
+            Paths64 crossing = Clipper.Intersect(result, new Paths64 { Rectangle(47, 47, 53, 53) }, FillRule.NonZero);
+
+            Assert.IsTrue(SegGeometryPrototype.Area(result) > 0d);
+            Assert.IsTrue(SegGeometryPrototype.Area(crossing) > 0d);
+        }
+
+        [TestMethod]
+        public void StrokeUsesRoundJoinsInsteadOfMiteredCorners()
+        {
+            Paths64 result = SegGeometryPrototype.Stroke(new Path64
+            {
+                new Point64(20, 20), new Point64(40, 20), new Point64(40, 40)
+            }, 10);
+
+            double furthestCornerDistance = result.SelectMany(path => path)
+                .Where(point => point.X >= 40 && point.Y <= 20)
+                .Max(point => Math.Sqrt(Math.Pow(point.X - 40, 2) + Math.Pow(point.Y - 20, 2)));
+            Assert.IsTrue(furthestCornerDistance <= 6d, "A round join should not extend to a square miter corner.");
+        }
+
+        [TestMethod]
         public void RoundingAndBoundsFollowAcceptedContract()
         {
             Point64 rounded = SegGeometryPrototype.RoundAndClamp(4.5, 4.5, 10, 10);

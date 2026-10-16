@@ -326,7 +326,7 @@ namespace Neurocle.WinForms
                         args.Graphics.FillEllipse(fill, ellipse);
                         args.Graphics.DrawEllipse(pen, ellipse);
                     }
-                    else if (region.Points.Count > 1)
+                    else if (region.Points.Count > 0)
                     {
                         PointF[] points = region.Points.Select(point => viewport.ImageToScreen(new PointF(point.X, point.Y))).ToArray();
                         if (region.Type == SegRegionType.PolyGon && points.Length > 2)
@@ -334,9 +334,20 @@ namespace Neurocle.WinForms
                             args.Graphics.FillPolygon(fill, points);
                             args.Graphics.DrawPolygon(pen, points);
                         }
+                        else if (region.Type == SegRegionType.PolyLine && points.Length == 1)
+                        {
+                            float diameter = Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom));
+                            args.Graphics.FillEllipse(fill, points[0].X - diameter / 2f, points[0].Y - diameter / 2f, diameter, diameter);
+                        }
                         else
                         {
-                            using (var stroke = new Pen(Color.FromArgb(ToAlpha(SegOpacity), color), Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom)))) args.Graphics.DrawLines(stroke, points);
+                            using (var stroke = new Pen(Color.FromArgb(ToAlpha(SegOpacity), color), Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom))))
+                            {
+                                stroke.LineJoin = LineJoin.Round;
+                                stroke.StartCap = LineCap.Round;
+                                stroke.EndCap = LineCap.Round;
+                                args.Graphics.DrawLines(stroke, points);
+                            }
                         }
                     }
                 }
@@ -369,7 +380,14 @@ namespace Neurocle.WinForms
                 using (var pen = new Pen(PreviewTrackColor, width))
                 {
                     pen.LineJoin = LineJoin.Round;
+                    pen.StartCap = LineCap.Round;
+                    pen.EndCap = LineCap.Round;
                     if (points.Length > 1) args.Graphics.DrawLines(pen, points);
+                    else if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
+                    {
+                        float diameter = Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom));
+                        using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillEllipse(fill, points[0].X - diameter / 2f, points[0].Y - diameter / 2f, diameter, diameter);
+                    }
                     if (SegTool == SegToolKind.Polygon && points.Length > 2) args.Graphics.DrawLine(pen, points[points.Length - 1], points[0]);
                 }
                 if (SegTool == SegToolKind.Polygon)
@@ -815,24 +833,25 @@ namespace Neurocle.WinForms
             {
                 Capture = false;
                 PointF point = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
-                if (segPathDragging && SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
+                if ((SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser) && segPath.Count > 0)
                 {
-                    SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
-                    segPath.Clear();
+                    SegPoint last = ToSegPoint(segPath[segPath.Count - 1]);
+                    SegPoint end = ToSegPoint(point);
+                    if (last.X != end.X || last.Y != end.Y) segPath.Add(point);
                 }
-                else if (SegTool == SegToolKind.Brush && segPathDragging && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
+                if (segPathDragging && SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
                 {
                     SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
                     segPath.Clear();
                 }
                 else if (SegTool == SegToolKind.Brush)
                 {
-                    if (segPath.Count >= 2) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
+                    if (segPath.Count >= 1) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
                     segPath.Clear();
                 }
                 else if (SegTool == SegToolKind.Eraser)
                 {
-                    if (segPath.Count >= 2) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
+                    if (segPath.Count >= 1) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
                     segPath.Clear();
                 }
                 segPathDragging = false;
@@ -902,7 +921,11 @@ namespace Neurocle.WinForms
                 float x = (point.X - region.X) / region.Width, y = (point.Y - region.Y) / region.Height;
                 return x * x + y * y <= 1f;
             }
-            if (region.Type == SegRegionType.PolyLine) return region.Points.Zip(region.Points.Skip(1), (first, second) => DistanceToSegment(point, first, second)).Any(distance => distance <= region.StrokeWidth / 2f);
+            if (region.Type == SegRegionType.PolyLine)
+            {
+                if (region.Points.Count == 1) return DistanceToSegment(point, region.Points[0], region.Points[0]) <= region.StrokeWidth / 2f;
+                return region.Points.Zip(region.Points.Skip(1), (first, second) => DistanceToSegment(point, first, second)).Any(distance => distance <= region.StrokeWidth / 2f);
+            }
             int winding = 0;
             for (int index = 0, previous = region.Points.Count - 1; index < region.Points.Count; previous = index++)
             {

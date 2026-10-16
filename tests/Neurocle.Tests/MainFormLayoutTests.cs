@@ -1080,7 +1080,7 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
-        public void Closed_seg_brush_path_submits_a_filled_polygon()
+        public void Brush_returning_to_start_submits_a_rounded_polyline()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
             string imagePath = Path.Combine(directory, "source.png");
@@ -1095,17 +1095,20 @@ namespace Neurocle.Tests
                     WaitForImage(canvas, imagePath);
                     SegRegionType? submittedType = null;
                     IReadOnlyList<SegPoint> submittedPoints = null;
-                    canvas.SegPathCreated += (type, points, width) => { submittedType = type; submittedPoints = points; };
+                    int submittedWidth = 0;
+                    canvas.SegPathCreated += (type, points, width) => { submittedType = type; submittedPoints = points; submittedWidth = width; };
 
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 70, 20, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 70, 70, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 20, 70, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 20, 20, 0));
                     RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 20, 20, 0));
 
-                    Assert.AreEqual(SegRegionType.PolyGon, submittedType);
+                    Assert.AreEqual(SegRegionType.PolyLine, submittedType);
                     Assert.IsNotNull(submittedPoints);
-                    Assert.AreEqual(4, submittedPoints.Count);
+                    Assert.AreEqual(15, submittedWidth);
+                    Assert.IsTrue(submittedPoints.Count >= 4);
                 }
             }
             finally
@@ -1115,7 +1118,70 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
-        public void Counterclockwise_seg_brush_loop_preserves_existing_same_class_area_through_main_form()
+        public void Brush_and_eraser_clicks_submit_single_point_round_paths()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Brush, SegStrokeWidth = 12 })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    SegRegionType? submittedType = null;
+                    IReadOnlyList<SegPoint> submittedPoints = null;
+                    int submittedWidth = 0;
+                    IReadOnlyList<SegPoint> erasedPoints = null;
+                    int erasedWidth = 0;
+                    canvas.SegPathCreated += (type, points, width) => { submittedType = type; submittedPoints = points; submittedWidth = width; };
+                    canvas.SegEraseRequested += (points, width) => { erasedPoints = points; erasedWidth = width; };
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 40, 40, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 40, 40, 0));
+                    Assert.AreEqual(SegRegionType.PolyLine, submittedType);
+                    Assert.AreEqual(1, submittedPoints.Count);
+                    Assert.AreEqual(40, submittedPoints[0].X);
+                    Assert.AreEqual(40, submittedPoints[0].Y);
+                    Assert.AreEqual(12, submittedWidth);
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, 50, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 0, 50, 0));
+                    Assert.AreEqual(6, submittedPoints[0].X, "A full-width brush dot should be clamped inside the image edge.");
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 30, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 50, 30, 0));
+                    Assert.AreEqual(2, submittedPoints.Count, "A quick drag should include the release point even when no mouse-move event was delivered.");
+                    Assert.AreEqual(50, submittedPoints[1].X);
+                    Assert.AreEqual(30, submittedPoints[1].Y);
+
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Eraser;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 50, 50, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 50, 50, 0));
+                    Assert.AreEqual(1, erasedPoints.Count);
+                    Assert.AreEqual(50, erasedPoints[0].X);
+                    Assert.AreEqual(50, erasedPoints[0].Y);
+                    Assert.AreEqual(12, erasedWidth);
+
+                    canvas.SegRegions = new[]
+                    {
+                        new SegRegion("dot", "set", "image", "class", SegRegionType.PolyLine, 0, 0, 0, 0, 0, new[] { new SegPoint(40, 40) }, 12)
+                    };
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 40, 40, 0));
+                    CollectionAssert.AreEqual(new[] { "dot" }, canvas.SelectedSegIds.ToArray(), "A clicked brush dot should remain selectable by its round stroke area.");
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Brush_returning_to_start_keeps_enclosed_area_empty_through_main_form()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
             string projectPath = Path.Combine(directory, "project.neurocle");
@@ -1129,7 +1195,6 @@ namespace Neurocle.Tests
                 ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
                 AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
                 AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
-                store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 5, 30, 30, 20);
 
                 using (var form = new MainForm(new ProjectLifecycle()))
                 {
@@ -1153,7 +1218,8 @@ namespace Neurocle.Tests
                     {
                         ImagePointToScreen(canvas, 10, 90),
                         ImagePointToScreen(canvas, 90, 90),
-                        ImagePointToScreen(canvas, 90, 10)
+                        ImagePointToScreen(canvas, 90, 10),
+                        ImagePointToScreen(canvas, 10, 10)
                     })
                         RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, point.X, point.Y, 0));
                     RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, start.X, start.Y, 0));
@@ -1166,11 +1232,11 @@ namespace Neurocle.Tests
                     }
 
                     Assert.IsFalse(Field<bool>(form, "annotationOperationInProgress"), "The SEG brush operation did not complete.");
-                    SegRegion merged = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == annotationClass.Id);
-                    var mergedPath = new Path64(merged.Points.Select(point => new Point64(point.X, point.Y)).ToList());
-                    Paths64 preserved = Clipper.Intersect(new Paths64 { SegGeometryPrototype.Rectangle(5, 30, 35, 50) }, new Paths64 { mergedPath }, FillRule.NonZero);
-                    Assert.AreEqual(600d, SegGeometryPrototype.Area(preserved));
-                    Assert.AreEqual(6500d, SegGeometryPrototype.Area(new Paths64 { mergedPath }));
+                    SegRegion brush = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == annotationClass.Id);
+                    Assert.AreEqual(SegRegionType.PolyLine, brush.Type);
+                    Paths64 brushArea = SegGeometryPrototype.Stroke(new Path64(brush.Points.Select(point => new Point64(point.X, point.Y)).ToList()), brush.StrokeWidth);
+                    Paths64 center = Clipper.Intersect(brushArea, new Paths64 { SegGeometryPrototype.Rectangle(49, 49, 51, 51) }, FillRule.NonZero);
+                    Assert.AreEqual(0d, SegGeometryPrototype.Area(center), "Returning to the start should leave the unbrushed center empty.");
                     form.Close();
                     System.Windows.Forms.Application.DoEvents();
                 }
