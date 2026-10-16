@@ -1159,6 +1159,125 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Active_tool_and_class_buttons_reflect_annotation_state_across_images_and_sets()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string firstImagePath = Path.Combine(directory, "one.png");
+                string secondImagePath = Path.Combine(directory, "two.png");
+                CreateSolidImage(firstImagePath, Color.Red);
+                CreateSolidImage(secondImagePath, Color.Blue);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage[] images = store.ImportFiles(new[] { firstImagePath, secondImagePath }).ToArray();
+                AnnotationSet firstObd = store.CreateAnnotationSet("first boxes", AnnotationSetType.Obd);
+                AnnotationClass firstObdClass = store.GetClasses(firstObd.Id).Single();
+                AnnotationClass secondObdClass = store.AddClass(firstObd.Id, "other box", "#ff00ff");
+                AnnotationSet secondObd = store.CreateAnnotationSet("second boxes", AnnotationSetType.Obd);
+                AnnotationClass secondObdDefault = store.GetClasses(secondObd.Id).Single();
+                AnnotationSet seg = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass segDefault = store.GetClasses(seg.Id).Single();
+                AnnotationClass segOther = store.AddClass(seg.Id, "other region", "#00ff00");
+                AnnotationSet cla = store.CreateAnnotationSet("image classes", AnnotationSetType.Cla);
+                AnnotationClass claDefault = store.GetClasses(cla.Id).Single();
+                AnnotationClass claOther = store.AddClass(cla.Id, "other image class", "#0000ff");
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    System.Windows.Forms.Application.DoEvents();
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    FlowLayoutPanel tools = Field<FlowLayoutPanel>(form, "annotationTools");
+                    FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
+
+                    sets.SelectedItem = AnnotationSet(sets, firstObd.Id);
+                    AssertToolButtonIsActive(tools.Controls.OfType<Button>().Single(button => button.Name == "obdSelect"));
+                    Button secondObdButton = classes.Controls.OfType<Button>().Single(button => button.Text == secondObdClass.Name);
+                    secondObdButton.PerformClick();
+                    Assert.AreEqual(secondObdClass.Id, Field<string>(form, "selectedObdClassId"));
+                    secondObdButton = classes.Controls.OfType<Button>().Single(button => button.Text == secondObdClass.Name);
+                    AssertClassButtonIsActive(secondObdButton, AnnotationColorFormat.ToColor(secondObdClass.Color));
+
+                    Button rectangle = tools.Controls.OfType<Button>().Single(button => button.Name == "obdRectangle");
+                    rectangle.PerformClick();
+                    AssertToolButtonIsActive(rectangle);
+                    AssertToolButtonIsInactive(tools.Controls.OfType<Button>().Single(button => button.Name == "obdSelect"));
+                    Invoke(form, "CreateObdRectangle", new Rectangle(1, 1, 5, 5));
+                    ObdAnnotation created = store.GetObdAnnotations(firstObd.Id, images[0].Id).Single();
+                    Assert.AreEqual(secondObdClass.Id, created.ClassId);
+
+                    form.AnnotationCanvas.SelectAllObd();
+                    Button firstObdButton = classes.Controls.OfType<Button>().Single(button => button.Text == firstObdClass.Name);
+                    firstObdButton.PerformClick();
+                    Assert.AreEqual(firstObdClass.Id, store.GetObdAnnotations(firstObd.Id, images[0].Id).Single().ClassId);
+                    Assert.AreEqual(firstObdClass.Id, Field<string>(form, "selectedObdClassId"));
+                    firstObdButton = classes.Controls.OfType<Button>().Single(button => button.Text == firstObdClass.Name);
+                    AssertClassButtonIsActive(firstObdButton, AnnotationColorFormat.ToColor(firstObdClass.Color));
+
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[1], Path.Combine(store.ImagesDirectory, images[1].ManagedFileName)));
+                    Assert.AreEqual(firstObdClass.Id, Field<string>(form, "selectedObdClassId"));
+                    sets.SelectedItem = AnnotationSet(sets, secondObd.Id);
+                    Assert.AreEqual(secondObdDefault.Id, Field<string>(form, "selectedObdClassId"));
+                    AssertClassButtonIsActive(classes.Controls.OfType<Button>().Single(button => button.Text == secondObdDefault.Name), AnnotationColorFormat.ToColor(secondObdDefault.Color));
+
+                    sets.SelectedItem = AnnotationSet(sets, seg.Id);
+                    Button brush = tools.Controls.OfType<Button>().Single(button => button.Name == "segBrush");
+                    foreach (Button tool in tools.Controls.OfType<Button>().ToArray())
+                    {
+                        tool.PerformClick();
+                        foreach (Button candidate in tools.Controls.OfType<Button>())
+                        {
+                            if (ReferenceEquals(candidate, tool)) AssertToolButtonIsActive(candidate);
+                            else AssertToolButtonIsInactive(candidate);
+                        }
+                    }
+                    brush = tools.Controls.OfType<Button>().Single(button => button.Name == "segBrush");
+                    brush.PerformClick();
+                    Button segOtherButton = classes.Controls.OfType<Button>().Single(button => button.Text == segOther.Name);
+                    segOtherButton.PerformClick();
+                    Assert.AreEqual(segOther.Id, Field<string>(form, "selectedSegClassId"));
+                    Assert.AreEqual(AnnotationColorFormat.ToColor(segOther.Color).ToArgb(), form.AnnotationCanvas.PreviewColor.ToArgb());
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[1], Path.Combine(store.ImagesDirectory, images[1].ManagedFileName)));
+                    Assert.AreEqual(segOther.Id, Field<string>(form, "selectedSegClassId"));
+                    Task createSeg = (Task)form.GetType().GetMethod("CreateSegRegionAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                        .Invoke(form, new object[] { SegRegionType.Rect, new Rectangle(2, 2, 4, 4) });
+                    WaitForTask(createSeg);
+                    Assert.AreEqual(segOther.Id, store.GetSegRegions(seg.Id, images[1].Id).Single().ClassId);
+                    sets.SelectedItem = AnnotationSet(sets, firstObd.Id);
+                    sets.SelectedItem = AnnotationSet(sets, seg.Id);
+                    Assert.AreEqual(segDefault.Id, Field<string>(form, "selectedSegClassId"));
+                    AssertClassButtonIsActive(classes.Controls.OfType<Button>().Single(button => button.Text == segDefault.Name), AnnotationColorFormat.ToColor(segDefault.Color));
+
+                    sets.SelectedItem = AnnotationSet(sets, cla.Id);
+                    Button claOtherButton = classes.Controls.OfType<Button>().Single(button => button.Text == claOther.Name);
+                    claOtherButton.PerformClick();
+                    Assert.AreEqual(claOther.Id, store.GetClaClassId(cla.Id, images[1].Id));
+                    claOtherButton = classes.Controls.OfType<Button>().Single(button => button.Text == claOther.Name);
+                    AssertClassButtonIsActive(claOtherButton, AnnotationColorFormat.ToColor(claOther.Color));
+                    AssertClassButtonIsInactive(classes.Controls.OfType<Button>().Single(button => button.Text == claDefault.Name));
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
+                    Assert.IsFalse(classes.Controls.OfType<Button>().Any(button => button.FlatAppearance.BorderSize > 1));
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[1], Path.Combine(store.ImagesDirectory, images[1].ManagedFileName)));
+                    AssertClassButtonIsActive(classes.Controls.OfType<Button>().Single(button => button.Text == claOther.Name), AnnotationColorFormat.ToColor(claOther.Color));
+                }
+                store.Dispose();
+                store = null;
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         [TestMethod]
         public void Annotation_side_panel_places_add_class_above_classes_and_labels_icon_tools()
         {
@@ -1371,6 +1490,32 @@ namespace Neurocle.Tests
                 return Enumerable.Range(area.Left, area.Width).Any(x => Enumerable.Range(area.Top, area.Height)
                     .Any(y => rendered.GetPixel(x, y).R > 200));
             }
+        }
+
+        private static void AssertClassButtonIsActive(Button button, Color classColor)
+        {
+            Assert.AreEqual(classColor.ToArgb(), button.BackColor.ToArgb(), "The active indicator must preserve the class color.");
+            Assert.AreEqual(3, button.FlatAppearance.BorderSize);
+            Assert.AreEqual(SystemColors.Highlight.ToArgb(), button.FlatAppearance.BorderColor.ToArgb());
+        }
+
+        private static void AssertClassButtonIsInactive(Button button)
+        {
+            Assert.AreEqual(1, button.FlatAppearance.BorderSize);
+            Assert.AreNotEqual(3, button.FlatAppearance.BorderSize);
+        }
+
+        private static void AssertToolButtonIsActive(Button button)
+        {
+            Assert.AreEqual(SystemColors.GradientActiveCaption.ToArgb(), button.BackColor.ToArgb());
+            Assert.AreEqual(2, button.FlatAppearance.BorderSize);
+            Assert.AreEqual(SystemColors.Highlight.ToArgb(), button.FlatAppearance.BorderColor.ToArgb());
+        }
+
+        private static void AssertToolButtonIsInactive(Button button)
+        {
+            Assert.AreEqual(SystemColors.Control.ToArgb(), button.BackColor.ToArgb());
+            Assert.AreEqual(1, button.FlatAppearance.BorderSize);
         }
 
         private static void CreateSolidImage(string path, Color color, int size = 10)

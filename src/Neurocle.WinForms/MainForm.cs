@@ -46,6 +46,7 @@ namespace Neurocle.WinForms
         private string selectedImagePath;
         private string selectedImageId;
         private string selectedSegClassId;
+        private string selectedObdClassId;
         private bool importInProgress;
         private bool exportInProgress;
         private bool annotationOperationInProgress;
@@ -349,11 +350,13 @@ namespace Neurocle.WinForms
         {
             canvas.DiscardUnfinishedShape();
             canvas.SegTool = tool;
+            RefreshAnnotationToolButtons();
         }
 
         private void SelectObdTool(bool select)
         {
             canvas.ObdSelectMode = select;
+            RefreshAnnotationToolButtons();
         }
 
         private Button CreateAnnotationToolButton(string name, string icon, string toolTip)
@@ -572,12 +575,17 @@ namespace Neurocle.WinForms
                 annotationTools.Controls.Add(segLine);
                 annotationTools.Controls.Add(segEraser);
             }
+            RefreshAnnotationToolButtons();
             AnnotationClass[] classes = project == null || selected == null ? new AnnotationClass[0] : project.GetClasses(selected.Id).ToArray();
-            if (selected == null || selected.Type != AnnotationSetType.Seg || !classes.Any(value => value.Id == selectedSegClassId)) selectedSegClassId = null;
-            if (canvas.SegEnabled && selectedSegClassId == null) selectedSegClassId = classes.FirstOrDefault()?.Id;
-            AnnotationClass previewClass = selected != null && selected.Type == AnnotationSetType.Seg
-                ? classes.FirstOrDefault(value => value.Id == selectedSegClassId)
-                : classes.FirstOrDefault();
+            if (selected == null || selected.Type != AnnotationSetType.Seg || selectedSetChanged || !classes.Any(value => value.Id == selectedSegClassId)) selectedSegClassId = null;
+            if (selected != null && selected.Type == AnnotationSetType.Seg) selectedSegClassId = selectedSegClassId ?? classes.FirstOrDefault()?.Id;
+            if (selected == null || selected.Type != AnnotationSetType.Obd || selectedSetChanged || !classes.Any(value => value.Id == selectedObdClassId)) selectedObdClassId = null;
+            if (selected != null && selected.Type == AnnotationSetType.Obd) selectedObdClassId = selectedObdClassId ?? classes.FirstOrDefault()?.Id;
+            string previewClassId = selected == null ? null
+                : selected.Type == AnnotationSetType.Seg ? selectedSegClassId
+                : selected.Type == AnnotationSetType.Obd ? selectedObdClassId
+                : selectedImageId == null ? null : project.GetClaClassId(selected.Id, selectedImageId);
+            AnnotationClass previewClass = classes.FirstOrDefault(value => value.Id == previewClassId);
             canvas.PreviewColor = previewClass == null ? Color.White : AnnotationColorFormat.ToColor(previewClass.Color);
             canvas.ObdClasses = classes.ToDictionary(value => value.Id);
             canvas.ObdAnnotations = canvas.ObdEnabled ? project.GetObdAnnotations(selected.Id, selectedImageId) : null;
@@ -590,7 +598,12 @@ namespace Neurocle.WinForms
             }
             foreach (AnnotationClass value in classes)
             {
-                var button = new Button { Text = value.Name, AutoSize = true, BackColor = AnnotationColorFormat.ToColor(value.Color) };
+                bool activeClass = selected.Type == AnnotationSetType.Cla
+                    ? selectedImageId != null && project.GetClaClassId(selected.Id, selectedImageId) == value.Id
+                    : selected.Type == AnnotationSetType.Obd ? selectedObdClassId == value.Id : selectedSegClassId == value.Id;
+                var button = new Button { Text = value.Name, AutoSize = true, BackColor = AnnotationColorFormat.ToColor(value.Color), FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false };
+                button.FlatAppearance.BorderSize = activeClass ? 3 : 1;
+                button.FlatAppearance.BorderColor = activeClass ? SystemColors.Highlight : SystemColors.ControlDark;
                 button.Click += (sender, args) =>
                 {
                     if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() =>
@@ -598,12 +611,18 @@ namespace Neurocle.WinForms
                         project.SetClaClass(selected.Id, selectedImageId, value.Id);
                         RefreshAnnotationClasses();
                     });
-                    else if (selected.Type == AnnotationSetType.Obd && selectedImageId != null && canvas.SelectedObdId != null) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
+                    else if (selected.Type == AnnotationSetType.Obd)
+                    {
+                        selectedObdClassId = value.Id;
+                        if (selectedImageId != null && canvas.SelectedObdIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
+                        else RefreshAnnotationClasses();
+                    }
                     else if (selected.Type == AnnotationSetType.Seg)
                     {
                         selectedSegClassId = value.Id;
                         canvas.PreviewColor = AnnotationColorFormat.ToColor(value.Color);
                         if (selectedImageId != null && canvas.SelectedSegIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedSegClass(value.Id));
+                        else RefreshAnnotationClasses();
                     }
                 };
                 var menu = new ContextMenuStrip();
@@ -617,6 +636,32 @@ namespace Neurocle.WinForms
         }
 
         private AnnotationSet SelectedAnnotationSet { get { return annotationSets.SelectedItem as AnnotationSet; } }
+
+        private void RefreshAnnotationToolButtons()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            bool isObd = selected != null && selected.Type == AnnotationSetType.Obd;
+            bool isSeg = selected != null && selected.Type == AnnotationSetType.Seg;
+            SetAnnotationToolButtonState(obdSelect, isObd && canvas.ObdSelectMode);
+            SetAnnotationToolButtonState(obdRectangle, isObd && !canvas.ObdSelectMode);
+            SetAnnotationToolButtonState(segSelect, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Select);
+            SetAnnotationToolButtonState(segRectangle, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Rect);
+            SetAnnotationToolButtonState(segEllipse, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Ellipse);
+            SetAnnotationToolButtonState(segPolygon, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Polygon);
+            SetAnnotationToolButtonState(segBrush, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Brush);
+            SetAnnotationToolButtonState(segLine, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Line);
+            SetAnnotationToolButtonState(segEraser, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Eraser);
+        }
+
+        private static void SetAnnotationToolButtonState(Button button, bool active)
+        {
+            button.FlatStyle = FlatStyle.Flat;
+            button.UseVisualStyleBackColor = false;
+            button.BackColor = active ? SystemColors.GradientActiveCaption : SystemColors.Control;
+            button.ForeColor = SystemColors.ControlText;
+            button.FlatAppearance.BorderSize = active ? 2 : 1;
+            button.FlatAppearance.BorderColor = active ? SystemColors.Highlight : SystemColors.ControlDark;
+        }
 
         private void RefreshDatasetAssignments()
         {
@@ -772,7 +817,7 @@ namespace Neurocle.WinForms
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null || selected.Type != AnnotationSetType.Obd || selectedImageId == null) return;
-            AnnotationClass value = project.GetClasses(selected.Id).FirstOrDefault();
+            AnnotationClass value = project.GetClasses(selected.Id).FirstOrDefault(item => item.Id == selectedObdClassId);
             if (value == null) return;
             project.AddObdAnnotation(selected.Id, selectedImageId, value.Id, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             RefreshAnnotationClasses();
@@ -919,7 +964,11 @@ namespace Neurocle.WinForms
             if (project == null || selected == null || selectedImageId == null || canvas.SelectedObdIds.Count == 0) return;
             ObdAnnotation[] annotations = project.GetObdAnnotations(selected.Id, selectedImageId).Where(item => canvas.SelectedObdIds.Contains(item.Id)).ToArray();
             if (annotations.Length != canvas.SelectedObdIds.Count) return;
-            if (annotations.All(annotation => annotation.ClassId == classId)) return;
+            if (annotations.All(annotation => annotation.ClassId == classId))
+            {
+                RefreshAnnotationClasses();
+                return;
+            }
             project.UpdateObdAnnotations(annotations.Select(annotation => new ObdAnnotation(annotation.Id, annotation.AnnotationSetId, annotation.ImageId, classId, annotation.X, annotation.Y, annotation.Width, annotation.Height, annotation.ZOrder)));
             RefreshAnnotationClasses();
         }
