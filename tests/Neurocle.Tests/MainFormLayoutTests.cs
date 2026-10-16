@@ -987,6 +987,7 @@ namespace Neurocle.Tests
                         Point end = ImagePointToScreen(canvas, 220, 150);
                         Point third = ImagePointToScreen(canvas, 220, 220);
                         RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                        Assert.IsTrue(Enumerable.Range(start.Y - 6, 13).Any(y => RenderPixel(canvas, start.X, y).R > 80), "The start marker should appear immediately after the first click at {0}% zoom.", zoom);
                         RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
                         RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, third.X, third.Y, 0));
 
