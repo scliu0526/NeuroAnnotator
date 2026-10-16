@@ -37,6 +37,8 @@ namespace Neurocle.WinForms
         private bool segPathDragging;
         private PointF? segLineStart;
         private PointF segCursor;
+        private PointF toolCursor;
+        private bool hasToolCursor;
         private IReadOnlyList<SegRegion> segRegions = new List<SegRegion>();
         private IReadOnlyDictionary<string, AnnotationClass> segClasses = new Dictionary<string, AnnotationClass>();
         private readonly HashSet<string> selectedSegIds = new HashSet<string>(StringComparer.Ordinal);
@@ -49,11 +51,23 @@ namespace Neurocle.WinForms
         private int segStrokeWidth = 15;
         private Color previewColor = Color.White;
 
-        public bool ObdEnabled { get; set; }
-        public bool ObdSelectMode { get; set; }
+        public bool ObdEnabled { get { return obdEnabled; } set { obdEnabled = value; UpdateToolCursor(); Invalidate(); } }
+        private bool obdEnabled;
+        public bool ObdSelectMode
+        {
+            get { return obdSelectMode; }
+            set { obdSelectMode = value; UpdateToolCursor(); Invalidate(); }
+        }
+        private bool obdSelectMode;
         internal Func<Keys> ModifierKeysProvider { get; set; }
-        public bool SegEnabled { get; set; }
-        public SegToolKind? SegTool { get; set; }
+        public bool SegEnabled { get { return segEnabled; } set { segEnabled = value; UpdateToolCursor(); Invalidate(); } }
+        private bool segEnabled;
+        public SegToolKind? SegTool
+        {
+            get { return segTool; }
+            set { segTool = value; UpdateToolCursor(); Invalidate(); }
+        }
+        private SegToolKind? segTool;
         public int SegStrokeWidth
         {
             get { return segStrokeWidth; }
@@ -341,13 +355,52 @@ namespace Neurocle.WinForms
             {
                 using (var pen = new Pen(PreviewTrackColor, Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
             }
-            if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
+            DrawToolCursor(args.Graphics);
+        }
+
+        private void DrawToolCursor(Graphics graphics)
+        {
+            if (!hasToolCursor || (!ObdEnabled && !SegEnabled)) return;
+            bool ring = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
+            bool crosshair = !ring && ((!SegEnabled && ObdEnabled && !ObdSelectMode) || (SegEnabled && SegTool.HasValue && SegTool != SegToolKind.Select));
+            if (!ring && !crosshair) return;
+            PointF center = toolCursor;
+            using (var pen = new Pen(Color.White, 1f))
+            using (var outline = new Pen(Color.Black, 1f))
             {
-                PointF cursor = viewport.ImageToScreen(segCursor);
-                int toolWidth = SegStrokeWidth;
-                float diameter = Math.Max(1f, (float)(toolWidth * viewport.Zoom));
-                using (var pen = new Pen(PreviewTrackColor, 1f)) args.Graphics.DrawEllipse(pen, cursor.X - diameter / 2f, cursor.Y - diameter / 2f, diameter, diameter);
+                if (ring)
+                {
+                    float diameter = Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom));
+                    RectangleF bounds = new RectangleF(center.X - diameter / 2f, center.Y - diameter / 2f, diameter, diameter);
+                    graphics.DrawEllipse(outline, bounds.X - 1f, bounds.Y - 1f, bounds.Width + 2f, bounds.Height + 2f);
+                    graphics.DrawEllipse(pen, bounds);
+                    string symbol = SegTool == SegToolKind.Eraser ? "−" : "+";
+                    using (var font = new Font(Font.FontFamily, 9f, FontStyle.Bold))
+                    using (var brush = new SolidBrush(Color.White))
+                    using (var shadow = new SolidBrush(Color.Black))
+                    {
+                        float x = center.X + diameter / 2f + 2f, y = center.Y - diameter / 2f - 10f;
+                        graphics.DrawString(symbol, font, shadow, x + 1f, y + 1f);
+                        graphics.DrawString(symbol, font, brush, x, y);
+                    }
+                }
+                else
+                {
+                    graphics.DrawLine(outline, center.X - 6f, center.Y, center.X - 2f, center.Y);
+                    graphics.DrawLine(outline, center.X + 2f, center.Y, center.X + 6f, center.Y);
+                    graphics.DrawLine(outline, center.X, center.Y - 6f, center.X, center.Y - 2f);
+                    graphics.DrawLine(outline, center.X, center.Y + 2f, center.X, center.Y + 6f);
+                    graphics.DrawLine(pen, center.X - 6f, center.Y, center.X - 2f, center.Y);
+                    graphics.DrawLine(pen, center.X + 2f, center.Y, center.X + 6f, center.Y);
+                    graphics.DrawLine(pen, center.X, center.Y - 6f, center.X, center.Y - 2f);
+                    graphics.DrawLine(pen, center.X, center.Y + 2f, center.X, center.Y + 6f);
+                }
             }
+        }
+
+        private void UpdateToolCursor()
+        {
+            Cursor = SegEnabled && SegTool.HasValue && SegTool != SegToolKind.Select || ObdEnabled && !ObdSelectMode ? Cursors.Cross : Cursors.Arrow;
         }
 
         private Color PreviewTrackColor { get { return Color.FromArgb(ToAlpha(0.4f), previewColor); } }
@@ -543,6 +596,13 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseMove(MouseEventArgs args)
         {
+            hasToolCursor = image != null;
+            if (image != null)
+            {
+                PointF imagePoint = viewport.ScreenToImage(args.Location);
+                bool widthTool = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
+                toolCursor = viewport.ImageToScreen(widthTool ? ClampSegPathPoint(imagePoint) : ClampPoint(imagePoint));
+            }
             if (SegEnabled && image != null) segCursor = ClampPoint(viewport.ScreenToImage(args.Location));
             if (panning)
             {
@@ -589,7 +649,15 @@ namespace Neurocle.WinForms
                 }
                 Invalidate();
             }
+            else Invalidate();
             base.OnMouseMove(args);
+        }
+
+        protected override void OnMouseLeave(EventArgs args)
+        {
+            hasToolCursor = false;
+            Invalidate();
+            base.OnMouseLeave(args);
         }
 
         protected override void OnMouseUp(MouseEventArgs args)

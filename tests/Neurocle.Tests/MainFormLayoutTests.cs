@@ -766,6 +766,54 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Canvas_tool_cursor_tracks_annotation_mode_and_scales_width_with_zoom()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdEnabled = true;
+                    canvas.ObdSelectMode = false;
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(Cursors.Cross, canvas.Cursor);
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "OBD rectangle mode should show a centered crosshair.");
+
+                    canvas.ObdSelectMode = true;
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
+                    canvas.ObdEnabled = false;
+                    canvas.SegEnabled = true;
+                    canvas.SegStrokeWidth = 12;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(Cursors.Cross, canvas.Cursor);
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "Brush width should define the cursor ring diameter at 100% zoom.");
+
+                    canvas.SetZoomPercent(200);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 38, 50).ToArgb(), "Cursor ring should scale with canvas zoom.");
+
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Annotation_and_eraser_previews_use_the_current_class_color_at_fixed_forty_percent()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
