@@ -5,6 +5,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -438,6 +439,191 @@ namespace Neurocle.Tests
                     Assert.AreEqual(5, canvas.SegRegions.Single().X, 0.001f);
                     Assert.AreEqual(5, canvas.SegRegions.Single().Y, 0.001f);
                     CollectionAssert.Contains(canvas.SelectedSegIds.ToArray(), original.Id);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Annotation_visibility_checkbox_and_bracket_shortcut_sync_across_images_and_sets_and_reset_on_project_open()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string nextProjectPath = Path.Combine(directory, "next-project.neurocle");
+            string firstImagePath = Path.Combine(directory, "one.png");
+            string secondImagePath = Path.Combine(directory, "two.png");
+            string beforeExport = Path.Combine(directory, "before.json");
+            string afterExport = Path.Combine(directory, "after.json");
+            ProjectStore store = null;
+            ProjectStore replacement = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var image = new Bitmap(100, 100))
+                using (var graphics = Graphics.FromImage(image))
+                {
+                    graphics.Clear(Color.Black);
+                    image.Save(firstImagePath, ImageFormat.Png);
+                    image.Save(secondImagePath, ImageFormat.Png);
+                }
+                store = ProjectStore.Create(projectPath);
+                ProjectImage[] images = store.ImportFiles(new[] { firstImagePath, secondImagePath }).ToArray();
+                AnnotationSet firstSet = store.CreateAnnotationSet("first boxes", AnnotationSetType.Obd);
+                AnnotationSet secondSet = store.CreateAnnotationSet("second boxes", AnnotationSetType.Obd);
+                AnnotationClass annotationClass = store.GetClasses(firstSet.Id).Single();
+                ObdAnnotation stored = store.AddObdAnnotation(firstSet.Id, images[0].Id, annotationClass.Id, 10, 10, 20, 20);
+                store.ExportAnnotationJson(firstSet.Id, beforeExport);
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    ProjectStore activeStore = store;
+                    Invoke(form, "ReplaceProject", activeStore);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(activeStore.ImagesDirectory, images[0].ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(activeStore.ImagesDirectory, images[0].ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(activeStore.ImagesDirectory, images[0].ManagedFileName));
+                    CheckBox showAnnotations = Field<CheckBox>(form, "showAnnotations");
+                    Assert.IsTrue(showAnnotations.Checked);
+                    Assert.IsTrue(form.AnnotationCanvas.AnnotationsVisible);
+
+                    showAnnotations.Checked = false;
+                    Assert.IsFalse(form.AnnotationCanvas.AnnotationsVisible);
+                    Assert.IsFalse(form.ImageCanvas.AnnotationsVisible);
+                    TextBox search = Field<TextBox>(form.ImageBrowser, "search");
+                    search.Focus();
+                    RaiseKey(form, new KeyEventArgs(Keys.OemOpenBrackets));
+                    Assert.IsFalse(showAnnotations.Checked, "The shortcut should not intercept a text input.");
+                    showAnnotations.Focus();
+                    RaiseKey(form, new KeyEventArgs(Keys.OemOpenBrackets));
+                    Assert.IsTrue(showAnnotations.Checked);
+                    Assert.IsTrue(form.AnnotationCanvas.AnnotationsVisible);
+                    showAnnotations.Checked = false;
+
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[1], Path.Combine(activeStore.ImagesDirectory, images[1].ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(activeStore.ImagesDirectory, images[1].ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(activeStore.ImagesDirectory, images[1].ManagedFileName));
+                    Assert.IsFalse(showAnnotations.Checked, "Changing images should preserve the display toggle.");
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, secondSet.Id);
+                    Assert.IsFalse(showAnnotations.Checked, "Changing annotation sets should preserve the display toggle.");
+                    activeStore.ExportAnnotationJson(firstSet.Id, afterExport);
+                    string beforeJson = Regex.Replace(File.ReadAllText(beforeExport), "\"time\":\"[^\"]+\"", "\"time\":\"\"");
+                    string afterJson = Regex.Replace(File.ReadAllText(afterExport), "\"time\":\"[^\"]+\"", "\"time\":\"\"");
+                    Assert.AreEqual(beforeJson, afterJson, "Display changes must not change exported annotations.");
+                    ObdAnnotation after = activeStore.GetObdAnnotations(firstSet.Id, images[0].Id).Single();
+                    Assert.AreEqual(stored.Id, after.Id);
+                    Assert.AreEqual(stored.X, after.X);
+                    Assert.AreEqual(stored.Y, after.Y);
+
+                    replacement = ProjectStore.Create(nextProjectPath);
+                    Invoke(form, "ReplaceProject", replacement);
+                    Assert.IsTrue(showAnnotations.Checked, "Opening another project should restore the default visible state.");
+                    Assert.IsTrue(form.AnnotationCanvas.AnnotationsVisible);
+                    form.Close();
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                replacement?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Hidden_annotations_cannot_be_selected_but_new_obd_and_seg_previews_remain_visible()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "canvas.png");
+            try
+            {
+                Directory.CreateDirectory(directory);
+                using (var image = new Bitmap(100, 100))
+                using (var graphics = Graphics.FromImage(image))
+                {
+                    graphics.Clear(Color.Black);
+                    image.Save(path, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), ObdEnabled = true, ObdSelectMode = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(path);
+                    WaitForImage(canvas, path);
+                    canvas.ObdAnnotations = new[] { new ObdAnnotation("obd", "set", "image", "class", 10, 10, 20, 20, 0) };
+                    Point existingObd = ImagePointToScreen(canvas, 15, 15);
+                    Assert.IsTrue(RenderPixel(canvas, existingObd.X, existingObd.Y).R > 0, "Visible OBD annotations should render over the image.");
+                    canvas.SelectAllObd();
+                    Assert.AreEqual(1, canvas.SelectedObdIds.Count);
+                    canvas.AnnotationsVisible = false;
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, existingObd.X, existingObd.Y).ToArgb());
+                    Assert.AreEqual(0, canvas.SelectedObdIds.Count, "Hiding annotations should clear an existing selection.");
+                    canvas.SelectAllObd();
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, existingObd.X, existingObd.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, existingObd.X, existingObd.Y, 0));
+                    Assert.AreEqual(0, canvas.SelectedObdIds.Count, "Hidden OBD annotations must not be selectable.");
+
+                    int obdCreated = 0;
+                    canvas.ObdRectangleCreated += rectangle =>
+                    {
+                        obdCreated++;
+                        canvas.ObdAnnotations = canvas.ObdAnnotations.Concat(new[] { new ObdAnnotation("new-obd", "set", "image", "class", rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height, 1) }).ToArray();
+                    };
+                    canvas.ObdSelectMode = false;
+                    Point start = ImagePointToScreen(canvas, 30, 30);
+                    Point end = ImagePointToScreen(canvas, 50, 50);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+                    Assert.AreNotEqual(Color.Black.ToArgb(), RenderPixel(canvas, 35, 35).ToArgb(), "New OBD drawing preview should remain visible while overlays are hidden.");
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
+                    Assert.AreEqual(1, obdCreated);
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 35, 35).ToArgb(), "Committed OBD annotations should remain hidden.");
+
+                    canvas.ObdEnabled = false;
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
+                    canvas.AnnotationsVisible = true;
+                    SegRegion existingSeg = new SegRegion("seg", "set", "image", "class", SegRegionType.Rect, 60, 10, 20, 20, 0);
+                    canvas.SegRegions = new[] { existingSeg };
+                    Point existingSegPoint = ImagePointToScreen(canvas, 65, 15);
+                    Assert.IsTrue(RenderPixel(canvas, existingSegPoint.X, existingSegPoint.Y).R > 0, "Visible SEG annotations should render over the image.");
+                    canvas.SelectAllSeg();
+                    Assert.AreEqual(1, canvas.SelectedSegIds.Count);
+                    canvas.AnnotationsVisible = false;
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, existingSegPoint.X, existingSegPoint.Y).ToArgb());
+                    Assert.AreEqual(0, canvas.SelectedSegIds.Count);
+                    canvas.SelectAllSeg();
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, existingSegPoint.X, existingSegPoint.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, existingSegPoint.X, existingSegPoint.Y, 0));
+                    Assert.AreEqual(0, canvas.SelectedSegIds.Count, "Hidden SEG annotations must not be selectable.");
+
+                    int segCreated = 0;
+                    canvas.SegRegionCreated += (type, rectangle) => segCreated++;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
+                    start = ImagePointToScreen(canvas, 60, 40);
+                    end = ImagePointToScreen(canvas, 80, 60);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+                    Assert.AreNotEqual(Color.Black.ToArgb(), RenderPixel(canvas, 65, 45).ToArgb(), "New SEG drawing preview should remain visible while overlays are hidden.");
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
+                    Assert.AreEqual(1, segCreated);
+                    canvas.SegRegions = canvas.SegRegions.Concat(new[] { new SegRegion("new-seg", "set", "image", "class", SegRegionType.Rect, 60, 40, 20, 20, 1) }).ToArray();
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 65, 45).ToArgb(), "Committed SEG annotations should remain hidden.");
+
+                    int erases = 0;
+                    canvas.SegEraseRequested += (points, width) => erases++;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Eraser;
+                    start = ImagePointToScreen(canvas, 65, 15);
+                    end = ImagePointToScreen(canvas, 70, 15);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
+                    Assert.AreEqual(0, erases, "The eraser must not edit hidden existing annotations.");
+                    Assert.IsTrue(canvas.SegRegions.Any(region => region.Id == existingSeg.Id), "Hiding annotations and using the eraser must preserve stored regions.");
                 }
             }
             finally

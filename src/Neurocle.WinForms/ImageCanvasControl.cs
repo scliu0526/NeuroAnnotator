@@ -62,6 +62,7 @@ namespace Neurocle.WinForms
         private RectangleF segOriginalBounds;
         private int segStrokeWidth = 15;
         private Color previewColor = Color.White;
+        private bool annotationsVisible = true;
 
         public bool ObdEnabled { get { return obdEnabled; } set { obdEnabled = value; UpdateToolCursor(); Invalidate(); } }
         private bool obdEnabled;
@@ -94,6 +95,22 @@ namespace Neurocle.WinForms
         private Keys CurrentModifierKeys { get { return ModifierKeysProvider == null ? ModifierKeys : ModifierKeysProvider(); } }
         public float ObdOpacity { get; set; } = 0.4f;
         public float SegOpacity { get; set; } = 0.4f;
+        public bool AnnotationsVisible
+        {
+            get { return annotationsVisible; }
+            set
+            {
+                if (annotationsVisible == value) return;
+                annotationsVisible = value;
+                if (!value)
+                {
+                    CancelAnnotationEditGesture();
+                    ClearObdSelection();
+                    ClearSegSelection();
+                }
+                Invalidate();
+            }
+        }
         public Color PreviewColor
         {
             get { return previewColor; }
@@ -105,6 +122,7 @@ namespace Neurocle.WinForms
         public IReadOnlyCollection<string> SelectedObdIds { get { return selectedObdIds; } }
         public void SelectAllObd()
         {
+            if (!AnnotationsVisible) return;
             selectedObdIds.Clear();
             foreach (ObdAnnotation annotation in obdAnnotations) selectedObdIds.Add(annotation.Id);
             selectedObdId = selectedObdIds.FirstOrDefault();
@@ -112,6 +130,7 @@ namespace Neurocle.WinForms
         }
         public void SelectAllSeg()
         {
+            if (!AnnotationsVisible) return;
             selectedSegIds.Clear();
             foreach (SegRegion region in segRegions) selectedSegIds.Add(region.Id);
             selectedSegId = selectedSegIds.FirstOrDefault();
@@ -301,6 +320,31 @@ namespace Neurocle.WinForms
             Invalidate();
         }
 
+        private void CancelAnnotationEditGesture()
+        {
+            bool cancelCapture = false;
+            if (obdDrag != ObdDragKind.None && obdDrag != ObdDragKind.Create)
+            {
+                obdPreviews = new Dictionary<string, RectangleF>();
+                activeObd = null;
+                obdDrag = ObdDragKind.None;
+                cancelCapture = true;
+            }
+            if (selectionStart.HasValue)
+            {
+                selectionStart = null;
+                selectionPreview = null;
+                cancelCapture = true;
+            }
+            if (segDrag != SegDragKind.None)
+            {
+                segPreviews = new Dictionary<string, SegRegion>();
+                segDrag = SegDragKind.None;
+                cancelCapture = true;
+            }
+            if (cancelCapture) Capture = false;
+        }
+
         protected override void OnPaint(PaintEventArgs args)
         {
             base.OnPaint(args);
@@ -309,6 +353,7 @@ namespace Neurocle.WinForms
             args.Graphics.DrawImage(image, new RectangleF(origin.X, origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom)));
             foreach (ObdAnnotation annotation in obdAnnotations.Where(item => !selectedObdIds.Contains(item.Id)).Concat(obdAnnotations.Where(item => selectedObdIds.Contains(item.Id))))
             {
+                if (!AnnotationsVisible) continue;
                 RectangleF imageRectangle;
                 if (!obdPreviews.TryGetValue(annotation.Id, out imageRectangle)) imageRectangle = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
                 RectangleF rectangle = ToScreenRectangle(imageRectangle.X, imageRectangle.Y, imageRectangle.Width, imageRectangle.Height);
@@ -331,6 +376,7 @@ namespace Neurocle.WinForms
             }
             foreach (SegRegion stored in segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Concat(segRegions.Where(item => selectedSegIds.Contains(item.Id))))
             {
+                if (!AnnotationsVisible) continue;
                 SegRegion region;
                 if (!segPreviews.TryGetValue(stored.Id, out region)) region = stored;
                 AnnotationClass annotationClass;
@@ -838,7 +884,7 @@ namespace Neurocle.WinForms
                     if (!selectionAdditive) ClearSegSelection();
                 }
                 else if (!selectionAdditive) ClearObdSelection();
-                if (dragged)
+                if (dragged && AnnotationsVisible)
                 {
                     if (isSeg)
                     {
@@ -941,7 +987,7 @@ namespace Neurocle.WinForms
                 }
                 else if (SegTool == SegToolKind.Eraser)
                 {
-                    if (segPath.Count >= 1) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
+                    if (AnnotationsVisible && segPath.Count >= 1) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
                     segPath.Clear();
                 }
                 segPathDragging = false;
@@ -1001,6 +1047,7 @@ namespace Neurocle.WinForms
 
         private SegRegion TopmostSegAt(PointF point)
         {
+            if (!AnnotationsVisible) return null;
             return segRegions.Where(item => selectedSegIds.Contains(item.Id)).Reverse().Concat(segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Reverse()).FirstOrDefault(item => ContainsSegPoint(item, point));
         }
 
@@ -1046,6 +1093,7 @@ namespace Neurocle.WinForms
 
         private SegDragKind HitSegHandle(Point point, out SegRegion hitRegion)
         {
+            if (!AnnotationsVisible) { hitRegion = null; return SegDragKind.None; }
             SegDragKind[] kinds = { SegDragKind.ResizeNw, SegDragKind.ResizeN, SegDragKind.ResizeNe, SegDragKind.ResizeE, SegDragKind.ResizeSe, SegDragKind.ResizeS, SegDragKind.ResizeSw, SegDragKind.ResizeW };
             foreach (SegRegion region in segRegions.Where(item => selectedSegIds.Contains(item.Id)).Reverse())
             {
@@ -1151,6 +1199,7 @@ namespace Neurocle.WinForms
 
         private ObdDragKind HitHandle(Point point, out ObdAnnotation hitAnnotation)
         {
+            if (!AnnotationsVisible) { hitAnnotation = null; return ObdDragKind.None; }
             ObdDragKind[] kinds = { ObdDragKind.ResizeNw, ObdDragKind.ResizeN, ObdDragKind.ResizeNe, ObdDragKind.ResizeE, ObdDragKind.ResizeSe, ObdDragKind.ResizeS, ObdDragKind.ResizeSw, ObdDragKind.ResizeW };
             foreach (ObdAnnotation annotation in obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).Reverse())
             {
@@ -1168,6 +1217,7 @@ namespace Neurocle.WinForms
 
         private ObdAnnotation TopmostObdAt(PointF point)
         {
+            if (!AnnotationsVisible) return null;
             ObdAnnotation selected = obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).Reverse().FirstOrDefault(item => new RectangleF(item.X, item.Y, item.Width, item.Height).Contains(point));
             if (selected != null) return selected;
             return obdAnnotations.Reverse().FirstOrDefault(item => !selectedObdIds.Contains(item.Id) && new RectangleF(item.X, item.Y, item.Width, item.Height).Contains(point));

@@ -159,4 +159,5 @@
   <data name="DiagnosticLogIoFailure" xml:space="preserve"><value>無法寫入或存取日誌：磁碟空間不足、檔案被使用，或發生檔案系統錯誤。</value></data>
   <data name="DiagnosticLogAccessDenied" xml:space="preserve"><value>無法寫入或存取日誌：目前帳號沒有日誌資料夾的存取權限。</value></data>
   <data name="DiagnosticLogUnsupportedPath" xml:space="preserve"><value>無法寫入或存取日誌：日誌資料夾路徑不受支援。</value></data>
+  <data name="ShowAnnotations" xml:space="preserve"><value>顯示標註</value></data>
 </root>

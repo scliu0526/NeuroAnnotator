@@ -123,6 +123,7 @@ namespace Neurocle.WinForms.Resources
         internal static string SegEraserTool { get { return ResourceManager.GetString("SegEraserTool", CultureInfo.CurrentUICulture); } }
         internal static string SegSelectTool { get { return ResourceManager.GetString("SegSelectTool", CultureInfo.CurrentUICulture); } }
         internal static string SegOpacity { get { return ResourceManager.GetString("SegOpacity", CultureInfo.CurrentUICulture); } }
+        internal static string ShowAnnotations { get { return ResourceManager.GetString("ShowAnnotations", CultureInfo.CurrentUICulture); } }
         internal static string SegBrushWidth { get { return ResourceManager.GetString("SegBrushWidth", CultureInfo.CurrentUICulture); } }
         internal static string SegLineWidth { get { return ResourceManager.GetString("SegLineWidth", CultureInfo.CurrentUICulture); } }
         internal static string SegEraserWidth { get { return ResourceManager.GetString("SegEraserWidth", CultureInfo.CurrentUICulture); } }

@@ -33,6 +33,7 @@ namespace Neurocle.WinForms
         private readonly TrackBar segStrokeWidthSlider;
         private readonly TrackBar annotationOpacity;
         private readonly NumericUpDown annotationOpacityValue;
+        private readonly CheckBox showAnnotations;
         private readonly Button addClass;
         private readonly Button obdSelect;
         private readonly Button obdRectangle;
@@ -186,6 +187,8 @@ namespace Neurocle.WinForms
             annotationOpacityValue = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 40, Width = 52 };
             annotationOpacityValue.ValueChanged += (sender, args) => SetAnnotationOpacity((int)annotationOpacityValue.Value);
             var segOpacityLabel = new Label { Text = Strings.SegOpacity, AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
+            showAnnotations = new CheckBox { AutoSize = true, Name = "showAnnotations", Text = Strings.ShowAnnotations, Checked = true };
+            showAnnotations.CheckedChanged += (sender, args) => SetAnnotationsVisible(showAnnotations.Checked);
             var fit = new Button { AutoSize = true, Text = Strings.FitToWindow };
             var zoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
             zoom.Items.AddRange(new object[] { Strings.FitToWindow, "10%", "50%", "75%", "100%", "125%", "150%", "200%" });
@@ -230,6 +233,7 @@ namespace Neurocle.WinForms
             annotationHeader.Controls.Add(segOpacityLabel);
             annotationHeader.Controls.Add(annotationOpacity);
             annotationHeader.Controls.Add(annotationOpacityValue);
+            annotationHeader.Controls.Add(showAnnotations);
             annotationHeader.Controls.Add(segWidths);
             annotationHeader.Controls.Add(fit);
             annotationHeader.Controls.Add(zoom);
@@ -301,6 +305,13 @@ namespace Neurocle.WinForms
                 {
                     activeCanvas.CancelInProgressGesture();
                     activeCanvas.FitToWindow();
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                    return;
+                }
+                if (args.KeyCode == Keys.OemOpenBrackets && pages.SelectedTab == annotationPage)
+                {
+                    showAnnotations.Checked = !showAnnotations.Checked;
                     args.Handled = true;
                     args.SuppressKeyPress = true;
                     return;
@@ -547,6 +558,12 @@ namespace Neurocle.WinForms
             canvas.ObdOpacity = opacity;
             canvas.SegOpacity = opacity;
             canvas.Invalidate();
+        }
+
+        private void SetAnnotationsVisible(bool visible)
+        {
+            imageCanvas.AnnotationsVisible = visible;
+            canvas.AnnotationsVisible = visible;
         }
 
         private void RefreshAnnotationClasses()
@@ -1155,6 +1172,7 @@ namespace Neurocle.WinForms
             project = replacement;
             previous?.Dispose();
             ResetAnnotationOpacity();
+            showAnnotations.Checked = true;
             canvas.DiscardUnfinishedShape();
             UpdateProjectStatus();
             imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
