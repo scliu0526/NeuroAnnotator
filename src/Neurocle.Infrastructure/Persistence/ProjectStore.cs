@@ -775,8 +775,12 @@ namespace Neurocle.Infrastructure.Persistence
 
         private static void ValidateObdGeometry(Size imageSize, int x, int y, int width, int height)
         {
-            int imageWidth = imageSize.Width; int imageHeight = imageSize.Height;
-            if (width < 1 || height < 1 || x < 0 || y < 0 || (long)x + width > imageWidth || (long)y + height > imageHeight) throw new ArgumentOutOfRangeException(nameof(width));
+            if (!IsObdGeometryWithinImage(imageSize, x, y, width, height)) throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
+        private static bool IsObdGeometryWithinImage(Size imageSize, int x, int y, int width, int height)
+        {
+            return width >= 1 && height >= 1 && x >= 0 && y >= 0 && (long)x + width <= imageSize.Width && (long)y + height <= imageSize.Height;
         }
 
         private Size GetImageSize(string imageId)
@@ -795,7 +799,12 @@ namespace Neurocle.Infrastructure.Persistence
 
         private void InsertObdRaw(ObdAnnotation value)
         {
-            Execute(connection, historyTransaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder));
+            InsertObdRaw(connection, historyTransaction, value);
+        }
+
+        private static void InsertObdRaw(SqliteConnection db, SqliteTransaction transaction, ObdAnnotation value)
+        {
+            Execute(db, transaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder));
         }
 
         private void UpdateObdRaw(ObdAnnotation value)
@@ -943,6 +952,34 @@ namespace Neurocle.Infrastructure.Persistence
             return value;
         }
 
+        public IReadOnlyList<ObdAnnotation> AddObdAnnotationCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<ObdAnnotation> annotations)
+        {
+            if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
+            if (annotations == null) throw new ArgumentNullException(nameof(annotations));
+            string[] targets = imageIds.Distinct(StringComparer.Ordinal).ToArray();
+            ObdAnnotation[] source = annotations.ToArray();
+            if (source.Length == 0 || targets.Length == 0) return new List<ObdAnnotation>();
+            object type = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
+            if (type == null || Convert.ToInt32(type) != (int)AnnotationSetType.Obd) throw new ArgumentException("The annotation set is not OBD.", nameof(annotationSetId));
+            HashSet<string> classIds = new HashSet<string>(GetClasses(annotationSetId).Select(value => value.Id), StringComparer.Ordinal);
+            if (source.Any(value => value.AnnotationSetId != annotationSetId || !classIds.Contains(value.ClassId))) throw new ArgumentException("The source annotations must use classes in the target annotation set.", nameof(annotations));
+            var copies = new List<ObdAnnotation>();
+            foreach (string imageId in targets)
+            {
+                Size imageSize = GetImageSize(imageId);
+                int zOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
+                foreach (ObdAnnotation value in source)
+                {
+                    if (!IsObdGeometryWithinImage(imageSize, value.X, value.Y, value.Width, value.Height)) continue;
+                    copies.Add(new ObdAnnotation(Guid.NewGuid().ToString("D"), annotationSetId, imageId, value.ClassId, value.X, value.Y, value.Width, value.Height, zOrder++));
+                }
+            }
+            if (copies.Count == 0) return copies;
+            CompleteOperation((db, transaction) => { foreach (ObdAnnotation value in copies) InsertObdRaw(db, transaction, value); });
+            Record(annotationSetId, () => { foreach (ObdAnnotation value in copies) DeleteObdRaw(value.Id); }, () => { foreach (ObdAnnotation value in copies) InsertObdRaw(value); }, EstimateHistoryBytes(copies));
+            return copies;
+        }
+
         public IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId, string imageId)
         {
             var result = new List<SegRegion>();
@@ -975,6 +1012,40 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        public IReadOnlyList<SegRegion> AddSegRegionCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<SegRegion> regions)
+        {
+            if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
+            if (regions == null) throw new ArgumentNullException(nameof(regions));
+            string[] targets = imageIds.Distinct(StringComparer.Ordinal).ToArray();
+            SegRegion[] source = regions.ToArray();
+            if (source.Length == 0 || targets.Length == 0) return new List<SegRegion>();
+            object type = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
+            if (type == null || Convert.ToInt32(type) != (int)AnnotationSetType.Seg) throw new ArgumentException("The annotation set is not SEG.", nameof(annotationSetId));
+            HashSet<string> classIds = new HashSet<string>(GetClasses(annotationSetId).Select(value => value.Id), StringComparer.Ordinal);
+            if (source.Any(value => value.AnnotationSetId != annotationSetId || !classIds.Contains(value.ClassId))) throw new ArgumentException("The source regions must use classes in the target annotation set.", nameof(regions));
+            var copies = new List<SegRegion>();
+            foreach (string imageId in targets)
+            {
+                Size imageSize = GetImageSize(imageId);
+                int zOrder = NextSegZOrder(annotationSetId, imageId);
+                foreach (SegRegion value in source)
+                {
+                    var candidate = new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, zOrder, value.Points.ToArray(), value.StrokeWidth);
+                    try { ValidateSegGeometry(imageSize, candidate); }
+                    catch (ArgumentException) { continue; }
+                    copies.Add(candidate);
+                    zOrder++;
+                }
+            }
+            if (copies.Count == 0) return copies;
+            CompleteOperation((db, transaction) => { foreach (SegRegion value in copies) InsertSegRegionRaw(db, transaction, value); });
+            Record(annotationSetId,
+                () => { foreach (SegRegion value in copies) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", value.Id)); },
+                () => { foreach (SegRegion value in copies) InsertSegRegionRaw(value); },
+                EstimateHistoryBytes(copies));
+            return copies;
+        }
+
         public SegRegion AddSegRegion(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height)
         {
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
@@ -998,7 +1069,10 @@ namespace Neurocle.Infrastructure.Persistence
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
             SegPoint[] values = points.ToArray();
             if (values.Any(point => point == null)) throw new ArgumentException("The path contains a null point.", nameof(points));
-            if (values.Length < (type == SegRegionType.PolyGon ? 3 : 2) || values.Distinct(new SegPointComparer()).Count() < (type == SegRegionType.PolyGon ? 3 : 2)) throw new ArgumentException("The path has too few distinct points.", nameof(points));
+            int distinctPointCount = values.Distinct(new SegPointComparer()).Count();
+            if (values.Length < (type == SegRegionType.PolyGon ? 3 : 1) ||
+                (type == SegRegionType.PolyGon && distinctPointCount < 3) ||
+                (type == SegRegionType.PolyLine && values.Length > 1 && distinctPointCount < 2)) throw new ArgumentException("The path has too few distinct points.", nameof(points));
             if (type == SegRegionType.PolyGon && AreCollinear(values)) throw new ArgumentException("The polygon points are collinear.", nameof(points));
             if (type == SegRegionType.PolyLine && (strokeWidth < 1 || strokeWidth > 100)) throw new ArgumentOutOfRangeException(nameof(strokeWidth));
             Size imageSize = GetImageSize(imageId);
@@ -1020,7 +1094,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Seg) throw new ArgumentException("The annotation set is not SEG.", nameof(annotationSetId));
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
             SegPoint[] values = points.ToArray();
-            if (values.Length < 2 || values.Any(point => point == null)) throw new ArgumentException("The eraser path is invalid.", nameof(points));
+            if (values.Length < 1 || values.Any(point => point == null)) throw new ArgumentException("The eraser path is invalid.", nameof(points));
             if (strokeWidth < 1 || strokeWidth > 100) throw new ArgumentOutOfRangeException(nameof(strokeWidth));
             Size imageSize = GetImageSize(imageId);
             if (values.Any(point => point.X < 0 || point.Y < 0 || point.X >= imageSize.Width || point.Y >= imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(points));
@@ -1200,7 +1274,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (value.Type == SegRegionType.PolyGon && (value.Points.Distinct(new SegPointComparer()).Count() < 3 || AreCollinear(value.Points))) throw new ArgumentException("The polygon is invalid.", nameof(value));
             if (value.Type == SegRegionType.PolyLine)
             {
-                if (value.Points.Distinct(new SegPointComparer()).Count() < 2 || value.StrokeWidth < 1 || value.StrokeWidth > 100) throw new ArgumentException("The line is invalid.", nameof(value));
+                if (value.Points.Count < 1 || (value.Points.Count > 1 && value.Points.Distinct(new SegPointComparer()).Count() < 2) || value.StrokeWidth < 1 || value.StrokeWidth > 100) throw new ArgumentException("The line is invalid.", nameof(value));
                 int inset = (value.StrokeWidth + 1) / 2;
                 if (value.Points.Any(point => point.X < inset || point.Y < inset || point.X > imageSize.Width - inset || point.Y > imageSize.Height - inset)) throw new ArgumentOutOfRangeException(nameof(value));
             }

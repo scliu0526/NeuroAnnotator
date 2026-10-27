@@ -1088,6 +1088,34 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Canvas_viewport_scroll_positions_follow_overflowing_axes_and_clamp_to_image_edges()
+        {
+            var viewport = new CanvasViewport(new Size(2000, 1000), new Size(1000, 500));
+            viewport.SetZoomAt(1d, new PointF(500f, 250f));
+
+            Assert.IsTrue(viewport.CanScrollHorizontally);
+            Assert.IsTrue(viewport.CanScrollVertically);
+            Assert.AreEqual(1000, viewport.HorizontalScrollMaximum);
+            Assert.AreEqual(500, viewport.VerticalScrollMaximum);
+            viewport.SetScrollPosition(1000, 500);
+            Assert.AreEqual(new PointF(-1000f, -500f), viewport.Origin);
+            Assert.AreEqual(1000, viewport.HorizontalScrollPosition);
+            Assert.AreEqual(500, viewport.VerticalScrollPosition);
+
+            viewport.SetScrollPosition(-100, 900);
+            Assert.AreEqual(0f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(-500f, viewport.Origin.Y, 0.001f);
+
+            viewport.SetImageSize(new Size(400, 200));
+            viewport.SetZoomAt(1d, new PointF(500f, 250f));
+            Assert.IsFalse(viewport.CanScrollHorizontally);
+            Assert.IsFalse(viewport.CanScrollVertically);
+            Assert.AreEqual(0, viewport.HorizontalScrollPosition);
+            Assert.AreEqual(300f, viewport.Origin.X, 0.001f);
+            Assert.AreEqual(150f, viewport.Origin.Y, 0.001f);
+        }
+
+        [TestMethod]
         public void Annotation_sets_classes_and_cla_assignments_are_isolated_and_persist_after_reopen()
         {
             string path = TemporaryProjectPath();
@@ -1281,6 +1309,206 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Adding_obd_annotation_copies_skips_out_of_bounds_and_uses_one_undo_redo_step()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string smallPath = Path.Combine(Path.GetDirectoryName(path), "small.png");
+            string largePath = Path.Combine(Path.GetDirectoryName(path), "large.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 30, 20);
+                CreateBitmap(smallPath, Color.Green, ImageFormat.Png, 12, 6);
+                CreateBitmap(largePath, Color.Blue, ImageFormat.Png, 40, 30);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    ProjectImage small = store.ImportFiles(new[] { smallPath })[0];
+                    ProjectImage large = store.ImportFiles(new[] { largePath })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    AnnotationClass firstClass = store.GetClasses(set.Id).Single();
+                    AnnotationClass secondClass = store.AddClass(set.Id, "other", "#123456");
+                    ObdAnnotation first = store.AddObdAnnotation(set.Id, image.Id, firstClass.Id, 1, 2, 5, 4);
+                    ObdAnnotation second = store.AddObdAnnotation(set.Id, image.Id, secondClass.Id, 10, 8, 7, 6);
+                    ObdAnnotation[] originals = { first, second };
+
+                    IReadOnlyList<ObdAnnotation> copies = store.AddObdAnnotationCopies(set.Id, new[] { image.Id, small.Id, large.Id }, originals);
+                    Assert.AreEqual(5, copies.Count);
+                    Assert.AreEqual(5, copies.Select(value => value.Id).Distinct(StringComparer.Ordinal).Count());
+                    CollectionAssert.AreEqual(new[] { firstClass.Id, secondClass.Id, firstClass.Id, firstClass.Id, secondClass.Id }, copies.Select(value => value.ClassId).ToArray());
+                    CollectionAssert.AreEqual(new[] { image.Id, image.Id, small.Id, large.Id, large.Id }, copies.Select(value => value.ImageId).ToArray());
+                    CollectionAssert.AreEqual(new[] { new Rectangle(1, 2, 5, 4), new Rectangle(10, 8, 7, 6), new Rectangle(1, 2, 5, 4), new Rectangle(1, 2, 5, 4), new Rectangle(10, 8, 7, 6) }, copies.Select(value => new Rectangle(value.X, value.Y, value.Width, value.Height)).ToArray());
+                    CollectionAssert.AreEqual(new[] { 2, 3, 0, 0, 1 }, copies.Select(value => value.ZOrder).ToArray());
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(originals.Select(value => value.Id).ToArray(), store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, small.Id).Count);
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, large.Id).Count);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    CollectionAssert.AreEqual(originals.Concat(copies.Where(value => value.ImageId == image.Id)).Select(value => value.Id).ToArray(), store.GetObdAnnotations(set.Id, image.Id).Select(value => value.Id).ToArray());
+                    Assert.AreEqual(1, store.GetObdAnnotations(set.Id, small.Id).Count);
+                    Assert.AreEqual(2, store.GetObdAnnotations(set.Id, large.Id).Count);
+
+                    bool canUndoBeforeEmptyCopy = store.CanUndo(set.Id);
+                    Assert.AreEqual(0, store.AddObdAnnotationCopies(set.Id, new[] { image.Id }, new ObdAnnotation[0]).Count);
+                    Assert.AreEqual(canUndoBeforeEmptyCopy, store.CanUndo(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); if (File.Exists(smallPath)) File.Delete(smallPath); if (File.Exists(largePath)) File.Delete(largePath); }
+        }
+
+        [TestMethod]
+        public void Obd_annotation_copy_batch_rolls_back_all_targets_when_a_persisted_insert_fails()
+        {
+            string path = TemporaryProjectPath();
+            string firstSource = Path.Combine(Path.GetDirectoryName(path), "first.png");
+            string secondSource = Path.Combine(Path.GetDirectoryName(path), "second.png");
+            try
+            {
+                CreateBitmap(firstSource, Color.Red, ImageFormat.Png, 40, 30);
+                CreateBitmap(secondSource, Color.Blue, ImageFormat.Png, 40, 30);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage firstImage = store.ImportFiles(new[] { firstSource })[0];
+                    ProjectImage secondImage = store.ImportFiles(new[] { secondSource })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    var source = new[] { new ObdAnnotation("snapshot", set.Id, firstImage.Id, value.Id, 2, 3, 10, 8, 0) };
+                    bool canUndoBefore = store.CanUndo(set.Id);
+                    store.CompleteOperation((db, transaction) =>
+                    {
+                        using (var command = db.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "CREATE TRIGGER FailSecondObdCopy BEFORE INSERT ON ObdAnnotation WHEN NEW.ImageId = '" + secondImage.Id + "' BEGIN SELECT RAISE(ABORT, 'injected copy failure'); END;";
+                            command.ExecuteNonQuery();
+                        }
+                    });
+
+                    Assert.ThrowsException<SqliteException>(() => store.AddObdAnnotationCopies(set.Id, new[] { firstImage.Id, secondImage.Id }, source));
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, firstImage.Id).Count);
+                    Assert.AreEqual(0, store.GetObdAnnotations(set.Id, secondImage.Id).Count);
+                    Assert.AreEqual(canUndoBefore, store.CanUndo(set.Id), "A failed batch must not leave a history entry.");
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(firstSource)) File.Delete(firstSource); if (File.Exists(secondSource)) File.Delete(secondSource); }
+        }
+
+        [TestMethod]
+        public void Adding_seg_region_copies_preserves_overlapping_regions_skips_bounds_and_uses_one_undo_redo_step()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string smallPath = Path.Combine(Path.GetDirectoryName(path), "small.png");
+            string largePath = Path.Combine(Path.GetDirectoryName(path), "large.png");
+            string exportedJson = Path.Combine(Path.GetDirectoryName(path), "regions.json");
+            string setId = null;
+            string imageId = null;
+            string smallImageId = null;
+            string largeImageId = null;
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 30, 20);
+                CreateBitmap(smallPath, Color.Green, ImageFormat.Png, 12, 8);
+                CreateBitmap(largePath, Color.Blue, ImageFormat.Png, 40, 30);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    ProjectImage small = store.ImportFiles(new[] { smallPath })[0];
+                    ProjectImage large = store.ImportFiles(new[] { largePath })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    setId = set.Id;
+                    imageId = image.Id;
+                    smallImageId = small.Id;
+                    largeImageId = large.Id;
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    SegRegion rectangle = store.AddSegRegion(set.Id, image.Id, value.Id, SegRegionType.Rect, 1, 2, 5, 4);
+                    SegRegion ellipse = store.AddSegRegion(set.Id, image.Id, value.Id, SegRegionType.Ellipse, 20, 5, 2, 2);
+                    SegRegion polygon = store.AddSegPath(set.Id, image.Id, value.Id, SegRegionType.PolyGon, new[] { new SegPoint(10, 10), new SegPoint(15, 10), new SegPoint(12, 15) }, 0);
+                    SegRegion line = store.AddSegPath(set.Id, image.Id, value.Id, SegRegionType.PolyLine, new[] { new SegPoint(20, 15), new SegPoint(25, 15) }, 3);
+                    SegRegion[] originals = { rectangle, ellipse, polygon, line };
+
+                    IReadOnlyList<SegRegion> copies = store.AddSegRegionCopies(set.Id, new[] { image.Id, small.Id, large.Id }, originals);
+
+                    Assert.AreEqual(9, copies.Count);
+                    Assert.AreEqual(9, copies.Select(region => region.Id).Distinct(StringComparer.Ordinal).Count());
+                    CollectionAssert.AreEqual(new[] { image.Id, image.Id, image.Id, image.Id, small.Id, large.Id, large.Id, large.Id, large.Id }, copies.Select(region => region.ImageId).ToArray());
+                    CollectionAssert.AreEqual(new[] { SegRegionType.Rect, SegRegionType.Ellipse, SegRegionType.PolyGon, SegRegionType.PolyLine, SegRegionType.Rect, SegRegionType.Rect, SegRegionType.Ellipse, SegRegionType.PolyGon, SegRegionType.PolyLine }, copies.Select(region => region.Type).ToArray());
+                    Assert.AreEqual(8, store.GetSegRegions(set.Id, image.Id).Count, "An exact same-class overlap must remain an independent copy.");
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, small.Id).Count, "Only the rectangle fits the small image.");
+                    Assert.AreEqual(4, store.GetSegRegions(set.Id, large.Id).Count);
+                    foreach (SegRegion expected in originals)
+                    {
+                        SegRegion copy = copies.Single(region => region.ImageId == large.Id && region.Type == expected.Type);
+                        Assert.AreEqual(expected.ClassId, copy.ClassId);
+                        Assert.AreEqual(expected.X, copy.X);
+                        Assert.AreEqual(expected.Y, copy.Y);
+                        Assert.AreEqual(expected.Width, copy.Width);
+                        Assert.AreEqual(expected.Height, copy.Height);
+                        Assert.AreEqual(expected.StrokeWidth, copy.StrokeWidth);
+                        CollectionAssert.AreEqual(expected.Points.Select(point => new Point(point.X, point.Y)).ToArray(), copy.Points.Select(point => new Point(point.X, point.Y)).ToArray());
+                    }
+
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(originals.Select(region => region.Id).ToArray(), store.GetSegRegions(set.Id, image.Id).Select(region => region.Id).ToArray());
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, small.Id).Count);
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, large.Id).Count);
+                    Assert.IsTrue(store.Redo(set.Id));
+                    Assert.AreEqual(8, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.AreEqual(1, store.GetSegRegions(set.Id, small.Id).Count);
+                    Assert.AreEqual(4, store.GetSegRegions(set.Id, large.Id).Count);
+                    store.ExportAnnotationJson(set.Id, exportedJson);
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    Assert.AreEqual(8, reopened.GetSegRegions(setId, imageId).Count);
+                    Assert.AreEqual(1, reopened.GetSegRegions(setId, smallImageId).Count);
+                    Assert.AreEqual(4, reopened.GetSegRegions(setId, largeImageId).Count);
+                    AnnotationSet imported = reopened.ImportAnnotationJson(File.ReadAllText(exportedJson), "regions roundtrip", false);
+                    Assert.AreEqual(8, reopened.GetSegRegions(imported.Id, imageId).Count, "JSON roundtrip must retain same-class overlapping copies as separate regions.");
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); if (File.Exists(smallPath)) File.Delete(smallPath); if (File.Exists(largePath)) File.Delete(largePath); if (File.Exists(exportedJson)) File.Delete(exportedJson); }
+        }
+
+        [TestMethod]
+        public void Seg_region_copy_batch_rolls_back_all_targets_when_persisted_insert_fails()
+        {
+            string path = TemporaryProjectPath();
+            string firstSource = Path.Combine(Path.GetDirectoryName(path), "first.png");
+            string secondSource = Path.Combine(Path.GetDirectoryName(path), "second.png");
+            try
+            {
+                CreateBitmap(firstSource, Color.Red, ImageFormat.Png, 40, 30);
+                CreateBitmap(secondSource, Color.Blue, ImageFormat.Png, 40, 30);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage firstImage = store.ImportFiles(new[] { firstSource })[0];
+                    ProjectImage secondImage = store.ImportFiles(new[] { secondSource })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    SegRegion source = store.AddSegPath(set.Id, firstImage.Id, value.Id, SegRegionType.PolyGon, new[] { new SegPoint(2, 3), new SegPoint(20, 3), new SegPoint(10, 20) }, 0);
+                    bool canUndoBefore = store.CanUndo(set.Id);
+                    store.CompleteOperation((db, transaction) =>
+                    {
+                        using (var command = db.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "CREATE TRIGGER FailSecondSegCopy BEFORE INSERT ON SegRegion WHEN NEW.ImageId = '" + secondImage.Id + "' BEGIN SELECT RAISE(ABORT, 'injected copy failure'); END;";
+                            command.ExecuteNonQuery();
+                        }
+                    });
+
+                    Assert.ThrowsException<SqliteException>(() => store.AddSegRegionCopies(set.Id, new[] { firstImage.Id, secondImage.Id }, new[] { source }));
+                    CollectionAssert.AreEqual(new[] { source.Id }, store.GetSegRegions(set.Id, firstImage.Id).Select(region => region.Id).ToArray());
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, secondImage.Id).Count);
+                    Assert.AreEqual(canUndoBefore, store.CanUndo(set.Id), "A failed batch must not leave a history entry.");
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(firstSource)) File.Delete(firstSource); if (File.Exists(secondSource)) File.Delete(secondSource); }
+        }
+
+        [TestMethod]
         public void Seg_rectangles_and_ellipses_are_bounded_undoable_and_persist_after_reopen()
         {
             string path = TemporaryProjectPath();
@@ -1369,6 +1597,69 @@ namespace Neurocle.Tests
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Single_point_brush_and_eraser_use_round_strokes_and_roundtrip_through_json()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string exportedJson = Path.Combine(Path.GetDirectoryName(path), "single-point.json");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                string setId;
+                string imageId;
+                string brushClassId;
+                double dotAreaSize;
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("single-point", AnnotationSetType.Seg);
+                    setId = set.Id;
+                    imageId = image.Id;
+                    AnnotationClass eraseClass = store.GetClasses(set.Id).Single();
+                    AnnotationClass brushClass = store.AddClass(set.Id, "dots", "#123456");
+                    brushClassId = brushClass.Id;
+                    store.AddSegRegion(set.Id, image.Id, eraseClass.Id, SegRegionType.Rect, 0, 20, 20, 20);
+                    SegRegion dot = store.AddSegPath(set.Id, image.Id, brushClass.Id, SegRegionType.PolyLine, new[] { new SegPoint(60, 60) }, 10);
+                    Assert.AreEqual(1, dot.Points.Count);
+                    Assert.AreEqual(10, dot.StrokeWidth);
+                    Paths64 dotArea = SegGeometryPrototype.Stroke(new Path64 { new Point64(60, 60) }, 10);
+                    dotAreaSize = SegGeometryPrototype.Area(dotArea);
+                    Assert.IsTrue(dotAreaSize > 70d && dotAreaSize < 90d);
+
+                    store.EraseSegPath(set.Id, image.Id, eraseClass.Id, new[] { new SegPoint(5, 30) }, 10);
+                    SegRegion erasedRectangle = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == eraseClass.Id);
+                    Assert.AreEqual(SegRegionType.PolyGon, erasedRectangle.Type);
+                    Assert.IsTrue(erasedRectangle.Points.All(point => point.X >= 0 && point.Y >= 0 && point.X <= 100 && point.Y <= 100));
+                    Assert.IsTrue(SegGeometryPrototype.Area(new Paths64 { new Path64(erasedRectangle.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }) < 400d,
+                        "A one-click eraser should remove a round area from the annotation.");
+                    Assert.IsTrue(store.Undo(set.Id));
+                    SegRegion restoredBeforeErase = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == eraseClass.Id);
+                    Assert.AreEqual(SegRegionType.Rect, restoredBeforeErase.Type);
+                    Assert.AreEqual(400d, SegGeometryPrototype.Area(new Paths64 { SegGeometryPrototype.Rectangle(restoredBeforeErase.X, restoredBeforeErase.Y, restoredBeforeErase.X + restoredBeforeErase.Width, restoredBeforeErase.Y + restoredBeforeErase.Height) }));
+                    Assert.IsTrue(store.Redo(set.Id));
+                    erasedRectangle = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == eraseClass.Id);
+                    Assert.IsTrue(SegGeometryPrototype.Area(new Paths64 { new Path64(erasedRectangle.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }) < 400d);
+                    store.ExportAnnotationJson(set.Id, exportedJson);
+                    store.Save();
+                }
+
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    SegRegion restoredDot = reopened.GetSegRegions(setId, imageId).Single(value => value.ClassId == brushClassId);
+                    Assert.AreEqual(1, restoredDot.Points.Count);
+                    Assert.AreEqual(10, restoredDot.StrokeWidth);
+                    AnnotationSet imported = reopened.ImportAnnotationJson(File.ReadAllText(exportedJson), "single-point-copy", false);
+                    SegRegion importedDot = reopened.GetSegRegions(imported.Id, imageId).Single(value => value.ClassId == reopened.GetClasses(imported.Id).Single(value => value.Name == "dots").Id);
+                    Assert.AreEqual(1, importedDot.Points.Count);
+                    Assert.AreEqual(10, importedDot.StrokeWidth);
+                    Paths64 importedDotArea = SegGeometryPrototype.Stroke(new Path64(importedDot.Points.Select(point => new Point64(point.X, point.Y)).ToList()), importedDot.StrokeWidth);
+                    Assert.AreEqual(dotAreaSize, SegGeometryPrototype.Area(importedDotArea));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); if (File.Exists(exportedJson)) File.Delete(exportedJson); }
         }
 
         [TestMethod]

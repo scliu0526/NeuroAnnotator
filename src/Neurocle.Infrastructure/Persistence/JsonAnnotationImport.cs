@@ -93,7 +93,7 @@ namespace Neurocle.Infrastructure.Persistence
             JArray points = value["points"] as JArray;
             if (type == SegRegionType.Rect && (regionWidth < 1 || regionHeight < 1 || x < 0 || y < 0 || (long)x + regionWidth > width || (long)y + regionHeight > height)) throw new JsonAnnotationImportException("rectangle is invalid.");
             if (type == SegRegionType.Ellipse && (radiusX < 1 || radiusY < 1 || x - radiusX < 0 || y - radiusY < 0 || (long)x + radiusX > width || (long)y + radiusY > height)) throw new JsonAnnotationImportException("ellipse is invalid.");
-            if ((type == SegRegionType.PolyLine || type == SegRegionType.PolyGon) && (points == null || points.Count < (type == SegRegionType.PolyGon ? 3 : 2) || (type == SegRegionType.PolyLine && stroke < 1))) throw new JsonAnnotationImportException("path is invalid.");
+            if ((type == SegRegionType.PolyLine || type == SegRegionType.PolyGon) && (points == null || points.Count < (type == SegRegionType.PolyGon ? 3 : 1) || (type == SegRegionType.PolyLine && stroke < 1))) throw new JsonAnnotationImportException("path is invalid.");
             IReadOnlyList<SegPoint> parsedPoints = points == null ? new SegPoint[0] : ParsePoints(points, width, height, type);
             return new ImportedRegion(className, type, x, y, regionWidth, regionHeight, radiusX, radiusY, stroke, parsedPoints);
         }

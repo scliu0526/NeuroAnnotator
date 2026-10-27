@@ -1,18 +1,23 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Clipper2Lib;
 using Neurocle.Application.Projects;
+using Neurocle.Domain.Segmentation;
 
 namespace Neurocle.WinForms
 {
     internal sealed class ImageCanvasControl : Control
     {
         private const float HandleSize = 8f;
+        private const long SegSelectionScale = 1000;
+        private static readonly Cursor InvisibleCursor = CreateInvisibleCursor();
         private readonly CanvasViewport viewport = new CanvasViewport(Size.Empty, Size.Empty);
         private readonly SemaphoreSlim imageLoadGate = new SemaphoreSlim(1, 1);
         private Image image;
@@ -20,6 +25,11 @@ namespace Neurocle.WinForms
         private CancellationTokenSource imageLoad;
         private bool panning;
         private Point previousPoint;
+        private PointF? selectionStart;
+        private Point selectionScreenStart;
+        private RectangleF? selectionPreview;
+        private bool selectionAdditive;
+        private bool selectionIsSeg;
         private PointF obdStart;
         private RectangleF? obdPreview;
         private IReadOnlyDictionary<string, RectangleF> obdPreviews = new Dictionary<string, RectangleF>();
@@ -37,6 +47,10 @@ namespace Neurocle.WinForms
         private bool segPathDragging;
         private PointF? segLineStart;
         private PointF segCursor;
+        private PointF toolCursor;
+        private Point lastMousePosition;
+        private bool pointerInside;
+        private bool hasToolCursor;
         private IReadOnlyList<SegRegion> segRegions = new List<SegRegion>();
         private IReadOnlyDictionary<string, AnnotationClass> segClasses = new Dictionary<string, AnnotationClass>();
         private readonly HashSet<string> selectedSegIds = new HashSet<string>(StringComparer.Ordinal);
@@ -46,14 +60,29 @@ namespace Neurocle.WinForms
         private SegDragKind segDrag;
         private SegRegion segOriginal;
         private RectangleF segOriginalBounds;
+        private double segRotationAngle;
         private int segStrokeWidth = 15;
+        private int segPathStrokeWidth;
         private Color previewColor = Color.White;
+        private bool annotationsVisible = true;
 
-        public bool ObdEnabled { get; set; }
-        public bool ObdSelectMode { get; set; }
+        public bool ObdEnabled { get { return obdEnabled; } set { obdEnabled = value; UpdateToolCursor(); Invalidate(); } }
+        private bool obdEnabled;
+        public bool ObdSelectMode
+        {
+            get { return obdSelectMode; }
+            set { obdSelectMode = value; UpdateToolCursor(); Invalidate(); }
+        }
+        private bool obdSelectMode;
         internal Func<Keys> ModifierKeysProvider { get; set; }
-        public bool SegEnabled { get; set; }
-        public SegToolKind? SegTool { get; set; }
+        public bool SegEnabled { get { return segEnabled; } set { segEnabled = value; UpdateToolCursor(); Invalidate(); } }
+        private bool segEnabled;
+        public SegToolKind? SegTool
+        {
+            get { return segTool; }
+            set { segTool = value; UpdateToolCursor(); Invalidate(); }
+        }
+        private SegToolKind? segTool;
         public int SegStrokeWidth
         {
             get { return segStrokeWidth; }
@@ -61,12 +90,29 @@ namespace Neurocle.WinForms
             {
                 if (value < 1 || value > 100) throw new ArgumentOutOfRangeException(nameof(value));
                 segStrokeWidth = value;
+                RefreshToolCursor();
                 Invalidate();
             }
         }
         private Keys CurrentModifierKeys { get { return ModifierKeysProvider == null ? ModifierKeys : ModifierKeysProvider(); } }
         public float ObdOpacity { get; set; } = 0.4f;
         public float SegOpacity { get; set; } = 0.4f;
+        public bool AnnotationsVisible
+        {
+            get { return annotationsVisible; }
+            set
+            {
+                if (annotationsVisible == value) return;
+                annotationsVisible = value;
+                if (!value)
+                {
+                    CancelAnnotationEditGesture();
+                    ClearObdSelection();
+                    ClearSegSelection();
+                }
+                Invalidate();
+            }
+        }
         public Color PreviewColor
         {
             get { return previewColor; }
@@ -78,15 +124,39 @@ namespace Neurocle.WinForms
         public IReadOnlyCollection<string> SelectedObdIds { get { return selectedObdIds; } }
         public void SelectAllObd()
         {
+            if (!AnnotationsVisible) return;
             selectedObdIds.Clear();
             foreach (ObdAnnotation annotation in obdAnnotations) selectedObdIds.Add(annotation.Id);
             selectedObdId = selectedObdIds.FirstOrDefault();
             Invalidate();
         }
+        public void SelectObdAnnotations(IEnumerable<string> annotationIds)
+        {
+            selectedObdIds.Clear();
+            if (AnnotationsVisible && annotationIds != null)
+            {
+                HashSet<string> existingIds = new HashSet<string>(obdAnnotations.Select(annotation => annotation.Id), StringComparer.Ordinal);
+                foreach (string id in annotationIds) if (existingIds.Contains(id)) selectedObdIds.Add(id);
+            }
+            selectedObdId = selectedObdIds.FirstOrDefault();
+            Invalidate();
+        }
         public void SelectAllSeg()
         {
+            if (!AnnotationsVisible) return;
             selectedSegIds.Clear();
             foreach (SegRegion region in segRegions) selectedSegIds.Add(region.Id);
+            selectedSegId = selectedSegIds.FirstOrDefault();
+            Invalidate();
+        }
+        public void SelectSegRegions(IEnumerable<string> regionIds)
+        {
+            selectedSegIds.Clear();
+            if (AnnotationsVisible && regionIds != null)
+            {
+                HashSet<string> existingIds = new HashSet<string>(segRegions.Select(region => region.Id), StringComparer.Ordinal);
+                foreach (string id in regionIds) if (existingIds.Contains(id)) selectedSegIds.Add(id);
+            }
             selectedSegId = selectedSegIds.FirstOrDefault();
             Invalidate();
         }
@@ -128,10 +198,12 @@ namespace Neurocle.WinForms
             DoubleBuffered = true;
             BackColor = Color.FromArgb(45, 45, 48);
             TabStop = true;
-            Resize += (sender, args) => { viewport.SetViewportSize(ClientSize); Invalidate(); RaiseViewChanged(); };
+            Resize += (sender, args) => { viewport.SetViewportSize(ClientSize); RefreshToolCursor(); Invalidate(); RaiseViewChanged(); };
         }
 
         public double Zoom { get { return viewport.Zoom; } }
+        internal int HorizontalScrollMaximum { get { return viewport.HorizontalScrollMaximum; } }
+        internal int VerticalScrollMaximum { get { return viewport.VerticalScrollMaximum; } }
         public event EventHandler ZoomChanged;
         public event EventHandler ViewChanged;
         internal string LoadedImagePath { get { return loadedImagePath; } }
@@ -140,6 +212,7 @@ namespace Neurocle.WinForms
         internal void SetViewState(CanvasViewState state)
         {
             viewport.SetView(state.Zoom, state.Origin, state.IsFitted);
+            RefreshToolCursor();
             Invalidate();
             RaiseViewChanged();
         }
@@ -165,6 +238,7 @@ namespace Neurocle.WinForms
                     image = loaded.Preview;
                     loadedImagePath = path;
                     viewport.SetImageSize(loaded.OriginalSize);
+                    UpdateToolCursor();
                     Invalidate();
                     RaiseViewChanged();
                 })) loaded.Preview.Dispose();
@@ -205,6 +279,9 @@ namespace Neurocle.WinForms
             Image previous = image;
             image = null;
             loadedImagePath = null;
+            hasToolCursor = false;
+            toolCursor = PointF.Empty;
+            UpdateToolCursor();
             previous?.Dispose();
             viewport.SetImageSize(Size.Empty);
             Invalidate();
@@ -224,30 +301,75 @@ namespace Neurocle.WinForms
             }
             catch (InvalidOperationException) { return false; }
         }
-        public void FitToWindow() { viewport.FitToWindow(); Invalidate(); RaiseViewChanged(); }
+        public void FitToWindow() { viewport.FitToWindow(); RefreshToolCursor(); Invalidate(); RaiseViewChanged(); }
         public void SetZoomPercent(double percent)
         {
             viewport.SetZoomAt(percent / 100d, new PointF(ClientSize.Width / 2f, ClientSize.Height / 2f));
+            RefreshToolCursor();
+            Invalidate();
+            RaiseViewChanged();
+        }
+
+        internal void SetScrollPosition(int horizontal, int vertical)
+        {
+            viewport.SetScrollPosition(horizontal, vertical);
+            RefreshToolCursor();
             Invalidate();
             RaiseViewChanged();
         }
 
         public void DiscardUnfinishedShape()
         {
-            obdPreview = null;
-            obdPreviews = new Dictionary<string, RectangleF>();
-            segPreview = null;
-            segPath.Clear();
-            segPathDragging = false;
-            segLineStart = null;
+            CancelInProgressGesture();
             selectedSegIds.Clear();
             selectedSegId = null;
+        }
+
+        internal void CancelInProgressGesture()
+        {
+            obdPreview = null;
+            obdPreviews = new Dictionary<string, RectangleF>();
+            selectionStart = null;
+            selectionPreview = null;
+            segPreview = null;
+            segPath.Clear();
+            segPathStrokeWidth = 0;
+            segPathDragging = false;
+            segLineStart = null;
             segPreviews = new Dictionary<string, SegRegion>();
             segDrag = SegDragKind.None;
+            segRotationAngle = 0d;
             activeObd = null;
             obdDrag = ObdDragKind.None;
+            panning = false;
             Capture = false;
             Invalidate();
+        }
+
+        private void CancelAnnotationEditGesture()
+        {
+            bool cancelCapture = false;
+            if (obdDrag != ObdDragKind.None && obdDrag != ObdDragKind.Create)
+            {
+                obdPreviews = new Dictionary<string, RectangleF>();
+                activeObd = null;
+                obdDrag = ObdDragKind.None;
+                cancelCapture = true;
+            }
+            if (selectionStart.HasValue)
+            {
+                selectionStart = null;
+                selectionPreview = null;
+                cancelCapture = true;
+            }
+            if (segDrag != SegDragKind.None)
+            {
+                segPreviews = new Dictionary<string, SegRegion>();
+                segDrag = SegDragKind.None;
+                segRotationAngle = 0d;
+                cancelCapture = true;
+            }
+            if (cancelCapture) Capture = false;
         }
 
         protected override void OnPaint(PaintEventArgs args)
@@ -258,6 +380,7 @@ namespace Neurocle.WinForms
             args.Graphics.DrawImage(image, new RectangleF(origin.X, origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom)));
             foreach (ObdAnnotation annotation in obdAnnotations.Where(item => !selectedObdIds.Contains(item.Id)).Concat(obdAnnotations.Where(item => selectedObdIds.Contains(item.Id))))
             {
+                if (!AnnotationsVisible) continue;
                 RectangleF imageRectangle;
                 if (!obdPreviews.TryGetValue(annotation.Id, out imageRectangle)) imageRectangle = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
                 RectangleF rectangle = ToScreenRectangle(imageRectangle.X, imageRectangle.Y, imageRectangle.Width, imageRectangle.Height);
@@ -272,10 +395,15 @@ namespace Neurocle.WinForms
             if (obdPreview.HasValue)
             {
                 RectangleF rectangle = ToScreenRectangle(obdPreview.Value.X, obdPreview.Value.Y, obdPreview.Value.Width, obdPreview.Value.Height);
-                using (var pen = new Pen(PreviewTrackColor, 1f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                RectangleF interior = rectangle;
+                interior.Inflate(-1f, -1f);
+                if (interior.Width > 0f && interior.Height > 0f)
+                    using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillRectangle(fill, interior);
+                using (var pen = new Pen(PreviewTrackColor, 2f)) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             }
             foreach (SegRegion stored in segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Concat(segRegions.Where(item => selectedSegIds.Contains(item.Id))))
             {
+                if (!AnnotationsVisible) continue;
                 SegRegion region;
                 if (!segPreviews.TryGetValue(stored.Id, out region)) region = stored;
                 AnnotationClass annotationClass;
@@ -296,7 +424,7 @@ namespace Neurocle.WinForms
                         args.Graphics.FillEllipse(fill, ellipse);
                         args.Graphics.DrawEllipse(pen, ellipse);
                     }
-                    else if (region.Points.Count > 1)
+                    else if (region.Points.Count > 0)
                     {
                         PointF[] points = region.Points.Select(point => viewport.ImageToScreen(new PointF(point.X, point.Y))).ToArray();
                         if (region.Type == SegRegionType.PolyGon && points.Length > 2)
@@ -304,32 +432,76 @@ namespace Neurocle.WinForms
                             args.Graphics.FillPolygon(fill, points);
                             args.Graphics.DrawPolygon(pen, points);
                         }
+                        else if (region.Type == SegRegionType.PolyLine && points.Length == 1)
+                        {
+                            float diameter = Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom));
+                            args.Graphics.FillEllipse(fill, points[0].X - diameter / 2f, points[0].Y - diameter / 2f, diameter, diameter);
+                        }
                         else
                         {
-                            using (var stroke = new Pen(Color.FromArgb(ToAlpha(SegOpacity), color), Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom)))) args.Graphics.DrawLines(stroke, points);
+                            using (var stroke = new Pen(Color.FromArgb(ToAlpha(SegOpacity), color), Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom))))
+                            {
+                                stroke.LineJoin = LineJoin.Round;
+                                stroke.StartCap = LineCap.Round;
+                                stroke.EndCap = LineCap.Round;
+                                args.Graphics.DrawLines(stroke, points);
+                            }
                         }
                     }
                 }
-                if (selectedSegIds.Contains(region.Id)) DrawSegHandles(args.Graphics, ToScreenRectangle(GetSegBounds(region)));
+                if (selectedSegIds.Contains(stored.Id))
+                {
+                    if (segDrag == SegDragKind.Rotate && segPreviews.ContainsKey(stored.Id)) DrawRotatedSegHandles(args.Graphics, stored, segRotationAngle);
+                    else DrawSegHandles(args.Graphics, ToScreenRectangle(GetSegBounds(region)));
+                }
+            }
+            if (selectionPreview.HasValue)
+            {
+                RectangleF rectangle = ToScreenRectangle(selectionPreview.Value);
+                using (var fill = new SolidBrush(Color.FromArgb(45, Color.DeepSkyBlue))) args.Graphics.FillRectangle(fill, rectangle);
+                using (var pen = new Pen(Color.DeepSkyBlue, 1.5f) { DashStyle = DashStyle.Dash }) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             }
             if (segPreview.HasValue)
             {
                 RectangleF rectangle = ToScreenRectangle(segPreview.Value.X, segPreview.Value.Y, segPreview.Value.Width, segPreview.Value.Height);
-                float width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
-                using (var pen = new Pen(PreviewTrackColor, width))
+                RectangleF interior = rectangle;
+                interior.Inflate(-1f, -1f);
+                using (var fill = new SolidBrush(PreviewTrackColor))
+                using (var pen = new Pen(PreviewTrackColor, 2f))
                 {
-                    if (SegTool == SegToolKind.Ellipse) args.Graphics.DrawEllipse(pen, rectangle);
-                    else args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                    if (SegTool == SegToolKind.Ellipse)
+                    {
+                        if (interior.Width > 0f && interior.Height > 0f) args.Graphics.FillEllipse(fill, interior);
+                        args.Graphics.DrawEllipse(pen, rectangle);
+                    }
+                    else
+                    {
+                        if (interior.Width > 0f && interior.Height > 0f) args.Graphics.FillRectangle(fill, interior);
+                        args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                    }
                 }
             }
             if (segPath.Count > 0)
             {
                 PointF[] points = segPath.Select(viewport.ImageToScreen).ToArray();
-                float width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)) : 1f;
+                float width = SegTool == SegToolKind.Polygon ? 3f : SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom)) : 1f;
                 using (var pen = new Pen(PreviewTrackColor, width))
                 {
+                    pen.LineJoin = LineJoin.Round;
+                    pen.StartCap = LineCap.Round;
+                    pen.EndCap = LineCap.Round;
                     if (points.Length > 1) args.Graphics.DrawLines(pen, points);
+                    else if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
+                    {
+                        float diameter = Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom));
+                        using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillEllipse(fill, points[0].X - diameter / 2f, points[0].Y - diameter / 2f, diameter, diameter);
+                    }
                     if (SegTool == SegToolKind.Polygon && points.Length > 2) args.Graphics.DrawLine(pen, points[points.Length - 1], points[0]);
+                }
+                if (SegTool == SegToolKind.Polygon)
+                {
+                    PointF start = points[0];
+                    using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillEllipse(fill, start.X - 4f, start.Y - 4f, 8f, 8f);
                 }
                 if (SegTool == SegToolKind.Polygon && DistanceInScreenPixels(segPath[0], segCursor) <= 8f)
                 {
@@ -339,14 +511,95 @@ namespace Neurocle.WinForms
             }
             if (segLineStart.HasValue && SegTool == SegToolKind.Line)
             {
-                using (var pen = new Pen(PreviewTrackColor, Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
+                using (var pen = new Pen(PreviewTrackColor, Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
             }
-            if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
+            DrawToolCursor(args.Graphics);
+        }
+
+        private void DrawToolCursor(Graphics graphics)
+        {
+            if (!hasToolCursor || (!ObdEnabled && !SegEnabled)) return;
+            bool ring = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
+            bool crosshair = !ring && ((!SegEnabled && ObdEnabled && !ObdSelectMode) || (SegEnabled && SegTool.HasValue && SegTool != SegToolKind.Select));
+            if (!ring && !crosshair) return;
+            PointF center = toolCursor;
+            using (var pen = new Pen(Color.White, 1f))
+            using (var outline = new Pen(Color.Black, 1f))
             {
-                PointF cursor = viewport.ImageToScreen(segCursor);
-                int toolWidth = SegStrokeWidth;
-                float diameter = Math.Max(1f, (float)(toolWidth * viewport.Zoom));
-                using (var pen = new Pen(PreviewTrackColor, 1f)) args.Graphics.DrawEllipse(pen, cursor.X - diameter / 2f, cursor.Y - diameter / 2f, diameter, diameter);
+                if (ring)
+                {
+                    float diameter = Math.Max(1f, (float)(SegStrokeWidth * viewport.Zoom));
+                    RectangleF bounds = new RectangleF(center.X - diameter / 2f, center.Y - diameter / 2f, diameter, diameter);
+                    graphics.DrawEllipse(outline, bounds.X - 1f, bounds.Y - 1f, bounds.Width + 2f, bounds.Height + 2f);
+                    graphics.DrawEllipse(pen, bounds);
+                    string symbol = SegTool == SegToolKind.Eraser ? "−" : "+";
+                    using (var font = new Font(Font.FontFamily, 9f, FontStyle.Bold))
+                    using (var brush = new SolidBrush(Color.White))
+                    using (var shadow = new SolidBrush(Color.Black))
+                    {
+                        float x = center.X + diameter / 2f + 2f, y = center.Y - diameter / 2f - 10f;
+                        graphics.DrawString(symbol, font, shadow, x + 1f, y + 1f);
+                        graphics.DrawString(symbol, font, brush, x, y);
+                    }
+                }
+                else
+                {
+                    graphics.DrawLine(outline, center.X - 6f, center.Y, center.X - 2f, center.Y);
+                    graphics.DrawLine(outline, center.X + 2f, center.Y, center.X + 6f, center.Y);
+                    graphics.DrawLine(outline, center.X, center.Y - 6f, center.X, center.Y - 2f);
+                    graphics.DrawLine(outline, center.X, center.Y + 2f, center.X, center.Y + 6f);
+                    graphics.DrawLine(pen, center.X - 6f, center.Y, center.X - 2f, center.Y);
+                    graphics.DrawLine(pen, center.X + 2f, center.Y, center.X + 6f, center.Y);
+                    graphics.DrawLine(pen, center.X, center.Y - 6f, center.X, center.Y - 2f);
+                    graphics.DrawLine(pen, center.X, center.Y + 2f, center.X, center.Y + 6f);
+                }
+            }
+        }
+
+        private void UpdateToolCursor()
+        {
+            RefreshToolCursor();
+            ApplyToolCursor();
+        }
+
+        private void ApplyToolCursor()
+        {
+            bool crosshair = ObdEnabled && !ObdSelectMode || SegEnabled && (SegTool == SegToolKind.Rect || SegTool == SegToolKind.Ellipse || SegTool == SegToolKind.Polygon);
+            bool ring = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
+            Cursor = hasToolCursor && (crosshair || ring) ? InvisibleCursor : Cursors.Arrow;
+        }
+
+        private static Cursor CreateInvisibleCursor()
+        {
+            using (var stream = new MemoryStream())
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write((ushort)0);
+                writer.Write((ushort)2);
+                writer.Write((ushort)1);
+                writer.Write((byte)1);
+                writer.Write((byte)1);
+                writer.Write((byte)0);
+                writer.Write((byte)0);
+                writer.Write((ushort)0);
+                writer.Write((ushort)0);
+                writer.Write((uint)48);
+                writer.Write((uint)22);
+                writer.Write((uint)40);
+                writer.Write((int)1);
+                writer.Write((int)2);
+                writer.Write((ushort)1);
+                writer.Write((ushort)32);
+                writer.Write((uint)0);
+                writer.Write((uint)4);
+                writer.Write((int)0);
+                writer.Write((int)0);
+                writer.Write((uint)0);
+                writer.Write((uint)0);
+                writer.Write(new byte[4]);
+                writer.Write(new byte[] { 255, 255, 255, 255 });
+                stream.Position = 0;
+                return new Cursor(stream);
             }
         }
 
@@ -378,11 +631,38 @@ namespace Neurocle.WinForms
             using (var pen = new Pen(Color.Black)) graphics.DrawEllipse(pen, rotation.X - 5f, rotation.Y - 5f, 10f, 10f);
         }
 
+        private void DrawRotatedSegHandles(Graphics graphics, SegRegion region, double angle)
+        {
+            RectangleF bounds = GetSegBounds(region);
+            PointF center = new PointF(bounds.Left + bounds.Width / 2f, bounds.Top + bounds.Height / 2f);
+            PointF[] points = GetHandlePoints(bounds).Select(point => viewport.ImageToScreen(RotatePoint(point, center, angle))).ToArray();
+            using (var outline = new Pen(Color.Black, 3f)) graphics.DrawPolygon(outline, points);
+            using (var outline = new Pen(Color.White, 1f)) graphics.DrawPolygon(outline, points);
+            foreach (PointF point in points)
+            {
+                var handle = new RectangleF(point.X - HandleSize / 2f, point.Y - HandleSize / 2f, HandleSize, HandleSize);
+                using (var fill = new SolidBrush(Color.White)) graphics.FillRectangle(fill, handle);
+                using (var pen = new Pen(Color.Black)) graphics.DrawRectangle(pen, handle.X, handle.Y, handle.Width, handle.Height);
+            }
+            PointF top = points[1];
+            PointF rotation = new PointF(top.X + (float)Math.Sin(angle) * 24f, top.Y - (float)Math.Cos(angle) * 24f);
+            using (var pen = new Pen(Color.Black)) graphics.DrawLine(pen, top, rotation);
+            using (var fill = new SolidBrush(Color.White)) graphics.FillEllipse(fill, rotation.X - 5f, rotation.Y - 5f, 10f, 10f);
+            using (var pen = new Pen(Color.Black)) graphics.DrawEllipse(pen, rotation.X - 5f, rotation.Y - 5f, 10f, 10f);
+        }
+
+        private static PointF RotatePoint(PointF point, PointF center, double angle)
+        {
+            double cosine = Math.Cos(angle), sine = Math.Sin(angle);
+            return new PointF((float)(center.X + (point.X - center.X) * cosine - (point.Y - center.Y) * sine), (float)(center.Y + (point.X - center.X) * sine + (point.Y - center.Y) * cosine));
+        }
+
         protected override void OnMouseWheel(MouseEventArgs args)
         {
             if ((ModifierKeys & Keys.Control) == Keys.Control) viewport.SetZoomAt(viewport.Zoom * (args.Delta > 0 ? 1.1d : 1d / 1.1d), args.Location);
             else if ((ModifierKeys & Keys.Shift) == Keys.Shift) viewport.Pan(args.Delta / 120f * 48f, 0f);
             else viewport.Pan(0f, args.Delta / 120f * 48f);
+            RefreshToolCursor();
             Invalidate();
             RaiseViewChanged();
             base.OnMouseWheel(args);
@@ -391,7 +671,12 @@ namespace Neurocle.WinForms
         protected override void OnMouseDown(MouseEventArgs args)
         {
             Focus();
-            panning = args.Button == MouseButtons.Left && (CurrentModifierKeys & Keys.Space) == Keys.Space;
+            panning = image != null && (args.Button == MouseButtons.Right || (args.Button == MouseButtons.Left && (CurrentModifierKeys & Keys.Space) == Keys.Space));
+            if (panning)
+            {
+                previousPoint = args.Location;
+                Capture = true;
+            }
             if (args.Button == MouseButtons.Left && ObdEnabled && !panning && image != null)
             {
                 PointF point = viewport.ScreenToImage(args.Location);
@@ -418,7 +703,7 @@ namespace Neurocle.WinForms
                         ObdAnnotation hit = TopmostObdAt(point);
                         if (hit == null)
                         {
-                            ClearObdSelection();
+                            BeginSelectionGesture(ClampPoint(point), args.Location, false);
                             Invalidate();
                             base.OnMouseDown(args);
                             return;
@@ -464,12 +749,19 @@ namespace Neurocle.WinForms
                         segOriginalBounds = GetSegBounds(segOriginal);
                         segDragStart = selectionPoint;
                         segDrag = handle;
+                        segRotationAngle = 0d;
                         Capture = true;
                         base.OnMouseDown(args);
                         return;
                     }
                     SegRegion hit = TopmostSegAt(selectionPoint);
-                    if (hit == null) ClearSegSelection();
+                    if (hit == null)
+                    {
+                        BeginSelectionGesture(selectionPoint, args.Location, true);
+                        Invalidate();
+                        base.OnMouseDown(args);
+                        return;
+                    }
                     else if ((CurrentModifierKeys & Keys.Control) == Keys.Control)
                     {
                         if (!selectedSegIds.Add(hit.Id)) selectedSegIds.Remove(hit.Id);
@@ -501,13 +793,14 @@ namespace Neurocle.WinForms
                 }
                 else if (SegTool == SegToolKind.Line)
                 {
-                    if (!segLineStart.HasValue) segLineStart = point;
+                    if (!segLineStart.HasValue) { segLineStart = point; segPathStrokeWidth = SegStrokeWidth; }
                     else
                     {
                         SegPoint first = ToSegPoint(segLineStart.Value);
                         SegPoint second = ToSegPoint(point);
-                        if (first.X != second.X || first.Y != second.Y) SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, SegStrokeWidth);
+                        if (first.X != second.X || first.Y != second.Y) SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, segPathStrokeWidth);
                         segLineStart = null;
+                        segPathStrokeWidth = 0;
                     }
                 }
                 else
@@ -520,7 +813,7 @@ namespace Neurocle.WinForms
                         base.OnMouseDown(args);
                         return;
                     }
-                    if (segPath.Count == 0) segPath.Add(point);
+                    if (segPath.Count == 0) { segPathStrokeWidth = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? SegStrokeWidth : 0; segPath.Add(point); }
                     else segPath.Add(point);
                     segPathDragging = false;
                     Capture = true;
@@ -543,13 +836,25 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseMove(MouseEventArgs args)
         {
+            pointerInside = true;
+            lastMousePosition = args.Location;
+            bool hadToolCursor = hasToolCursor;
+            Rectangle oldCursorBounds = hadToolCursor ? GetToolCursorBounds(toolCursor) : Rectangle.Empty;
+            RefreshToolCursor();
+            ApplyToolCursor();
             if (SegEnabled && image != null) segCursor = ClampPoint(viewport.ScreenToImage(args.Location));
             if (panning)
             {
                 viewport.Pan(args.X - previousPoint.X, args.Y - previousPoint.Y);
                 previousPoint = args.Location;
+                RefreshToolCursor();
                 Invalidate();
                 RaiseViewChanged();
+            }
+            else if (selectionStart.HasValue && (args.Button & MouseButtons.Left) == MouseButtons.Left)
+            {
+                selectionPreview = Normalize(selectionStart.Value, ClampPoint(viewport.ScreenToImage(args.Location)));
+                Invalidate();
             }
             else if (obdDrag != ObdDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
@@ -566,7 +871,16 @@ namespace Neurocle.WinForms
             {
                 PointF point = ClampPoint(viewport.ScreenToImage(args.Location));
                 if (segDrag == SegDragKind.Move) segPreviews = MoveSegRegions(point);
-                else if (segDrag == SegDragKind.Rotate) segPreviews = new Dictionary<string, SegRegion> { { segOriginal.Id, RotateSegRegion(segOriginal, point) } };
+                else if (segDrag == SegDragKind.Rotate)
+                {
+                    IReadOnlyDictionary<string, SegRegion> previews;
+                    double angle;
+                    if (TryRotateSegRegions(point, out previews, out angle))
+                    {
+                        segPreviews = previews;
+                        segRotationAngle = angle;
+                    }
+                }
                 else segPreviews = new Dictionary<string, SegRegion> { { segOriginal.Id, ResizeSegRegion(segOriginal, point) } };
                 Invalidate();
             }
@@ -589,12 +903,86 @@ namespace Neurocle.WinForms
                 }
                 Invalidate();
             }
+            else if (hasToolCursor)
+            {
+                Rectangle newCursorBounds = GetToolCursorBounds(toolCursor);
+                Invalidate(hadToolCursor ? Rectangle.Union(oldCursorBounds, newCursorBounds) : newCursorBounds);
+            }
             base.OnMouseMove(args);
+        }
+
+        private Rectangle GetToolCursorBounds(PointF center)
+        {
+            float radius = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser)
+                ? (float)(SegStrokeWidth * viewport.Zoom / 2d + 14f)
+                : 8f;
+            return Rectangle.Round(new RectangleF(center.X - radius, center.Y - radius, radius * 2f, radius * 2f));
+        }
+
+        private void RefreshToolCursor()
+        {
+            hasToolCursor = pointerInside && image != null;
+            if (!hasToolCursor) return;
+            PointF imagePoint = viewport.ScreenToImage(lastMousePosition);
+            bool widthTool = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
+            toolCursor = viewport.ImageToScreen(widthTool ? ClampSegPathPoint(imagePoint) : ClampPoint(imagePoint));
+        }
+
+        protected override void OnMouseLeave(EventArgs args)
+        {
+            pointerInside = false;
+            hasToolCursor = false;
+            ApplyToolCursor();
+            Invalidate();
+            base.OnMouseLeave(args);
         }
 
         protected override void OnMouseUp(MouseEventArgs args)
         {
-            if (args.Button == MouseButtons.Left && obdDrag != ObdDragKind.None)
+            if (args.Button == MouseButtons.Left && selectionStart.HasValue)
+            {
+                bool dragged = Math.Abs(args.X - selectionScreenStart.X) > 2 || Math.Abs(args.Y - selectionScreenStart.Y) > 2;
+                RectangleF selection = selectionPreview ?? new RectangleF(selectionStart.Value, SizeF.Empty);
+                bool isSeg = selectionIsSeg;
+                selectionStart = null;
+                selectionPreview = null;
+                Capture = false;
+                if (isSeg)
+                {
+                    if (!selectionAdditive) ClearSegSelection();
+                }
+                else if (!selectionAdditive) ClearObdSelection();
+                if (dragged && AnnotationsVisible)
+                {
+                    if (isSeg)
+                    {
+                        foreach (SegRegion region in segRegions)
+                        {
+                            if (IntersectsSegArea(region, selection))
+                            {
+                                selectedSegIds.Add(region.Id);
+                                if (selectedSegId == null) selectedSegId = region.Id;
+                            }
+                        }
+                        if (!selectedSegIds.Contains(selectedSegId)) selectedSegId = selectedSegIds.FirstOrDefault();
+                    }
+                    else
+                    {
+                        foreach (ObdAnnotation annotation in obdAnnotations)
+                        {
+                            RectangleF annotationBounds = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
+                            if (RectanglesTouch(selection, annotationBounds))
+                            {
+                                selectedObdIds.Add(annotation.Id);
+                                if (selectedObdId == null) selectedObdId = annotation.Id;
+                            }
+                        }
+                        if (!selectedObdIds.Contains(selectedObdId)) selectedObdId = selectedObdIds.FirstOrDefault();
+                    }
+                }
+                Invalidate();
+            }
+            else if (args.Button == MouseButtons.Left && obdDrag != ObdDragKind.None)
             {
                 ObdDragKind completed = obdDrag;
                 var previews = obdPreviews.ToDictionary(item => item.Key, item => item.Value);
@@ -628,6 +1016,7 @@ namespace Neurocle.WinForms
                 segDrag = SegDragKind.None;
                 Capture = false;
                 if (changed.Length > 0) SegRegionsChanged?.Invoke(changed);
+                segRotationAngle = 0d;
                 Invalidate();
             }
             else if (args.Button == MouseButtons.Left && segPreview.HasValue)
@@ -649,29 +1038,33 @@ namespace Neurocle.WinForms
             {
                 Capture = false;
                 PointF point = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
-                if (segPathDragging && SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
+                if ((SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser) && segPath.Count > 0)
                 {
-                    SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
-                    segPath.Clear();
+                    SegPoint last = ToSegPoint(segPath[segPath.Count - 1]);
+                    SegPoint end = ToSegPoint(point);
+                    if (last.X != end.X || last.Y != end.Y) segPath.Add(point);
                 }
-                else if (SegTool == SegToolKind.Brush && segPathDragging && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
+                if (segPathDragging && SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
                 {
                     SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
                     segPath.Clear();
                 }
                 else if (SegTool == SegToolKind.Brush)
                 {
-                    if (segPath.Count >= 2) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
+                    if (segPath.Count >= 1) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), segPathStrokeWidth);
                     segPath.Clear();
+                    segPathStrokeWidth = 0;
                 }
                 else if (SegTool == SegToolKind.Eraser)
                 {
-                    if (segPath.Count >= 2) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), SegStrokeWidth);
+                    if (AnnotationsVisible && segPath.Count >= 1) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), segPathStrokeWidth);
                     segPath.Clear();
+                    segPathStrokeWidth = 0;
                 }
                 segPathDragging = false;
                 Invalidate();
             }
+            if (panning) Capture = false;
             panning = false;
             base.OnMouseUp(args);
         }
@@ -725,6 +1118,7 @@ namespace Neurocle.WinForms
 
         private SegRegion TopmostSegAt(PointF point)
         {
+            if (!AnnotationsVisible) return null;
             return segRegions.Where(item => selectedSegIds.Contains(item.Id)).Reverse().Concat(segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Reverse()).FirstOrDefault(item => ContainsSegPoint(item, point));
         }
 
@@ -736,7 +1130,11 @@ namespace Neurocle.WinForms
                 float x = (point.X - region.X) / region.Width, y = (point.Y - region.Y) / region.Height;
                 return x * x + y * y <= 1f;
             }
-            if (region.Type == SegRegionType.PolyLine) return region.Points.Zip(region.Points.Skip(1), (first, second) => DistanceToSegment(point, first, second)).Any(distance => distance <= region.StrokeWidth / 2f);
+            if (region.Type == SegRegionType.PolyLine)
+            {
+                if (region.Points.Count == 1) return DistanceToSegment(point, region.Points[0], region.Points[0]) <= region.StrokeWidth / 2f;
+                return region.Points.Zip(region.Points.Skip(1), (first, second) => DistanceToSegment(point, first, second)).Any(distance => distance <= region.StrokeWidth / 2f);
+            }
             int winding = 0;
             for (int index = 0, previous = region.Points.Count - 1; index < region.Points.Count; previous = index++)
             {
@@ -766,6 +1164,7 @@ namespace Neurocle.WinForms
 
         private SegDragKind HitSegHandle(Point point, out SegRegion hitRegion)
         {
+            if (!AnnotationsVisible) { hitRegion = null; return SegDragKind.None; }
             SegDragKind[] kinds = { SegDragKind.ResizeNw, SegDragKind.ResizeN, SegDragKind.ResizeNe, SegDragKind.ResizeE, SegDragKind.ResizeSe, SegDragKind.ResizeS, SegDragKind.ResizeSw, SegDragKind.ResizeW };
             foreach (SegRegion region in segRegions.Where(item => selectedSegIds.Contains(item.Id)).Reverse())
             {
@@ -826,18 +1225,44 @@ namespace Neurocle.WinForms
         }
 
 
-        private SegRegion RotateSegRegion(SegRegion region, PointF point)
+        private bool TryRotateSegRegions(PointF point, out IReadOnlyDictionary<string, SegRegion> previews, out double angle)
         {
-            PointF center = new PointF(segOriginalBounds.Left + segOriginalBounds.Width / 2f, segOriginalBounds.Top + segOriginalBounds.Height / 2f);
-            double start = Math.Atan2(segDragStart.Y - center.Y, segDragStart.X - center.X);
-            double current = Math.Atan2(point.Y - center.Y, point.X - center.X);
-            double cosine = Math.Cos(current - start), sine = Math.Sin(current - start);
-            IEnumerable<SegPoint> points = GetRotationPoints(region).Select(value => new SegPoint((int)Math.Round(center.X + (value.X - center.X) * cosine - (value.Y - center.Y) * sine, MidpointRounding.AwayFromZero), (int)Math.Round(center.Y + (value.X - center.X) * sine + (value.Y - center.Y) * cosine, MidpointRounding.AwayFromZero)));
-            SegPoint[] transformed = points.ToArray();
-            SegRegion rotated = new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, region.ClassId, region.Type == SegRegionType.PolyLine ? SegRegionType.PolyLine : SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, transformed, region.StrokeWidth);
-            RectangleF bounds = GetSegBounds(rotated);
-            if (transformed.Any(value => value.X < 0 || value.Y < 0 || value.X > viewport.ImageSize.Width || value.Y > viewport.ImageSize.Height) || bounds.Left < 0 || bounds.Top < 0 || bounds.Right > viewport.ImageSize.Width || bounds.Bottom > viewport.ImageSize.Height) return region;
-            return rotated;
+            PointF pivot = new PointF(segOriginalBounds.Left + segOriginalBounds.Width / 2f, segOriginalBounds.Top + segOriginalBounds.Height / 2f);
+            double start = Math.Atan2(segDragStart.Y - pivot.Y, segDragStart.X - pivot.X);
+            double current = Math.Atan2(point.Y - pivot.Y, point.X - pivot.X);
+            angle = current - start;
+            if (angle > Math.PI) angle -= 2d * Math.PI;
+            else if (angle < -Math.PI) angle += 2d * Math.PI;
+            SegRegion[] selected = segRegions.Where(region => selectedSegIds.Contains(region.Id)).ToArray();
+            var result = new Dictionary<string, SegRegion>();
+            foreach (SegRegion region in selected)
+            {
+                SegRegion rotated = RotateSegRegion(region, angle);
+                if (rotated == null)
+                {
+                    previews = null;
+                    return false;
+                }
+                result.Add(region.Id, rotated);
+            }
+            previews = result;
+            return true;
+        }
+
+        private SegRegion RotateSegRegion(SegRegion region, double angle)
+        {
+            RectangleF bounds = GetSegBounds(region);
+            PointF center = new PointF(bounds.Left + bounds.Width / 2f, bounds.Top + bounds.Height / 2f);
+            if (Math.Abs(angle) < 0.000001d) return region;
+            SegPoint[] transformed = GetRotationPoints(region).Select(value =>
+            {
+                PointF rotated = RotatePoint(new PointF(value.X, value.Y), center, angle);
+                return new SegPoint((int)Math.Round(rotated.X, MidpointRounding.AwayFromZero), (int)Math.Round(rotated.Y, MidpointRounding.AwayFromZero));
+            }).ToArray();
+            SegRegion result = new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, region.ClassId, region.Type == SegRegionType.PolyLine ? SegRegionType.PolyLine : SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, transformed, region.StrokeWidth);
+            RectangleF rotatedBounds = GetSegBounds(result);
+            if (transformed.Any(value => value.X < 0 || value.Y < 0 || value.X > viewport.ImageSize.Width || value.Y > viewport.ImageSize.Height) || rotatedBounds.Left < 0 || rotatedBounds.Top < 0 || rotatedBounds.Right > viewport.ImageSize.Width || rotatedBounds.Bottom > viewport.ImageSize.Height) return null;
+            return result;
         }
 
         private static IEnumerable<SegPoint> GetRotationPoints(SegRegion region)
@@ -871,6 +1296,7 @@ namespace Neurocle.WinForms
 
         private ObdDragKind HitHandle(Point point, out ObdAnnotation hitAnnotation)
         {
+            if (!AnnotationsVisible) { hitAnnotation = null; return ObdDragKind.None; }
             ObdDragKind[] kinds = { ObdDragKind.ResizeNw, ObdDragKind.ResizeN, ObdDragKind.ResizeNe, ObdDragKind.ResizeE, ObdDragKind.ResizeSe, ObdDragKind.ResizeS, ObdDragKind.ResizeSw, ObdDragKind.ResizeW };
             foreach (ObdAnnotation annotation in obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).Reverse())
             {
@@ -888,6 +1314,7 @@ namespace Neurocle.WinForms
 
         private ObdAnnotation TopmostObdAt(PointF point)
         {
+            if (!AnnotationsVisible) return null;
             ObdAnnotation selected = obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).Reverse().FirstOrDefault(item => new RectangleF(item.X, item.Y, item.Width, item.Height).Contains(point));
             if (selected != null) return selected;
             return obdAnnotations.Reverse().FirstOrDefault(item => !selectedObdIds.Contains(item.Id) && new RectangleF(item.X, item.Y, item.Width, item.Height).Contains(point));
@@ -897,6 +1324,53 @@ namespace Neurocle.WinForms
         {
             selectedObdIds.Clear();
             selectedObdId = null;
+        }
+
+        private static bool RectanglesTouch(RectangleF first, RectangleF second)
+        {
+            return first.Left <= second.Right && first.Right >= second.Left && first.Top <= second.Bottom && first.Bottom >= second.Top;
+        }
+
+        private void BeginSelectionGesture(PointF point, Point screenPoint, bool isSeg)
+        {
+            selectionStart = point;
+            selectionScreenStart = screenPoint;
+            selectionPreview = new RectangleF(point, SizeF.Empty);
+            selectionAdditive = (CurrentModifierKeys & Keys.Control) == Keys.Control;
+            selectionIsSeg = isSeg;
+            Capture = true;
+        }
+
+        private static bool IntersectsSegArea(SegRegion region, RectangleF selection)
+        {
+            long left = ScaleSegCoordinate(selection.Left), top = ScaleSegCoordinate(selection.Top);
+            long right = ScaleSegCoordinate(selection.Right), bottom = ScaleSegCoordinate(selection.Bottom);
+            if (right <= left || bottom <= top) return false;
+
+            Paths64 area;
+            if (region.Type == SegRegionType.Rect)
+            {
+                area = new Paths64 { SegGeometryPrototype.Rectangle((long)region.X * SegSelectionScale, (long)region.Y * SegSelectionScale, (long)(region.X + region.Width) * SegSelectionScale, (long)(region.Y + region.Height) * SegSelectionScale) };
+            }
+            else if (region.Type == SegRegionType.Ellipse)
+            {
+                area = new Paths64 { SegGeometryPrototype.Ellipse((long)region.X * SegSelectionScale, (long)region.Y * SegSelectionScale, (long)region.Width * SegSelectionScale, (long)region.Height * SegSelectionScale, 32) };
+            }
+            else
+            {
+                Path64 path = new Path64(region.Points.Select(point => new Point64((long)point.X * SegSelectionScale, (long)point.Y * SegSelectionScale)).ToList());
+                area = region.Type == SegRegionType.PolyLine
+                    ? SegGeometryPrototype.Stroke(path, (long)region.StrokeWidth * SegSelectionScale)
+                    : new Paths64 { path };
+            }
+
+            Paths64 overlap = Clipper.Intersect(area, new Paths64 { SegGeometryPrototype.Rectangle(left, top, right, bottom) }, FillRule.NonZero);
+            return SegGeometryPrototype.Area(overlap) > 0d;
+        }
+
+        private static long ScaleSegCoordinate(float value)
+        {
+            return (long)Math.Round(value * SegSelectionScale, MidpointRounding.AwayFromZero);
         }
 
         private static PointF[] GetHandlePoints(RectangleF rectangle)
