@@ -8,8 +8,10 @@ using Neurocle.Application.Projects;
 
 namespace Neurocle.Infrastructure.Persistence
 {
+    // 將單一標註集轉換為應用程式交換用的 JSON 格式。
     internal static class JsonAnnotationExport
     {
+        /// <summary>讀取標註集資料並以不覆寫既有檔案的方式寫出 JSON。</summary>
         public static string Write(ProjectStore store, AnnotationSet set, string outputPath)
         {
             ProjectImage[] images = store.GetImages().Where(value => !value.IsMissing).ToArray();
@@ -38,6 +40,7 @@ namespace Neurocle.Infrastructure.Persistence
             string temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
             try
             {
+                // 先完整寫入同目錄暫存檔，再移至正式路徑，避免留下半份 JSON。
                 File.WriteAllText(temporary, root.ToString(Formatting.None), new System.Text.UTF8Encoding(false));
                 File.Move(temporary, path);
                 return path;
@@ -45,6 +48,7 @@ namespace Neurocle.Infrastructure.Persistence
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
 
+        /// <summary>依 SEG 幾何種類輸出其矩形、橢圓或路徑欄位。</summary>
         private static JObject Region(SegRegion value, string name)
         {
             var result = new JObject { ["className"] = name, ["type"] = value.Type == SegRegionType.Rect ? "Rect" : value.Type == SegRegionType.Ellipse ? "Ellipse" : value.Type == SegRegionType.PolyLine ? "PolyLine" : "PolyGon" };
@@ -54,7 +58,9 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <summary>將資料集分配狀態轉成交換格式使用的名稱。</summary>
         private static string SetName(DatasetAssignmentStatus value) { return value == DatasetAssignmentStatus.Train ? "train" : value == DatasetAssignmentStatus.Test ? "test" : value == DatasetAssignmentStatus.NotUsed ? "not_used" : ""; }
+        /// <summary>正規化 JSON 副檔名，必要時產生不覆寫既有檔案的路徑。</summary>
         private static string UniquePath(string value) { string path = Path.GetFullPath(value); if (!String.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase)) path += ".json"; if (!File.Exists(path) && !Directory.Exists(path)) return path; string d = Path.GetDirectoryName(path), n = Path.GetFileNameWithoutExtension(path), e = Path.GetExtension(path); for (int i = 1; ; i++) { string candidate = Path.Combine(d, n + " (" + i + ")" + e); if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate; } }
     }
 }

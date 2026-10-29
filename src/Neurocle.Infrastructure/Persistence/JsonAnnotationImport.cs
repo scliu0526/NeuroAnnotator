@@ -7,10 +7,13 @@ using Neurocle.Application.Projects;
 
 namespace Neurocle.Infrastructure.Persistence
 {
+    // 驗證交換 JSON 的版本、標註型別、欄位及幾何資料。
     internal sealed class JsonAnnotationImport
     {
+        // 限定 JSON 根物件允許辨識的欄位名稱。
         private static readonly HashSet<string> RootFields = new HashSet<string>(new[] { "label_type", "source", "time", "version", "classes", "data" }, StringComparer.Ordinal);
 
+        /// <summary>剖析並驗證一份完整的標註集 JSON。</summary>
         public static ImportedAnnotationSet Parse(string json)
         {
             if (String.IsNullOrWhiteSpace(json)) throw new JsonAnnotationImportException("JSON is empty.");
@@ -40,6 +43,7 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImportedAnnotationSet(annotationType, importedClasses, images, unknownFields);
         }
 
+        /// <summary>驗證類別物件並建立正規化後的匯入類別。</summary>
         private static ImportedClass ParseClass(JToken token, ICollection<string> unknownFields, int index)
         {
             JObject value = token as JObject;
@@ -48,6 +52,7 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImportedClass(NormalizeLabelName(RequiredString(value, "name")), RequiredString(value, "color"));
         }
 
+        /// <summary>驗證圖片及其資料集狀態，並剖析所含標註區域。</summary>
         private static ImportedImage ParseImage(JObject value, AnnotationSetType type, ISet<string> classNames, ICollection<string> unknownFields, int index)
         {
             CollectUnknown(value, new HashSet<string>(new[] { "fileName", "set", "classLabel", "regionLabel", "retestset", "rotation_angle", "width", "height" }, StringComparer.Ordinal), "data[" + index + "]", unknownFields);
@@ -71,6 +76,7 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImportedImage(fileName, set, classLabel, retest == 1, width, height, parsedRegions);
         }
 
+        /// <summary>依 OBD 或 SEG 型別驗證區域欄位、尺寸與類別關聯。</summary>
         private static ImportedRegion ParseRegion(JToken token, AnnotationSetType annotationType, ISet<string> classNames, int width, int height, ICollection<string> unknownFields, int imageIndex, int regionIndex)
         {
             JObject value = token as JObject;
@@ -98,6 +104,7 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImportedRegion(className, type, x, y, regionWidth, regionHeight, radiusX, radiusY, stroke, parsedPoints);
         }
 
+        /// <summary>驗證路徑點的整數格式及圖片座標範圍。</summary>
         private static IReadOnlyList<SegPoint> ParsePoints(JArray values, int width, int height, SegRegionType type)
         {
             var result = new List<SegPoint>();
@@ -112,11 +119,13 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <summary>記錄物件中不屬於允許欄位集合的欄位路徑。</summary>
         private static void CollectUnknown(JObject value, ISet<string> allowed, string location, ICollection<string> unknownFields)
         {
             foreach (JProperty property in value.Properties().Where(property => !allowed.Contains(property.Name))) unknownFields.Add(location + "." + property.Name);
         }
 
+        /// <summary>取得非空白 JSON 字串欄位，欄位缺少或型別錯誤時拒絕匯入。</summary>
         private static string RequiredString(JObject value, string name)
         {
             JValue token = value[name] as JValue;
@@ -124,6 +133,7 @@ namespace Neurocle.Infrastructure.Persistence
             return (string)token.Value;
         }
 
+        /// <summary>取得 JSON 字串欄位，允許其內容為空字串。</summary>
         private static string RequiredStringOrEmpty(JObject value, string name)
         {
             JValue token = value[name] as JValue;
@@ -131,6 +141,7 @@ namespace Neurocle.Infrastructure.Persistence
             return (string)token.Value;
         }
 
+        /// <summary>修剪類別名稱並拒絕空白名稱。</summary>
         private static string NormalizeLabelName(string value)
         {
             string normalized = value.Trim();
@@ -138,6 +149,7 @@ namespace Neurocle.Infrastructure.Persistence
             return normalized;
         }
 
+        /// <summary>取得字串或日期型別的時間欄位並轉成不變文化字串。</summary>
         private static string RequiredDateText(JObject value, string name)
         {
             JValue token = value[name] as JValue;
@@ -145,6 +157,7 @@ namespace Neurocle.Infrastructure.Persistence
             return Convert.ToString(token.Value, System.Globalization.CultureInfo.InvariantCulture);
         }
 
+        /// <summary>取得整數欄位，並將超出 Int32 範圍的值轉成匯入錯誤。</summary>
         private static int RequiredInteger(JObject value, string name)
         {
             JValue token = value[name] as JValue;
@@ -152,8 +165,10 @@ namespace Neurocle.Infrastructure.Persistence
             try { return Convert.ToInt32(token.Value); } catch (OverflowException) { throw new JsonAnnotationImportException(name + " is invalid."); }
         }
 
+        /// <summary>讀取可省略的整數欄位，缺少時以零表示。</summary>
         private static int OptionalInteger(JObject value, string name) { return value[name] == null ? 0 : RequiredInteger(value, name); }
 
+        /// <summary>取得 JSON 陣列欄位，欄位缺少或型別錯誤時拒絕匯入。</summary>
         private static JArray RequiredArray(JObject value, string name)
         {
             JArray token = value[name] as JArray;
@@ -162,36 +177,84 @@ namespace Neurocle.Infrastructure.Persistence
         }
     }
 
+    // 表示標註 JSON 格式或內容不符合匯入契約。
     public sealed class JsonAnnotationImportException : Exception
     {
+        /// <summary>建立匯入例外，並保留造成錯誤的原始例外。</summary>
         public JsonAnnotationImportException(string message, Exception innerException = null) : base(message, innerException) { }
     }
 
+    // 保存已驗證的標註集型別、類別、圖片及未知欄位資訊。
     internal sealed class ImportedAnnotationSet
     {
+        /// <summary>建立已剖析的標註集資料。</summary>
         public ImportedAnnotationSet(AnnotationSetType type, IReadOnlyList<ImportedClass> classes, IReadOnlyList<ImportedImage> data, IReadOnlyList<string> unknownFields) { Type = type; Classes = classes; Data = data; UnknownFields = unknownFields; }
+        // 取得匯入標註集的型別。
         public AnnotationSetType Type { get; }
+        // 取得已驗證的類別清單。
         public IReadOnlyList<ImportedClass> Classes { get; }
+        // 取得已驗證的圖片資料。
         public IReadOnlyList<ImportedImage> Data { get; }
+        // 取得來源 JSON 中未辨識欄位的路徑。
         public IReadOnlyList<string> UnknownFields { get; }
     }
 
+    // 保存一筆已驗證的類別名稱與顏色。
     internal sealed class ImportedClass
     {
+        /// <summary>建立匯入類別資料。</summary>
         public ImportedClass(string name, string color) { Name = name; Color = color; }
+        // 取得類別名稱。
         public string Name { get; }
+        // 取得類別色彩字串。
         public string Color { get; }
     }
 
+    // 保存一張已驗證圖片及其分類、資料集與區域標註資料。
     internal sealed class ImportedImage
     {
+        /// <summary>建立匯入圖片資料及其區域清單。</summary>
         public ImportedImage(string fileName, string set, string classLabel, bool retest, int width, int height, IReadOnlyList<ImportedRegion> regions) { FileName = fileName; Set = set; ClassLabel = classLabel; Retest = retest; Width = width; Height = height; Regions = regions; }
-        public string FileName { get; } public string Set { get; } public string ClassLabel { get; } public bool Retest { get; } public int Width { get; } public int Height { get; } public IReadOnlyList<ImportedRegion> Regions { get; }
+        // 取得匯入格式中的圖片檔名。
+        public string FileName { get; }
+        // 取得 train、test 或 not_used 資料集名稱。
+        public string Set { get; }
+        // 取得 CLA 圖片類別名稱。
+        public string ClassLabel { get; }
+        // 取得圖片的 Retest 旗標。
+        public bool Retest { get; }
+        // 取得圖片寬度。
+        public int Width { get; }
+        // 取得圖片高度。
+        public int Height { get; }
+        // 取得圖片內已驗證的標註區域。
+        public IReadOnlyList<ImportedRegion> Regions { get; }
     }
 
+    // 保存一筆已驗證的 OBD 或 SEG 區域幾何資料。
     internal sealed class ImportedRegion
     {
+        /// <summary>建立標註區域資料及其幾何座標。</summary>
         public ImportedRegion(string className, SegRegionType type, int x, int y, int width, int height, int radiusX, int radiusY, int strokeWidth, IReadOnlyList<SegPoint> points) { ClassName = className; Type = type; X = x; Y = y; Width = width; Height = height; RadiusX = radiusX; RadiusY = radiusY; StrokeWidth = strokeWidth; Points = points; }
-        public string ClassName { get; } public SegRegionType Type { get; } public int X { get; } public int Y { get; } public int Width { get; } public int Height { get; } public int RadiusX { get; } public int RadiusY { get; } public int StrokeWidth { get; } public IReadOnlyList<SegPoint> Points { get; }
+        // 取得區域所屬的類別名稱。
+        public string ClassName { get; }
+        // 取得區域幾何種類。
+        public SegRegionType Type { get; }
+        // 取得區域左上角或橢圓中心的 X 座標。
+        public int X { get; }
+        // 取得區域左上角或橢圓中心的 Y 座標。
+        public int Y { get; }
+        // 取得矩形寬度或橢圓 X 半徑。
+        public int Width { get; }
+        // 取得矩形高度或橢圓 Y 半徑。
+        public int Height { get; }
+        // 取得橢圓 X 半徑欄位。
+        public int RadiusX { get; }
+        // 取得橢圓 Y 半徑欄位。
+        public int RadiusY { get; }
+        // 取得 PolyLine 的筆畫寬度。
+        public int StrokeWidth { get; }
+        // 取得多邊形或線段的點位清單。
+        public IReadOnlyList<SegPoint> Points { get; }
     }
 }
