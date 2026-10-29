@@ -434,6 +434,45 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Visible_user_controls_initialize_static_designer_layout_without_runtime_data()
+        {
+            using (var imageBrowser = new ImageBrowserControl())
+            using (var datasetAssignments = new DatasetAssignmentControl())
+            using (var canvasHost = new CanvasScrollHost())
+            {
+                ListView imageList = Field<ListView>(imageBrowser, "list");
+                Assert.AreEqual(3, imageList.Columns.Count);
+                Assert.AreEqual(0, imageList.VirtualListSize);
+                Assert.AreEqual("search", Field<TextBox>(imageBrowser, "search").Name);
+                Assert.AreEqual(0, imageList.TabIndex);
+                Assert.AreEqual(1, Field<TextBox>(imageBrowser, "search").TabIndex);
+
+                ListView datasetList = Field<ListView>(datasetAssignments, "list");
+                Assert.AreEqual(6, datasetList.Columns.Count);
+                Assert.AreEqual(0, datasetList.VirtualListSize);
+                Assert.AreEqual(4, GetDescendants(datasetAssignments).OfType<ComboBox>().Count());
+                Assert.AreEqual(6, GetDescendants(datasetAssignments).OfType<Button>().Count());
+                Assert.AreEqual(80m, Field<NumericUpDown>(datasetAssignments, "trainPercent").Value);
+                Assert.AreEqual(20m, Field<NumericUpDown>(datasetAssignments, "testPercent").Value);
+                Assert.AreEqual(0, datasetList.TabIndex);
+                Assert.AreEqual(1, Field<FlowLayoutPanel>(datasetAssignments, "actions").TabIndex);
+                Assert.AreEqual(2, Field<FlowLayoutPanel>(datasetAssignments, "filters").TabIndex);
+
+                TableLayoutPanel layout = Field<TableLayoutPanel>(canvasHost, "layout");
+                Assert.AreEqual(DockStyle.Fill, layout.Dock);
+                Assert.AreEqual(2, layout.ColumnCount);
+                Assert.AreEqual(2, layout.RowCount);
+                Assert.AreEqual(2, layout.Controls.Count);
+                Assert.AreEqual(1, Field<HScrollBar>(canvasHost, "horizontal").TabIndex);
+                Assert.AreEqual(2, Field<VScrollBar>(canvasHost, "vertical").TabIndex);
+                Assert.IsFalse(GetDescendants(canvasHost).OfType<ImageCanvasControl>().Any(), "The Designer constructor must not create the runtime canvas.");
+
+                Field<NumericUpDown>(datasetAssignments, "trainPercent").Value = 70;
+                Assert.AreEqual(30m, Field<NumericUpDown>(datasetAssignments, "testPercent").Value, "Runtime synchronization is wired once after Designer initialization.");
+            }
+        }
+
+        [STATestMethod]
         public void Annotation_set_creation_dialog_shows_all_types_in_unselected_cards()
         {
             using (var dialog = new AnnotationSetCreationDialog())

@@ -7,59 +7,40 @@ using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
-    internal sealed class DatasetAssignmentControl : UserControl
+    internal sealed partial class DatasetAssignmentControl : UserControl
     {
-        private readonly ListView list;
-        private readonly ComboBox setFilter;
-        private readonly ComboBox classFilter;
-        private readonly ComboBox annotationFilter;
-        private readonly ComboBox retestFilter;
-        private readonly NumericUpDown trainPercent;
-        private readonly NumericUpDown testPercent;
-        private readonly ColumnHeader annotationCountColumn;
         private bool synchronizingPercentages;
         private readonly List<DatasetRow> rows = new List<DatasetRow>();
         private readonly List<DatasetRow> visibleRows = new List<DatasetRow>();
 
         public DatasetAssignmentControl()
         {
-            var actions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-            AddButton(actions, Strings.DatasetTrain, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Train));
-            AddButton(actions, Strings.DatasetTest, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Test));
-            AddButton(actions, Strings.DatasetUnassigned, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned));
-            AddButton(actions, Strings.DatasetNotUsed, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed));
-            AddButton(actions, Strings.DatasetRetest, () => RetestRequested?.Invoke(SelectedImageIds, true));
-            actions.Controls.Add(new Label { Text = Strings.DatasetTrainPercent, AutoSize = true, Margin = new Padding(6, 8, 2, 2) });
-            trainPercent = new NumericUpDown { Minimum = 1, Maximum = 99, Value = 80, Width = 48 };
-            actions.Controls.Add(trainPercent);
-            actions.Controls.Add(new Label { Text = Strings.DatasetTestPercent, AutoSize = true, Margin = new Padding(2, 8, 2, 2) });
-            testPercent = new NumericUpDown { Minimum = 1, Maximum = 99, Value = 20, Width = 48 };
+            InitializeComponent();
+            WireRuntimeEvents();
+        }
+
+        private void WireRuntimeEvents()
+        {
             trainPercent.ValueChanged += (sender, args) => SynchronizePercentages(trainPercent, testPercent);
             testPercent.ValueChanged += (sender, args) => SynchronizePercentages(testPercent, trainPercent);
-            actions.Controls.Add(testPercent);
-            AddButton(actions, Strings.DatasetAutoSplit, () => { if (MessageBox.Show(Strings.DatasetAutoSplitConfirm, Strings.DatasetAutoSplit, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK) AutoSplitRequested?.Invoke((int)trainPercent.Value); });
-            var filters = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-            setFilter = AddFilter(filters, Strings.DatasetFilterSet, new[] { Strings.DatasetFilterAll, Strings.DatasetTrain, Strings.DatasetTest, Strings.DatasetUnassigned, Strings.DatasetNotUsed });
-            classFilter = AddFilter(filters, Strings.DatasetFilterClass, new[] { Strings.DatasetFilterAll });
-            annotationFilter = AddFilter(filters, Strings.DatasetFilterAnnotation, new[] { Strings.DatasetFilterAll, Strings.DatasetFilterAnnotated, Strings.DatasetFilterEmpty });
-            retestFilter = AddFilter(filters, Strings.DatasetFilterRetest, new[] { Strings.DatasetFilterAll, Strings.DatasetFilterRetest, Strings.DatasetFilterNoRetest });
-            list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true, HideSelection = false, VirtualMode = true };
+            setFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
+            classFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
+            annotationFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
+            retestFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
             list.RetrieveVirtualItem += (sender, args) => args.Item = CreateItem(visibleRows[args.ItemIndex]);
-            list.Columns.Add(Strings.ImageSequenceColumn, 70);
-            list.Columns.Add(Strings.ImageFileNameColumn, 230);
-            list.Columns.Add(Strings.DatasetColumn, 100);
-            list.Columns.Add(Strings.DatasetClassColumn, 180);
-            list.Columns.Add(Strings.DatasetAnnotatedColumn, 80);
-            annotationCountColumn = new ColumnHeader { Text = Strings.DatasetAnnotationCountColumn, Width = 80 };
-            list.Columns.Add(Strings.DatasetRetestColumn, 70);
-            var menu = new ContextMenuStrip();
-            menu.Items.Add(Strings.DatasetClearRetest, null, (sender, args) => RetestRequested?.Invoke(SelectedImageIds, false));
-            menu.Items.Add(Strings.DatasetClearClass, null, (sender, args) => ClearClassRequested?.Invoke(SelectedImageIds));
-            menu.Items.Add(Strings.DatasetClearSet, null, (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned));
-            list.ContextMenuStrip = menu;
-            Controls.Add(list);
-            Controls.Add(actions);
-            Controls.Add(filters);
+            trainButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Train);
+            testButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Test);
+            unassignedButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned);
+            notUsedButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed);
+            retestButton.Click += (sender, args) => RetestRequested?.Invoke(SelectedImageIds, true);
+            autoSplitButton.Click += (sender, args) =>
+            {
+                if (MessageBox.Show(Strings.DatasetAutoSplitConfirm, Strings.DatasetAutoSplit, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                    AutoSplitRequested?.Invoke((int)trainPercent.Value);
+            };
+            clearRetestItem.Click += (sender, args) => RetestRequested?.Invoke(SelectedImageIds, false);
+            clearClassItem.Click += (sender, args) => ClearClassRequested?.Invoke(SelectedImageIds);
+            clearSetItem.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned);
         }
 
         public event Action<IReadOnlyList<string>, DatasetAssignmentStatus> DatasetRequested;
@@ -91,24 +72,6 @@ namespace Neurocle.WinForms
             foreach (string value in rows.SelectMany(row => row.ClassNames).Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal)) classFilter.Items.Add(value);
             classFilter.SelectedItem = classFilter.Items.Contains(selectedClass) ? selectedClass : Strings.DatasetFilterAll;
             RefreshRows();
-        }
-
-        private static ComboBox AddFilter(Control parent, string label, IEnumerable<string> values)
-        {
-            parent.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(6, 8, 2, 2) });
-            var result = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 105 };
-            result.Items.AddRange(values.Cast<object>().ToArray());
-            result.SelectedIndex = 0;
-            result.SelectedIndexChanged += (sender, args) => ((DatasetAssignmentControl)parent.Parent).RefreshRows();
-            parent.Controls.Add(result);
-            return result;
-        }
-
-        private static void AddButton(Control parent, string text, Action action)
-        {
-            var button = new Button { Text = text, AutoSize = true };
-            button.Click += (sender, args) => action();
-            parent.Controls.Add(button);
         }
 
         private void RefreshRows()

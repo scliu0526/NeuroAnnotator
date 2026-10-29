@@ -8,11 +8,8 @@ using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
-    internal sealed class ImageBrowserControl : UserControl
+    internal sealed partial class ImageBrowserControl : UserControl
     {
-        private readonly TextBox search;
-        private readonly ListView list;
-        private readonly ColumnHeader annotationCountColumn;
         private readonly List<ImageListRow> source = new List<ImageListRow>();
         private IReadOnlyList<ImageListRow> visible = new List<ImageListRow>();
         private string imagesDirectory;
@@ -45,19 +42,11 @@ namespace Neurocle.WinForms
 
         public ImageBrowserControl()
         {
-            Dock = DockStyle.Fill;
-            search = new TextBox { Dock = DockStyle.Top, AccessibleName = Strings.ImageSearchPlaceholder };
+            InitializeComponent();
             search.TextChanged += (sender, args) => RefreshList();
-            list = new ListView { Dock = DockStyle.Fill, View = View.Details, VirtualMode = true, FullRowSelect = true, HideSelection = false };
-            list.Columns.Add(Strings.ImageSequenceColumn, 80);
-            list.Columns.Add(Strings.ImageFileNameColumn, 260);
-            list.Columns.Add(Strings.ImageClassColumn, 180);
-            annotationCountColumn = new ColumnHeader { Text = Strings.ImageAnnotationCountColumn, Width = 90 };
             list.RetrieveVirtualItem += RetrieveVirtualItem;
             list.SelectedIndexChanged += (sender, args) => ShowSelectionAsync();
             list.ColumnClick += (sender, args) => ChangeSort(args.Column == 0 ? ImageListSortColumn.Sequence : args.Column == 1 ? ImageListSortColumn.FileName : args.Column == 2 ? ImageListSortColumn.Classes : ImageListSortColumn.AnnotationCount);
-            Controls.Add(list);
-            Controls.Add(search);
         }
 
         public void LoadImages(IReadOnlyList<ProjectImage> images, string managedImagesDirectory)

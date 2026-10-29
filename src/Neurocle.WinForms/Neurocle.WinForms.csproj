@@ -99,11 +99,20 @@
     <Compile Include="ImageBrowserControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="ImageBrowserControl.Designer.cs">
+      <DependentUpon>ImageBrowserControl.cs</DependentUpon>
+    </Compile>
     <Compile Include="DatasetAssignmentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="DatasetAssignmentControl.Designer.cs">
+      <DependentUpon>DatasetAssignmentControl.cs</DependentUpon>
+    </Compile>
     <Compile Include="CanvasScrollHost.cs">
       <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="CanvasScrollHost.Designer.cs">
+      <DependentUpon>CanvasScrollHost.cs</DependentUpon>
     </Compile>
     <Compile Include="ImageCanvasControl.cs">
       <SubType>Component</SubType>
