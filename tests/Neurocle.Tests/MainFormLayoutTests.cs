@@ -2843,6 +2843,47 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Adding_annotation_class_uses_next_exact_class_number_without_prompt_and_persists()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            ProjectStore store = ProjectStore.Create(Path.Combine(directory, "project.neurocle"));
+            try
+            {
+                AnnotationSet set = store.CreateAnnotationSet("labels", AnnotationSetType.Obd);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    Field<ComboBox>(form, "annotationSets").SelectedItem = AnnotationSet(Field<ComboBox>(form, "annotationSets"), set.Id);
+                    store.RenameClass(store.GetClasses(set.Id).Single().Id, "renamed default");
+                    Invoke(form, "AddAnnotationClass");
+                    Assert.AreEqual("class1", store.GetClasses(set.Id).Last().Name);
+                    store.DeleteClass(store.GetClasses(set.Id).Single(value => value.Name == "class1").Id);
+                    Invoke(form, "AddAnnotationClass");
+                    Assert.AreEqual("class1", store.GetClasses(set.Id).Last().Name);
+                    store.AddClass(set.Id, "class5", null);
+                    store.AddClass(set.Id, "Class8", null);
+                    store.AddClass(set.Id, "class08", null);
+                    store.AddClass(set.Id, "class9x", null);
+                    Invoke(form, "AddAnnotationClass");
+                    Assert.AreEqual("class6", store.GetClasses(set.Id).Last().Name);
+                    store.DeleteClass(store.GetClasses(set.Id).Single(value => value.Name == "class6").Id);
+                    Invoke(form, "AddAnnotationClass");
+                    Assert.AreEqual("class6", store.GetClasses(set.Id).Last().Name);
+                    store.AddClass(set.Id, "class2147483648", null);
+                    Invoke(form, "AddAnnotationClass");
+                    Assert.AreEqual("class2147483649", store.GetClasses(set.Id).Last().Name);
+                    string setId = set.Id;
+                    store.Dispose();
+                    store = ProjectStore.Open(Path.Combine(directory, "project.neurocle"));
+                    Assert.AreEqual("class2147483649", store.GetClasses(setId).Last().Name);
+                }
+            }
+            finally { store?.Dispose(); Directory.Delete(directory, true); }
+        }
+
+        [STATestMethod]
         public void Active_tool_and_class_buttons_reflect_annotation_state_across_images_and_sets()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

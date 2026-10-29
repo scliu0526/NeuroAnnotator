@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Numerics;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
@@ -1143,8 +1145,13 @@ namespace Neurocle.WinForms
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null) return;
-            string name = Prompt(Strings.AnnotationClassNamePrompt);
-            if (name == null) return;
+            BigInteger lastNumber = project.GetClasses(selected.Id)
+                .Select(item => Regex.Match(item.Name, "^class([1-9][0-9]*)$"))
+                .Where(match => match.Success)
+                .Select(match => BigInteger.Parse(match.Groups[1].Value))
+                .DefaultIfEmpty(0)
+                .Max();
+            string name = "class" + (lastNumber + BigInteger.One).ToString();
             project.AddClass(selected.Id, name, null);
             RefreshAnnotationClasses();
         }
