@@ -313,6 +313,25 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Main_form_designer_loads_static_pages_and_annotation_tools_without_runtime_dependencies()
+        {
+            using (var form = new MainForm())
+            {
+                TabControl pages = Field<TabControl>(form, "pages");
+                FlowLayoutPanel tools = Field<FlowLayoutPanel>(form, "annotationTools");
+
+                Assert.IsNotNull(form.MainMenuStrip);
+                Assert.AreEqual(4, pages.TabPages.Count);
+                Assert.IsTrue(pages.TabPages.Cast<TabPage>().All(page => page.Controls.Count > 0));
+                Assert.AreEqual(9, tools.Controls.Count);
+                Assert.AreEqual("選取 V", tools.Controls[0].Text);
+                Assert.AreEqual("橡皮擦 E", tools.Controls[8].Text);
+                Assert.AreEqual(300, Field<ImageBrowserControl>(form, "imageBrowser").Width);
+                Assert.IsTrue(GetDescendants(form).OfType<CanvasScrollHost>().Count() == 2);
+            }
+        }
+
         [TestMethod]
         public void Main_window_starts_maximized_and_can_be_restored_and_resized()
         {
@@ -1682,6 +1701,7 @@ namespace Neurocle.Tests
                     canvas.ObdAnnotations = obds;
                     canvas.SelectAllObd();
                     canvas.SetViewState(new ImageCanvasControl.CanvasViewState(2d, new PointF(-30f, -20f), false));
+                    CollapseThumbnail(canvas, new Size(100, 100));
 
                     AssertWhiteHandleCenters(canvas, new Rectangle(10, 20, 40, 40));
                     AssertWhiteHandleCenters(canvas, new Rectangle(90, 100, 40, 40));
@@ -2221,6 +2241,7 @@ namespace Neurocle.Tests
 
                     canvas.SetZoomPercent(200);
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    CollapseThumbnail(canvas, new Size(100, 100));
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 38, 50).ToArgb(), "Cursor ring should scale with canvas zoom.");
 
                     var symbolPixelCounts = new List<int>();
@@ -3748,6 +3769,17 @@ namespace Neurocle.Tests
             Assert.AreEqual(expected.Y, actual.Y, 0.01f);
             Assert.AreEqual(expected.Width, actual.Width, 0.01f);
             Assert.AreEqual(expected.Height, actual.Height, 0.01f);
+        }
+
+        private static void CollapseThumbnail(ImageCanvasControl canvas, Size imageSize)
+        {
+            if (canvas.IsThumbnailCollapsed) return;
+            ImageCanvasControl.CanvasThumbnailLayout layout;
+            Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(imageSize, canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+            Point toggle = Point.Round(new PointF(layout.ToggleBounds.Left + layout.ToggleBounds.Width / 2f, layout.ToggleBounds.Top + layout.ToggleBounds.Height / 2f));
+            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, toggle.X, toggle.Y, 0));
+            RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, toggle.X, toggle.Y, 0));
+            Assert.IsTrue(canvas.IsThumbnailCollapsed);
         }
 
         private static Color RenderPixel(ImageCanvasControl canvas, int x, int y)
