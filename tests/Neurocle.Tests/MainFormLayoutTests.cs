@@ -915,6 +915,109 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Arrow_keys_nudge_selected_obd_and_seg_groups_once_and_reject_out_of_bounds_moves()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string firstImagePath = Path.Combine(directory, "one.png");
+            string secondImagePath = Path.Combine(directory, "two.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(firstImagePath, Color.Black, 100);
+                CreateFilledImage(secondImagePath, Color.Black, 100);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage[] images = store.ImportFiles(new[] { firstImagePath, secondImagePath }).ToArray();
+                AnnotationSet obdSet = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                AnnotationClass obdClass = store.GetClasses(obdSet.Id).Single();
+                store.AddObdAnnotation(obdSet.Id, images[0].Id, obdClass.Id, 10, 10, 10, 10);
+                store.AddObdAnnotation(obdSet.Id, images[0].Id, obdClass.Id, 40, 30, 10, 10);
+                AnnotationSet segSet = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass segClass = store.GetClasses(segSet.Id).Single();
+                store.AddSegRegion(segSet.Id, images[0].Id, segClass.Id, SegRegionType.Rect, 10, 10, 10, 10);
+                store.AddSegRegion(segSet.Id, images[0].Id, segClass.Id, SegRegionType.Rect, 40, 30, 10, 10);
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    form.ImageBrowser.SelectImage(images[0].Id);
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
+                    CollectionAssert.AreEqual(new[] { images[0].Id }, form.ImageBrowser.SelectedImageIds.ToArray());
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, obdSet.Id);
+                    ImageCanvasControl canvas = form.AnnotationCanvas;
+                    canvas.SelectAllObd();
+                    ObdAnnotation[] originalObd = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
+
+                    RaiseKey(form, new KeyEventArgs(Keys.Right));
+                    RaiseKey(form, new KeyEventArgs(Keys.Right));
+                    RaiseKey(form, new KeyEventArgs(Keys.Right));
+                    CollectionAssert.AreEqual(originalObd.Select(value => value.X).ToArray(), store.GetObdAnnotations(obdSet.Id, images[0].Id).Select(value => value.X).ToArray(), "Repeated keydown should preview movement without writing history yet.");
+                    RaiseKeyUp(form, new KeyEventArgs(Keys.Right));
+                    ObdAnnotation[] movedObd = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
+                    CollectionAssert.AreEqual(new[] { originalObd[0].X + 3, originalObd[1].X + 3 }, movedObd.Select(value => value.X).ToArray());
+                    Assert.AreEqual(originalObd[1].X - originalObd[0].X, movedObd[1].X - movedObd[0].X, "Multi-selection must keep relative positions.");
+                    Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
+                    CollectionAssert.AreEqual(originalObd.Select(value => value.X).ToArray(), store.GetObdAnnotations(obdSet.Id, images[0].Id).Select(value => value.X).ToArray(), "One Undo should revert the whole held-key movement.");
+
+                    foreach (Keys key in new[] { Keys.Up, Keys.Down, Keys.Left, Keys.Right })
+                    {
+                        RaiseKey(form, new KeyEventArgs(key));
+                        RaiseKeyUp(form, new KeyEventArgs(key));
+                        ObdAnnotation[] moved = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
+                        int expectedX = key == Keys.Left ? -1 : key == Keys.Right ? 1 : 0;
+                        int expectedY = key == Keys.Up ? -1 : key == Keys.Down ? 1 : 0;
+                        Assert.AreEqual(originalObd[0].X + expectedX, moved[0].X);
+                        Assert.AreEqual(originalObd[0].Y + expectedY, moved[0].Y);
+                        CollectionAssert.AreEqual(new[] { images[0].Id }, form.ImageBrowser.SelectedImageIds.ToArray(), "Selected annotations should consume Up/Down instead of changing images.");
+                        Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
+                    }
+
+                    ObdAnnotation firstObd = originalObd[0];
+                    store.UpdateObdAnnotations(new[] { new ObdAnnotation(firstObd.Id, firstObd.AnnotationSetId, firstObd.ImageId, firstObd.ClassId, 0, firstObd.Y, firstObd.Width, firstObd.Height, firstObd.ZOrder) });
+                    Invoke(form, "RefreshAnnotationClasses");
+                    canvas.SelectAllObd();
+                    ObdAnnotation[] atBoundary = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
+                    RaiseKey(form, new KeyEventArgs(Keys.Left));
+                    RaiseKeyUp(form, new KeyEventArgs(Keys.Left));
+                    CollectionAssert.AreEqual(atBoundary.Select(value => value.X).ToArray(), store.GetObdAnnotations(obdSet.Id, images[0].Id).Select(value => value.X).ToArray(), "One boundary member should prevent the entire group from moving.");
+
+                    var textInput = new TextBox();
+                    form.Controls.Add(textInput);
+                    textInput.BringToFront();
+                    textInput.Focus();
+                    RaiseKey(form, new KeyEventArgs(Keys.Right));
+                    RaiseKeyUp(form, new KeyEventArgs(Keys.Right));
+                    textInput.Dispose();
+                    CollectionAssert.AreEqual(atBoundary.Select(value => value.X).ToArray(), store.GetObdAnnotations(obdSet.Id, images[0].Id).Select(value => value.X).ToArray(), "Text input focus should prevent nudging.");
+
+                    sets.SelectedItem = AnnotationSet(sets, segSet.Id);
+                    canvas.SelectAllSeg();
+                    SegRegion[] originalSeg = store.GetSegRegions(segSet.Id, images[0].Id).ToArray();
+                    RaiseKey(form, new KeyEventArgs(Keys.Down));
+                    RaiseKey(form, new KeyEventArgs(Keys.Down));
+                    RaiseKeyUp(form, new KeyEventArgs(Keys.Down));
+                    SegRegion[] movedSeg = store.GetSegRegions(segSet.Id, images[0].Id).ToArray();
+                    CollectionAssert.AreEqual(originalSeg.Select(value => value.Y + 2).ToArray(), movedSeg.Select(value => value.Y).ToArray());
+                    Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
+                    CollectionAssert.AreEqual(originalSeg.Select(value => value.Y).ToArray(), store.GetSegRegions(segSet.Id, images[0].Id).Select(value => value.Y).ToArray(), "One Undo should revert the whole held-key SEG movement.");
+                    form.Close();
+                    store = null;
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Up_and_down_select_images_in_visible_order_without_intercepting_text_input()
         {
             ProjectImage[] images =
@@ -3624,6 +3727,11 @@ namespace Neurocle.Tests
         private static void RaiseKey(Control control, KeyEventArgs args)
         {
             typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
+        }
+
+        private static void RaiseKeyUp(Control control, KeyEventArgs args)
+        {
+            typeof(Control).GetMethod("OnKeyUp", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
         }
 
         private static Point ImagePointToScreen(ImageCanvasControl canvas, int x, int y)

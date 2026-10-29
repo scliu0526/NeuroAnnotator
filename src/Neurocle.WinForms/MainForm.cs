@@ -319,6 +319,26 @@ namespace Neurocle.WinForms
             };
             KeyDown += (sender, args) =>
             {
+                if (args.Handled || args.Control || HasTextInputFocus() || pages.SelectedTab != annotationPage) return;
+                int deltaX = args.KeyCode == Keys.Left ? -1 : args.KeyCode == Keys.Right ? 1 : 0;
+                int deltaY = args.KeyCode == Keys.Up ? -1 : args.KeyCode == Keys.Down ? 1 : 0;
+                if (canvas.NudgeSelectedAnnotations(deltaX, deltaY))
+                {
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                }
+            };
+            KeyUp += (sender, args) =>
+            {
+                if ((args.KeyCode == Keys.Up || args.KeyCode == Keys.Down || args.KeyCode == Keys.Left || args.KeyCode == Keys.Right) && canvas.CommitKeyboardNudge())
+                {
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                }
+            };
+            KeyDown += (sender, args) =>
+            {
+                if (args.Handled) return;
                 if (args.Control || HasTextInputFocus() || (pages.SelectedTab != imagesPage && pages.SelectedTab != annotationPage)) return;
                 if (args.KeyCode == Keys.F)
                 {

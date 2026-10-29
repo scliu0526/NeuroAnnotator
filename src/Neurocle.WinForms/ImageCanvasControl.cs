@@ -44,6 +44,10 @@ namespace Neurocle.WinForms
         private PointF obdDragStart;
         private readonly HashSet<string> selectedObdIds = new HashSet<string>(StringComparer.Ordinal);
         private string selectedObdId;
+        private bool keyboardNudgeActive;
+        private bool keyboardNudgeIsObd;
+        private int keyboardNudgeX;
+        private int keyboardNudgeY;
         private PointF segStart;
         private RectangleF? segPreview;
         private readonly List<PointF> segPath = new List<PointF>();
@@ -151,6 +155,62 @@ namespace Neurocle.WinForms
             foreach (SegRegion region in segRegions) selectedSegIds.Add(region.Id);
             selectedSegId = selectedSegIds.FirstOrDefault();
             Invalidate();
+        }
+
+        internal bool NudgeSelectedAnnotations(int deltaX, int deltaY)
+        {
+            if ((deltaX == 0 && deltaY == 0) || !AnnotationsVisible || image == null) return false;
+            bool moveObd = ObdEnabled && ObdSelectMode && selectedObdIds.Count > 0;
+            bool moveSeg = SegEnabled && SegTool == SegToolKind.Select && selectedSegIds.Count > 0;
+            if (!moveObd && !moveSeg) return false;
+
+            int nextX = keyboardNudgeX + deltaX;
+            int nextY = keyboardNudgeY + deltaY;
+            if (moveObd)
+            {
+                ObdAnnotation[] selected = obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).ToArray();
+                if (selected.Length != selectedObdIds.Count || selected.Any(item => item.X + nextX < 0 || item.Y + nextY < 0 || item.X + item.Width + nextX > viewport.ImageSize.Width || item.Y + item.Height + nextY > viewport.ImageSize.Height)) return true;
+                obdPreviews = selected.ToDictionary(item => item.Id, item => new RectangleF(item.X + nextX, item.Y + nextY, item.Width, item.Height));
+            }
+            else
+            {
+                SegRegion[] selected = segRegions.Where(item => selectedSegIds.Contains(item.Id)).ToArray();
+                if (selected.Length != selectedSegIds.Count || selected.Any(item =>
+                {
+                    RectangleF bounds = GetStoredBounds(item);
+                    return bounds.Left + nextX < 0f || bounds.Top + nextY < 0f || bounds.Right + nextX > viewport.ImageSize.Width || bounds.Bottom + nextY > viewport.ImageSize.Height;
+                })) return true;
+                segPreviews = selected.ToDictionary(item => item.Id, item => TranslateSegRegion(item, nextX, nextY));
+            }
+
+            keyboardNudgeActive = true;
+            keyboardNudgeIsObd = moveObd;
+            keyboardNudgeX = nextX;
+            keyboardNudgeY = nextY;
+            Invalidate();
+            return true;
+        }
+
+        internal bool CommitKeyboardNudge()
+        {
+            if (!keyboardNudgeActive) return false;
+            bool moveObd = keyboardNudgeIsObd;
+            bool changed = keyboardNudgeX != 0 || keyboardNudgeY != 0;
+            IReadOnlyDictionary<string, Rectangle> obdChanges = moveObd
+                ? obdPreviews.ToDictionary(item => item.Key, item => ToIntegerRectangle(item.Value))
+                : null;
+            SegRegion[] segChanges = moveObd ? null : segPreviews.Values.ToArray();
+            obdPreviews = new Dictionary<string, RectangleF>();
+            segPreviews = new Dictionary<string, SegRegion>();
+            keyboardNudgeActive = false;
+            keyboardNudgeIsObd = false;
+            keyboardNudgeX = 0;
+            keyboardNudgeY = 0;
+            Invalidate();
+            if (!changed) return true;
+            if (moveObd && obdChanges.Count > 0) ObdRectanglesChanged?.Invoke(obdChanges);
+            else if (!moveObd && segChanges.Length > 0) SegRegionsChanged?.Invoke(segChanges);
+            return true;
         }
         public void SelectSegRegions(IEnumerable<string> regionIds)
         {
@@ -346,6 +406,10 @@ namespace Neurocle.WinForms
             activeObd = null;
             obdDrag = ObdDragKind.None;
             panning = false;
+            keyboardNudgeActive = false;
+            keyboardNudgeIsObd = false;
+            keyboardNudgeX = 0;
+            keyboardNudgeY = 0;
             thumbnailPanning = false;
             Capture = false;
             Invalidate();
