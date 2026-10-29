@@ -326,6 +326,7 @@ namespace Neurocle.WinForms
             this.Controls.Add(this.actions);
             this.Controls.Add(this.filters);
             this.Name = "DatasetAssignmentControl";
+            this.Size = new System.Drawing.Size(1024, 640);
             ((System.ComponentModel.ISupportInitialize)(this.trainPercent)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.testPercent)).EndInit();
             this.ResumeLayout(false);

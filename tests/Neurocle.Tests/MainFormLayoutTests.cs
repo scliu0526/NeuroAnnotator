@@ -448,15 +448,21 @@ namespace Neurocle.Tests
                 Assert.AreEqual(1, Field<TextBox>(imageBrowser, "search").TabIndex);
 
                 ListView datasetList = Field<ListView>(datasetAssignments, "list");
+                FlowLayoutPanel actions = Field<FlowLayoutPanel>(datasetAssignments, "actions");
+                FlowLayoutPanel filters = Field<FlowLayoutPanel>(datasetAssignments, "filters");
+                datasetAssignments.PerformLayout();
                 Assert.AreEqual(6, datasetList.Columns.Count);
                 Assert.AreEqual(0, datasetList.VirtualListSize);
+                Assert.IsTrue(datasetList.Height >= 200, "The Designer surface must leave enough room to inspect the image list.");
+                Assert.IsTrue(datasetList.Top >= Math.Max(actions.Bottom, filters.Bottom), "The image list must remain below both top rows.");
+                Assert.IsTrue(datasetList.Bottom <= datasetAssignments.ClientSize.Height, "The image list must remain inside the Designer surface.");
                 Assert.AreEqual(4, GetDescendants(datasetAssignments).OfType<ComboBox>().Count());
                 Assert.AreEqual(6, GetDescendants(datasetAssignments).OfType<Button>().Count());
                 Assert.AreEqual(80m, Field<NumericUpDown>(datasetAssignments, "trainPercent").Value);
                 Assert.AreEqual(20m, Field<NumericUpDown>(datasetAssignments, "testPercent").Value);
                 Assert.AreEqual(0, datasetList.TabIndex);
-                Assert.AreEqual(1, Field<FlowLayoutPanel>(datasetAssignments, "actions").TabIndex);
-                Assert.AreEqual(2, Field<FlowLayoutPanel>(datasetAssignments, "filters").TabIndex);
+                Assert.AreEqual(1, actions.TabIndex);
+                Assert.AreEqual(2, filters.TabIndex);
 
                 TableLayoutPanel layout = Field<TableLayoutPanel>(canvasHost, "layout");
                 Assert.AreEqual(DockStyle.Fill, layout.Dock);
