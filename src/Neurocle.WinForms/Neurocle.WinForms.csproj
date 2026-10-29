@@ -57,11 +57,17 @@
     <Compile Include="DiagnosticsForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="DiagnosticsForm.Designer.cs">
+      <DependentUpon>DiagnosticsForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="KeyboardShortcutsForm.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="KeyboardShortcutsForm.Designer.cs">
+      <DependentUpon>KeyboardShortcutsForm.cs</DependentUpon>
     </Compile>
     <Compile Include="AnnotationSetCreationDialog.cs">
       <SubType>Form</SubType>
@@ -75,11 +81,20 @@
     <Compile Include="ImportProgressForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="ImportProgressForm.Designer.cs">
+      <DependentUpon>ImportProgressForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="MissingImagesForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="MissingImagesForm.Designer.cs">
+      <DependentUpon>MissingImagesForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="BackupManagementForm.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="BackupManagementForm.Designer.cs">
+      <DependentUpon>BackupManagementForm.cs</DependentUpon>
     </Compile>
     <Compile Include="ImageBrowserControl.cs">
       <SubType>UserControl</SubType>

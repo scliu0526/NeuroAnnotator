@@ -1,5 +1,4 @@
 using System;
-using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
@@ -7,33 +6,18 @@ using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
-    internal sealed class MissingImagesForm : Form
+    internal sealed partial class MissingImagesForm : Form
     {
-        private readonly IProjectSession project;
-        private readonly ListBox images;
-        private readonly Button relink;
-        private readonly Button delete;
+        private IProjectSession project;
 
-        public MissingImagesForm(IProjectSession project)
+        internal MissingImagesForm()
+        {
+            InitializeComponent();
+        }
+
+        public MissingImagesForm(IProjectSession project) : this()
         {
             this.project = project ?? throw new ArgumentNullException(nameof(project));
-            Text = Strings.MissingImagesTitle;
-            StartPosition = FormStartPosition.CenterParent;
-            MinimumSize = new Size(480, 320);
-            Size = new Size(560, 420);
-
-            images = new ListBox { Dock = DockStyle.Fill, DisplayMember = nameof(ProjectImage.OriginalFileName) };
-            images.SelectedIndexChanged += (sender, args) => UpdateButtons();
-            relink = new Button { AutoSize = true, Text = Strings.RelinkImage };
-            relink.Click += (sender, args) => RelinkSelectedImage();
-            delete = new Button { AutoSize = true, Text = Strings.DeleteMissingImage };
-            delete.Click += (sender, args) => DeleteSelectedImage();
-            var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-            buttons.Controls.Add(new Button { AutoSize = true, DialogResult = DialogResult.OK, Text = Strings.Close });
-            buttons.Controls.Add(delete);
-            buttons.Controls.Add(relink);
-            Controls.Add(images);
-            Controls.Add(buttons);
             RefreshImages();
         }
 
@@ -88,6 +72,21 @@ namespace Neurocle.WinForms
             {
                 MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private void Images_SelectedIndexChanged(object sender, EventArgs args)
+        {
+            UpdateButtons();
+        }
+
+        private void Relink_Click(object sender, EventArgs args)
+        {
+            RelinkSelectedImage();
+        }
+
+        private void Delete_Click(object sender, EventArgs args)
+        {
+            DeleteSelectedImage();
         }
 
         private static string GetErrorMessage(ImageRelinkException exception)

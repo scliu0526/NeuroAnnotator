@@ -261,6 +261,58 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Auxiliary_form_designer_controls_load_without_runtime_dependencies()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(projectPath);
+                using (var backup = new BackupManagementForm())
+                using (var diagnostics = new DiagnosticsForm())
+                using (var progress = new ImportProgressForm())
+                using (var shortcuts = new KeyboardShortcutsForm())
+                using (var missing = new MissingImagesForm())
+                {
+                    foreach (Form form in new Form[] { backup, diagnostics, progress, shortcuts, missing })
+                    {
+                        Assert.IsTrue(GetDescendants(form).Any(), form.GetType().Name + " should load its Designer controls.");
+                    }
+                    Assert.IsTrue(Field<ListBox>(backup, "backups").Dock == DockStyle.Fill);
+                    Assert.IsTrue(Field<Panel>(backup, "buttonsPanel").Dock == DockStyle.Bottom);
+                    Assert.IsTrue(Field<Label>(diagnostics, "usage").Dock == DockStyle.Top);
+                    Assert.IsTrue(Field<ProgressBar>(progress, "progressBar").Maximum >= 1);
+                    Assert.AreEqual(3, shortcuts.Shortcuts.Columns.Count);
+                    Assert.IsTrue(Field<ListBox>(missing, "images").Dock == DockStyle.Fill);
+                    Assert.AreEqual(0, Field<Button>(missing, "closeButton").TabIndex);
+                    Assert.AreEqual(1, Field<Button>(missing, "delete").TabIndex);
+                    Assert.AreEqual(2, Field<Button>(missing, "relink").TabIndex);
+                }
+
+                using (var backup = new BackupManagementForm(store))
+                using (var diagnostics = new DiagnosticsForm(new DiagnosticLog(directory)))
+                using (var missing = new MissingImagesForm(store))
+                {
+                    Assert.IsNotNull(Field<ListBox>(backup, "backups").DataSource);
+                    Assert.IsNotNull(Field<ListBox>(missing, "images").DataSource);
+                    Assert.IsFalse(Field<Button>(backup, "restore").Enabled);
+                    Assert.IsFalse(Field<Button>(missing, "relink").Enabled);
+                    Assert.IsFalse(Field<Button>(missing, "delete").Enabled);
+                }
+
+                store.Dispose();
+                store = null;
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         [TestMethod]
         public void Main_window_starts_maximized_and_can_be_restored_and_resized()
         {
