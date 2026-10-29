@@ -115,6 +115,14 @@ namespace Neurocle.WinForms.Resources
         internal static string NewAnnotationSet { get { return ResourceManager.GetString("NewAnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationSet { get { return ResourceManager.GetString("AnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationSetType { get { return ResourceManager.GetString("AnnotationSetType", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetCreateSubtitle { get { return ResourceManager.GetString("AnnotationSetCreateSubtitle", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetTypeCla { get { return ResourceManager.GetString("AnnotationSetTypeCla", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetTypeClaDescription { get { return ResourceManager.GetString("AnnotationSetTypeClaDescription", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetTypeObd { get { return ResourceManager.GetString("AnnotationSetTypeObd", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetTypeObdDescription { get { return ResourceManager.GetString("AnnotationSetTypeObdDescription", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetTypeSeg { get { return ResourceManager.GetString("AnnotationSetTypeSeg", CultureInfo.CurrentUICulture); } }
+        internal static string AnnotationSetTypeSegDescription { get { return ResourceManager.GetString("AnnotationSetTypeSegDescription", CultureInfo.CurrentUICulture); } }
+        internal static string CreateAnnotationSet { get { return ResourceManager.GetString("CreateAnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string SegRectangleTool { get { return ResourceManager.GetString("SegRectangleTool", CultureInfo.CurrentUICulture); } }
         internal static string SegEllipseTool { get { return ResourceManager.GetString("SegEllipseTool", CultureInfo.CurrentUICulture); } }
         internal static string SegPolygonTool { get { return ResourceManager.GetString("SegPolygonTool", CultureInfo.CurrentUICulture); } }

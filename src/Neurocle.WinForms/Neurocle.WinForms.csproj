@@ -66,6 +66,9 @@
     <Compile Include="AnnotationSetCreationDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="AnnotationSetCreationDialog.Designer.cs">
+      <DependentUpon>AnnotationSetCreationDialog.cs</DependentUpon>
+    </Compile>
     <Compile Include="ImportProgressForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -107,6 +110,15 @@
     </EmbeddedResource>
     <EmbeddedResource Include="..\..\icon\Label_tool\07_circle.png">
       <LogicalName>Neurocle.WinForms.Label_tool.07_circle.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\model_type\CLA.png">
+      <LogicalName>Neurocle.WinForms.model_type.CLA.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\model_type\OBD.png">
+      <LogicalName>Neurocle.WinForms.model_type.OBD.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\model_type\SEG.png">
+      <LogicalName>Neurocle.WinForms.model_type.SEG.png</LogicalName>
     </EmbeddedResource>
     <Compile Include="Resources\Strings.Designer.cs" />
     <EmbeddedResource Include="Resources\Strings.resx">

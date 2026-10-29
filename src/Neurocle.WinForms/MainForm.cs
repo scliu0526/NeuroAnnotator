@@ -685,8 +685,8 @@ namespace Neurocle.WinForms
             if (project == null) return;
             using (var dialog = new AnnotationSetCreationDialog())
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.AnnotationSetName)) return;
-                CreateAnnotationSet(dialog.AnnotationSetType, dialog.AnnotationSetName.Trim());
+                if (dialog.ShowDialog(this) != DialogResult.OK || !dialog.AnnotationSetType.HasValue || string.IsNullOrWhiteSpace(dialog.AnnotationSetName)) return;
+                CreateAnnotationSet(dialog.AnnotationSetType.Value, dialog.AnnotationSetName.Trim());
             }
         }
 

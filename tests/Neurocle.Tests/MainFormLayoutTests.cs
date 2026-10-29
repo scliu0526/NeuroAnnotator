@@ -381,13 +381,20 @@ namespace Neurocle.Tests
             }
         }
 
-        [TestMethod]
-        public void Annotation_set_creation_dialog_offers_all_types()
+        [STATestMethod]
+        public void Annotation_set_creation_dialog_shows_all_types_in_unselected_cards()
         {
             using (var dialog = new AnnotationSetCreationDialog())
             {
-                ComboBox types = dialog.Controls.OfType<ComboBox>().Single();
-                CollectionAssert.AreEqual(new[] { AnnotationSetType.Cla, AnnotationSetType.Obd, AnnotationSetType.Seg }, types.Items.Cast<AnnotationSetType>().ToArray());
+                Button[] cards = { Field<Button>(dialog, "claCard"), Field<Button>(dialog, "obdCard"), Field<Button>(dialog, "segCard") };
+                CollectionAssert.AreEqual(new[] { "CLA", "OBD", "SEG" }, cards.Select(card => card.Text.Split('\r')[0]).ToArray());
+                StringAssert.Contains(cards[0].Text, "影像分類");
+                StringAssert.Contains(cards[0].Text, "整張影像");
+                StringAssert.Contains(cards[1].Text, "物件偵測");
+                StringAssert.Contains(cards[1].Text, "物件位置");
+                StringAssert.Contains(cards[2].Text, "影像分割");
+                StringAssert.Contains(cards[2].Text, "像素區域");
+                Assert.IsFalse(dialog.AnnotationSetType.HasValue, "Opening the dialog should not preselect a type.");
             }
         }
 
@@ -3461,6 +3468,67 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void New_annotation_set_dialog_requires_a_type_and_name_and_creates_only_the_selected_type()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(projectPath);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    int initialCount = store.GetAnnotationSets().Count;
+                    RunAnnotationSetDialogAction(form, dialog =>
+                    {
+                        Assert.IsFalse(dialog.AnnotationSetType.HasValue, "Opening the dialog should not preselect a type.");
+                        Assert.IsFalse(Field<Button>(dialog, "createButton").Enabled);
+                        Assert.AreEqual(1, GetDescendants(dialog).OfType<TextBox>().Count(), "The form should only request the annotation set name.");
+                        Button[] cards = { Field<Button>(dialog, "claCard"), Field<Button>(dialog, "obdCard"), Field<Button>(dialog, "segCard") };
+                        Assert.AreEqual(3, cards.Length);
+                        foreach (Button card in cards)
+                        {
+                            Assert.IsNotNull(card.Image, "{0} should display its embedded model type icon.", card.Name);
+                            Assert.IsTrue(card.Width > 200 && card.Height > 100, "{0} should be visible as a full type card in the Designer layout.", card.Name);
+                        }
+                        Field<Button>(dialog, "claCard").PerformClick();
+                        Assert.AreEqual(AnnotationSetType.Cla, dialog.AnnotationSetType);
+                        Assert.IsFalse(Field<Button>(dialog, "createButton").Enabled, "Choosing a type without a name should keep Create disabled.");
+                        Field<TextBox>(dialog, "name").Text = "   ";
+                        Assert.IsFalse(Field<Button>(dialog, "createButton").Enabled, "Whitespace-only names should keep Create disabled.");
+                        Field<Button>(dialog, "cancelButton").PerformClick();
+                    });
+                    Assert.AreEqual(initialCount, store.GetAnnotationSets().Count, "Canceling must not create an annotation set.");
+
+                    var expectedTypes = new[] { AnnotationSetType.Cla, AnnotationSetType.Obd, AnnotationSetType.Seg };
+                    foreach (AnnotationSetType expected in expectedTypes)
+                    {
+                        string setName = "new-" + expected.ToString().ToLowerInvariant();
+                        RunAnnotationSetDialogAction(form, dialog =>
+                        {
+                            Button card = Field<Button>(dialog, expected == AnnotationSetType.Cla ? "claCard" : expected == AnnotationSetType.Obd ? "obdCard" : "segCard");
+                            card.PerformClick();
+                            Field<TextBox>(dialog, "name").Text = setName;
+                            Assert.IsTrue(Field<Button>(dialog, "createButton").Enabled);
+                            Field<Button>(dialog, "createButton").PerformClick();
+                        });
+                        AnnotationSet created = store.GetAnnotationSets().Single(value => value.Name == setName);
+                        Assert.AreEqual(expected, created.Type);
+                    }
+                    form.Close();
+                    store = null;
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Annotation_opacity_slider_applies_to_obd_seg_fills_and_seg_lines_then_resets_for_each_set()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
@@ -3844,6 +3912,42 @@ namespace Neurocle.Tests
             MethodInfo method = target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
                 .Single(candidate => candidate.Name == methodName && candidate.GetParameters().Length == arguments.Length);
             method.Invoke(target, arguments);
+        }
+
+        private static void RunAnnotationSetDialogAction(MainForm owner, Action<AnnotationSetCreationDialog> action)
+        {
+            Exception failure = null;
+            bool foundDialog = false;
+            using (var timer = new System.Windows.Forms.Timer { Interval = 25 })
+            {
+                timer.Tick += (sender, args) =>
+                {
+                    AnnotationSetCreationDialog dialog = System.Windows.Forms.Application.OpenForms.OfType<AnnotationSetCreationDialog>().FirstOrDefault();
+                    if (dialog == null) return;
+                    foundDialog = true;
+                    timer.Stop();
+                    try { action(dialog); }
+                    catch (Exception error)
+                    {
+                        failure = error;
+                        dialog.DialogResult = DialogResult.Cancel;
+                    }
+                };
+                timer.Start();
+                Invoke(owner, "CreateAnnotationSet");
+                timer.Stop();
+            }
+            Assert.IsTrue(foundDialog, "The annotation set dialog did not open.");
+            if (failure != null) throw failure;
+        }
+
+        private static IEnumerable<Control> GetDescendants(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                yield return child;
+                foreach (Control descendant in GetDescendants(child)) yield return descendant;
+            }
         }
 
         private static T Field<T>(object target, string fieldName)

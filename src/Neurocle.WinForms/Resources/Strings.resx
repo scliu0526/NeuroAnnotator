@@ -129,6 +129,14 @@
   <data name="NewAnnotationSet" xml:space="preserve"><value>新增標註集</value></data>
   <data name="AnnotationSet" xml:space="preserve"><value>標註集</value></data>
   <data name="AnnotationSetType" xml:space="preserve"><value>類型</value></data>
+  <data name="AnnotationSetCreateSubtitle" xml:space="preserve"><value>選擇類型並輸入標註集名稱。</value></data>
+  <data name="AnnotationSetTypeCla" xml:space="preserve"><value>影像分類</value></data>
+  <data name="AnnotationSetTypeClaDescription" xml:space="preserve"><value>為整張影像指定類別</value></data>
+  <data name="AnnotationSetTypeObd" xml:space="preserve"><value>物件偵測</value></data>
+  <data name="AnnotationSetTypeObdDescription" xml:space="preserve"><value>標記影像中的物件位置</value></data>
+  <data name="AnnotationSetTypeSeg" xml:space="preserve"><value>影像分割</value></data>
+  <data name="AnnotationSetTypeSegDescription" xml:space="preserve"><value>標記影像中的像素區域</value></data>
+  <data name="CreateAnnotationSet" xml:space="preserve"><value>建立</value></data>
   <data name="SegRectangleTool" xml:space="preserve"><value>SEG 矩形</value></data>
   <data name="SegEllipseTool" xml:space="preserve"><value>SEG 橢圓</value></data>
   <data name="SegPolygonTool" xml:space="preserve"><value>SEG 畫筆</value></data>
