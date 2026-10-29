@@ -5,7 +5,7 @@ using Clipper2Lib;
 
 namespace Neurocle.Domain.Segmentation
 {
-    /// <summary>以 Clipper2 整數路徑執行 SEG 幾何運算與空洞橋接網路建立。</summary>
+    // 以 Clipper2 整數路徑執行 SEG 幾何運算與空洞橋接網路建立。
     public static class SegGeometryPrototype
     {
         /// <summary>聯集兩組路徑；只有重疊面積大於零時才合併互相接觸的區域。</summary>
@@ -382,7 +382,7 @@ namespace Neurocle.Domain.Segmentation
             return comparison != 0 ? comparison : first.Y.CompareTo(second.Y);
         }
 
-        /// <summary>以座標排序後的端點表示不分方向的線段。</summary>
+        // 以座標排序後的端點表示不分方向的線段。
         private struct UndirectedEdge : IEquatable<UndirectedEdge>
         {
             /// <summary>建立端點固定排序的無向邊，並回報輸入方向是否為正向。</summary>
@@ -396,9 +396,9 @@ namespace Neurocle.Domain.Segmentation
                 Second = forward ? end : start;
             }
 
-            /// <summary>取得依座標順序排列的第一個端點。</summary>
+            // 取得依座標順序排列的第一個端點。
             public Point64 First { get; private set; }
-            /// <summary>取得依座標順序排列的第二個端點。</summary>
+            // 取得依座標順序排列的第二個端點。
             public Point64 Second { get; private set; }
 
             /// <summary>依兩個端點判斷無向邊是否相等。</summary>
@@ -414,12 +414,12 @@ namespace Neurocle.Domain.Segmentation
             public override int GetHashCode() { return (First.GetHashCode() * 397) ^ Second.GetHashCode(); }
         }
 
-        /// <summary>累計路徑邊以正向與反向出現的次數。</summary>
+        // 累計路徑邊以正向與反向出現的次數。
         private sealed class EdgeTraversal
         {
-            /// <summary>記錄邊以排序方向出現的次數。</summary>
+            // 記錄邊以排序方向出現的次數。
             public int Forward;
-            /// <summary>記錄邊以反排序方向出現的次數。</summary>
+            // 記錄邊以反排序方向出現的次數。
             public int Reverse;
         }
 
@@ -797,7 +797,7 @@ namespace Neurocle.Domain.Segmentation
             return Math.Max(minimum, Math.Min(maximum, value));
         }
 
-        /// <summary>保存兩條候選輪廓邊、最近投影位置及搜尋下界。</summary>
+        // 保存兩條候選輪廓邊、最近投影位置及搜尋下界。
         private sealed class EdgePair : IComparable<EdgePair>
         {
             /// <summary>建立兩邊最近點搜尋資料並計算距離下界。</summary>
@@ -808,23 +808,23 @@ namespace Neurocle.Domain.Segmentation
                 OuterIndex = outerIndex; HoleIndex = holeIndex;
                 LowerBound = DistanceSquared(outerStart, outerEnd, outerParameter, holeStart, holeEnd, holeParameter);
             }
-            /// <summary>取得第一條候選輪廓邊的起點。</summary>
+            // 取得第一條候選輪廓邊的起點。
             public Point64 OuterStart { get; private set; }
-            /// <summary>取得第一條候選輪廓邊的終點。</summary>
+            // 取得第一條候選輪廓邊的終點。
             public Point64 OuterEnd { get; private set; }
-            /// <summary>取得第二條候選輪廓邊的起點。</summary>
+            // 取得第二條候選輪廓邊的起點。
             public Point64 HoleStart { get; private set; }
-            /// <summary>取得第二條候選輪廓邊的終點。</summary>
+            // 取得第二條候選輪廓邊的終點。
             public Point64 HoleEnd { get; private set; }
-            /// <summary>取得最近投影點在線段一上的比例。</summary>
+            // 取得最近投影點在線段一上的比例。
             public double OuterParameter { get; private set; }
-            /// <summary>取得最近投影點在線段二上的比例。</summary>
+            // 取得最近投影點在線段二上的比例。
             public double HoleParameter { get; private set; }
-            /// <summary>取得第一條邊在輪廓中的索引。</summary>
+            // 取得第一條邊在輪廓中的索引。
             public int OuterIndex { get; private set; }
-            /// <summary>取得第二條邊在輪廓中的索引。</summary>
+            // 取得第二條邊在輪廓中的索引。
             public int HoleIndex { get; private set; }
-            /// <summary>取得此邊對間距的平方距離下界。</summary>
+            // 取得此邊對間距的平方距離下界。
             public double LowerBound { get; private set; }
             /// <summary>依距離下界及輪廓邊索引建立穩定排序。</summary>
             /// <param name="other">待比較的候選邊對。</param>
@@ -838,18 +838,18 @@ namespace Neurocle.Domain.Segmentation
             }
         }
 
-        /// <summary>保存兩條線段最近點各自的投影比例。</summary>
+        // 保存兩條線段最近點各自的投影比例。
         private sealed class SegmentParameters
         {
             /// <summary>建立兩個線段比例的結果物件。</summary>
             public SegmentParameters(double first, double second) { First = first; Second = second; }
-            /// <summary>取得第一條線段的比例。</summary>
+            // 取得第一條線段的比例。
             public double First { get; private set; }
-            /// <summary>取得第二條線段的比例。</summary>
+            // 取得第二條線段的比例。
             public double Second { get; private set; }
         }
 
-        /// <summary>表示候選橋接及其端點所屬輪廓，並保留既有連線標記。</summary>
+        // 表示候選橋接及其端點所屬輪廓，並保留既有連線標記。
         private sealed class BridgeSelection : IComparable<BridgeSelection>
         {
             /// <summary>建立候選橋接資料。</summary>
@@ -857,15 +857,15 @@ namespace Neurocle.Domain.Segmentation
             {
                 FirstPoint = firstPoint; SecondPoint = secondPoint; FirstContourIndex = firstContourIndex; SecondContourIndex = secondContourIndex; IsExisting = isExisting;
             }
-            /// <summary>取得橋接第一端點。</summary>
+            // 取得橋接第一端點。
             public Point64 FirstPoint { get; private set; }
-            /// <summary>取得橋接第二端點。</summary>
+            // 取得橋接第二端點。
             public Point64 SecondPoint { get; private set; }
-            /// <summary>取得第一端點所屬輪廓索引。</summary>
+            // 取得第一端點所屬輪廓索引。
             public int FirstContourIndex { get; private set; }
-            /// <summary>取得第二端點所屬輪廓索引。</summary>
+            // 取得第二端點所屬輪廓索引。
             public int SecondContourIndex { get; private set; }
-            /// <summary>指出此候選是否來自先前已存在的橋接。</summary>
+            // 指出此候選是否來自先前已存在的橋接。
             public bool IsExisting { get; private set; }
             /// <summary>依橋接長度、既有狀態與固定端點順序比較候選。</summary>
             /// <param name="other">待比較的橋接候選。</param>
@@ -896,7 +896,7 @@ namespace Neurocle.Domain.Segmentation
             }
         }
 
-        /// <summary>表示兩個不同輪廓間既有橋接的輪廓索引與實際端點。</summary>
+        // 表示兩個不同輪廓間既有橋接的輪廓索引與實際端點。
         public sealed class BridgeConnection
         {
             /// <summary>建立既有橋接；輪廓索引較小者會固定存為第一端。</summary>
@@ -922,17 +922,17 @@ namespace Neurocle.Domain.Segmentation
                 }
             }
 
-            /// <summary>取得索引較小的第一個輪廓索引。</summary>
+            // 取得索引較小的第一個輪廓索引。
             public int FirstContourIndex { get; private set; }
-            /// <summary>取得第一個輪廓上的橋接端點。</summary>
+            // 取得第一個輪廓上的橋接端點。
             public Point64 FirstPoint { get; private set; }
-            /// <summary>取得索引較大的第二個輪廓索引。</summary>
+            // 取得索引較大的第二個輪廓索引。
             public int SecondContourIndex { get; private set; }
-            /// <summary>取得第二個輪廓上的橋接端點。</summary>
+            // 取得第二個輪廓上的橋接端點。
             public Point64 SecondPoint { get; private set; }
         }
 
-        /// <summary>表示無法建立涵蓋全部輪廓的合法空洞橋接網路。</summary>
+        // 表示無法建立涵蓋全部輪廓的合法空洞橋接網路。
         public sealed class BridgeNetworkException : InvalidOperationException
         {
             /// <summary>建立橋接網路無法連通的例外。</summary>

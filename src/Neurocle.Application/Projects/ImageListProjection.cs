@@ -4,29 +4,29 @@ using System.Linq;
 
 namespace Neurocle.Application.Projects
 {
-    /// <summary>圖片清單可用的排序欄位。</summary>
+    // 圖片清單可用的排序欄位。
     public enum ImageListSortColumn
     {
-        /// <summary>依圖片顯示序號排序。</summary>
+        // 依圖片顯示序號排序。
         Sequence,
-        /// <summary>依原始檔名的自然排序排序。</summary>
+        // 依原始檔名的自然排序排序。
         FileName,
-        /// <summary>依標註類別名稱排序。</summary>
+        // 依標註類別名稱排序。
         Classes,
-        /// <summary>依標註數量排序。</summary>
+        // 依標註數量排序。
         AnnotationCount
     }
 
-    /// <summary>圖片清單的排序方向。</summary>
+    // 圖片清單的排序方向。
     public enum ImageListSortDirection
     {
-        /// <summary>由小至大或由 A 至 Z 排序。</summary>
+        // 由小至大或由 A 至 Z 排序。
         Ascending,
-        /// <summary>由大至小或由 Z 至 A 排序。</summary>
+        // 由大至小或由 Z 至 A 排序。
         Descending
     }
 
-    /// <summary>將圖片資料依搜尋字串與清單欄位轉換為排序後的顯示集合。</summary>
+    // 將圖片資料依搜尋字串與清單欄位轉換為排序後的顯示集合。
     public static class ImageListProjection
     {
         /// <summary>篩選圖片並排序；僅 Sequence 使用序號，其餘欄位以原始檔名自然排序；檔名比對不區分大小寫。</summary>
@@ -78,10 +78,10 @@ namespace Neurocle.Application.Projects
             return (direction == ImageListSortDirection.Ascending ? imageOrdered : imageOrdered.Reverse()).ToList();
         }
 
-        /// <summary>比較檔名文字與數字片段，使 image2 排在 image10 之前。</summary>
+        // 比較檔名文字與數字片段，使 image2 排在 image10 之前。
         private sealed class NaturalFileNameComparer : IComparer<string>
         {
-            /// <summary>共用的自然檔名比較器實例。</summary>
+            // 共用的自然檔名比較器實例。
             public static readonly NaturalFileNameComparer Instance = new NaturalFileNameComparer();
 
             /// <summary>以不區分字母大小寫的字元順序及數字值比較兩個檔名。</summary>
@@ -124,7 +124,7 @@ namespace Neurocle.Application.Projects
         }
     }
 
-    /// <summary>供圖片清單呈現的圖片、類別及標註數量摘要。</summary>
+    // 供圖片清單呈現的圖片、類別及標註數量摘要。
     public sealed class ImageListRow
     {
         /// <summary>建立圖片清單顯示列，並將類別名稱去重後排序。</summary>
@@ -141,15 +141,15 @@ namespace Neurocle.Application.Projects
             ShowAnnotationCount = showAnnotationCount;
         }
 
-        /// <summary>取得此顯示列所代表的圖片。</summary>
+        // 取得此顯示列所代表的圖片。
         public ProjectImage Image { get; private set; }
-        /// <summary>取得去重並依字串順序排列的類別名稱。</summary>
+        // 取得去重並依字串順序排列的類別名稱。
         public IReadOnlyList<string> ClassNames { get; private set; }
-        /// <summary>取得此圖片目前的標註數量。</summary>
+        // 取得此圖片目前的標註數量。
         public int AnnotationCount { get; private set; }
-        /// <summary>取得清單是否應顯示標註數量。</summary>
+        // 取得清單是否應顯示標註數量。
         public bool ShowAnnotationCount { get; private set; }
-        /// <summary>取得以逗號分隔的類別名稱顯示文字。</summary>
+        // 取得以逗號分隔的類別名稱顯示文字。
         public string ClassDisplay { get { return string.Join(", ", ClassNames); } }
     }
 }

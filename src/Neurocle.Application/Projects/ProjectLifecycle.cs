@@ -6,10 +6,10 @@ using System.Collections.Generic;
 
 namespace Neurocle.Application.Projects
 {
-    /// <summary>將標註顏色輸入正規化為穩定的 RGBA 文字與 System.Drawing 顏色。</summary>
+    // 將標註顏色輸入正規化為穩定的 RGBA 文字與 System.Drawing 顏色。
     public static class AnnotationColorFormat
     {
-        /// <summary>解析接受的 rgba(...) 色彩文字格式。</summary>
+        // 解析接受的 rgba(...) 色彩文字格式。
         private static readonly Regex Rgba = new Regex(@"^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d+(?:\.\d+)?)\s*\)$", RegexOptions.CultureInvariant);
 
         /// <summary>驗證並轉換色彩字串，保留自訂色彩標記且將透明度正規化為 1。</summary>
@@ -47,41 +47,41 @@ namespace Neurocle.Application.Projects
             return Color.FromArgb(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value));
         }
     }
-    /// <summary>匯入圖片時可回報的失敗原因。</summary>
+    // 匯入圖片時可回報的失敗原因。
     public enum ImageImportFailure
     {
-        /// <summary>檔案格式不受支援。</summary>
+        // 檔案格式不受支援。
         UnsupportedFormat,
-        /// <summary>檔案大小超過匯入限制。</summary>
+        // 檔案大小超過匯入限制。
         FileSizeLimit,
-        /// <summary>圖片尺寸超過匯入限制。</summary>
+        // 圖片尺寸超過匯入限制。
         DimensionLimit,
-        /// <summary>專案已達圖片數量上限。</summary>
+        // 專案已達圖片數量上限。
         ProjectImageLimit,
-        /// <summary>指定的檔案不存在。</summary>
+        // 指定的檔案不存在。
         FileNotFound,
-        /// <summary>檔案內容不是可讀取的有效圖片。</summary>
+        // 檔案內容不是可讀取的有效圖片。
         InvalidImage,
-        /// <summary>指定的目錄不存在。</summary>
+        // 指定的目錄不存在。
         DirectoryNotFound,
-        /// <summary>無法存取指定目錄。</summary>
+        // 無法存取指定目錄。
         DirectoryAccess,
-        /// <summary>未分類的匯入錯誤。</summary>
+        // 未分類的匯入錯誤。
         Unknown
     }
 
-    /// <summary>標註集支援的標註型別。</summary>
+    // 標註集支援的標註型別。
     public enum AnnotationSetType
     {
-        /// <summary>整張圖片的分類標註。</summary>
+        // 整張圖片的分類標註。
         Cla,
-        /// <summary>軸對齊矩形物件標註。</summary>
+        // 軸對齊矩形物件標註。
         Obd,
-        /// <summary>可包含多邊形或筆畫的分割區域標註。</summary>
+        // 可包含多邊形或筆畫的分割區域標註。
         Seg
     }
 
-    /// <summary>表示一份具名稱、識別碼及標註型別的標註集。</summary>
+    // 表示一份具名稱、識別碼及標註型別的標註集。
     public sealed class AnnotationSet
     {
         /// <summary>建立標註集摘要。</summary>
@@ -89,17 +89,17 @@ namespace Neurocle.Application.Projects
         /// <param name="name">使用者指定的標註集名稱。</param>
         /// <param name="type">標註集所使用的型別。</param>
         public AnnotationSet(string id, string name, AnnotationSetType type) { Id = id; Name = name; Type = type; }
-        /// <summary>取得標註集識別碼。</summary>
+        // 取得標註集識別碼。
         public string Id { get; }
-        /// <summary>取得標註集名稱。</summary>
+        // 取得標註集名稱。
         public string Name { get; }
-        /// <summary>取得標註集型別。</summary>
+        // 取得標註集型別。
         public AnnotationSetType Type { get; }
-        /// <summary>取得由大寫型別名稱與標註集名稱組成的顯示文字。</summary>
+        // 取得由大寫型別名稱與標註集名稱組成的顯示文字。
         public string DisplayName { get { return Type.ToString().ToUpperInvariant() + " " + Name; } }
     }
 
-    /// <summary>表示標註集中的類別名稱與顯示顏色。</summary>
+    // 表示標註集中的類別名稱與顯示顏色。
     public sealed class AnnotationClass
     {
         /// <summary>建立類別摘要。</summary>
@@ -108,17 +108,17 @@ namespace Neurocle.Application.Projects
         /// <param name="name">類別名稱。</param>
         /// <param name="color">類別顏色字串。</param>
         public AnnotationClass(string id, string annotationSetId, string name, string color) { Id = id; AnnotationSetId = annotationSetId; Name = name; Color = color; }
-        /// <summary>取得類別識別碼。</summary>
+        // 取得類別識別碼。
         public string Id { get; }
-        /// <summary>取得所屬標註集識別碼。</summary>
+        // 取得所屬標註集識別碼。
         public string AnnotationSetId { get; }
-        /// <summary>取得類別名稱。</summary>
+        // 取得類別名稱。
         public string Name { get; }
-        /// <summary>取得類別顏色字串。</summary>
+        // 取得類別顏色字串。
         public string Color { get; }
     }
 
-    /// <summary>表示帶有類別、圖片位置與繪製順序的軸對齊矩形標註。</summary>
+    // 表示帶有類別、圖片位置與繪製順序的軸對齊矩形標註。
     public sealed class ObdAnnotation
     {
         /// <summary>建立矩形標註摘要。</summary>
@@ -137,53 +137,53 @@ namespace Neurocle.Application.Projects
             X = x; Y = y; Width = width; Height = height; ZOrder = zOrder;
         }
 
-        /// <summary>取得標註識別碼。</summary>
+        // 取得標註識別碼。
         public string Id { get; }
-        /// <summary>取得所屬標註集識別碼。</summary>
+        // 取得所屬標註集識別碼。
         public string AnnotationSetId { get; }
-        /// <summary>取得所屬圖片識別碼。</summary>
+        // 取得所屬圖片識別碼。
         public string ImageId { get; }
-        /// <summary>取得標註類別識別碼。</summary>
+        // 取得標註類別識別碼。
         public string ClassId { get; }
-        /// <summary>取得矩形左上角的原圖 X 座標。</summary>
+        // 取得矩形左上角的原圖 X 座標。
         public int X { get; }
-        /// <summary>取得矩形左上角的原圖 Y 座標。</summary>
+        // 取得矩形左上角的原圖 Y 座標。
         public int Y { get; }
-        /// <summary>取得矩形寬度。</summary>
+        // 取得矩形寬度。
         public int Width { get; }
-        /// <summary>取得矩形高度。</summary>
+        // 取得矩形高度。
         public int Height { get; }
-        /// <summary>取得此標註的繪製順序。</summary>
+        // 取得此標註的繪製順序。
         public int ZOrder { get; }
     }
 
-    /// <summary>SEG 區域所使用的幾何表示種類。</summary>
+    // SEG 區域所使用的幾何表示種類。
     public enum SegRegionType
     {
-        /// <summary>由位置及寬高表示的矩形區域。</summary>
+        // 由位置及寬高表示的矩形區域。
         Rect,
-        /// <summary>由中心點及半徑表示的橢圓區域。</summary>
+        // 由中心點及半徑表示的橢圓區域。
         Ellipse,
-        /// <summary>以開放折線及筆畫寬度表示的區域。</summary>
+        // 以開放折線及筆畫寬度表示的區域。
         PolyLine,
-        /// <summary>以封閉多邊形路徑表示的區域。</summary>
+        // 以封閉多邊形路徑表示的區域。
         PolyGon
     }
 
-    /// <summary>以整數原圖座標表示的 SEG 路徑點。</summary>
+    // 以整數原圖座標表示的 SEG 路徑點。
     public sealed class SegPoint
     {
         /// <summary>建立路徑點。</summary>
         /// <param name="x">原圖 X 座標。</param>
         /// <param name="y">原圖 Y 座標。</param>
         public SegPoint(int x, int y) { X = x; Y = y; }
-        /// <summary>取得原圖 X 座標。</summary>
+        // 取得原圖 X 座標。
         public int X { get; }
-        /// <summary>取得原圖 Y 座標。</summary>
+        // 取得原圖 Y 座標。
         public int Y { get; }
     }
 
-    /// <summary>表示帶類別、幾何資料及繪製順序的 SEG 區域。</summary>
+    // 表示帶類別、幾何資料及繪製順序的 SEG 區域。
     public sealed class SegRegion
     {
         /// <summary>建立 SEG 區域摘要；矩形以左上角和尺寸表示，橢圓以中心和半徑表示。</summary>
@@ -205,33 +205,33 @@ namespace Neurocle.Application.Projects
             X = x; Y = y; Width = width; Height = height; ZOrder = zOrder; Points = points ?? new SegPoint[0]; StrokeWidth = strokeWidth;
         }
 
-        /// <summary>取得區域識別碼。</summary>
+        // 取得區域識別碼。
         public string Id { get; }
-        /// <summary>取得所屬標註集識別碼。</summary>
+        // 取得所屬標註集識別碼。
         public string AnnotationSetId { get; }
-        /// <summary>取得所屬圖片識別碼。</summary>
+        // 取得所屬圖片識別碼。
         public string ImageId { get; }
-        /// <summary>取得區域類別識別碼。</summary>
+        // 取得區域類別識別碼。
         public string ClassId { get; }
-        /// <summary>取得區域幾何表示種類。</summary>
+        // 取得區域幾何表示種類。
         public SegRegionType Type { get; }
-        /// <summary>取得矩形左上角或橢圓中心的 X 座標。</summary>
+        // 取得矩形左上角或橢圓中心的 X 座標。
         public int X { get; }
-        /// <summary>取得矩形左上角或橢圓中心的 Y 座標。</summary>
+        // 取得矩形左上角或橢圓中心的 Y 座標。
         public int Y { get; }
-        /// <summary>取得寬度或水平半徑。</summary>
+        // 取得寬度或水平半徑。
         public int Width { get; }
-        /// <summary>取得高度或垂直半徑。</summary>
+        // 取得高度或垂直半徑。
         public int Height { get; }
-        /// <summary>取得區域的繪製順序。</summary>
+        // 取得區域的繪製順序。
         public int ZOrder { get; }
-        /// <summary>取得折線或多邊形所使用的路徑點。</summary>
+        // 取得折線或多邊形所使用的路徑點。
         public IReadOnlyList<SegPoint> Points { get; }
-        /// <summary>取得筆畫幾何的寬度。</summary>
+        // 取得筆畫幾何的寬度。
         public int StrokeWidth { get; }
     }
 
-    /// <summary>以可識別的失敗原因回報單張圖片匯入失敗。</summary>
+    // 以可識別的失敗原因回報單張圖片匯入失敗。
     public sealed class ImageImportException : Exception
     {
         /// <summary>建立圖片匯入失敗例外。</summary>
@@ -241,24 +241,24 @@ namespace Neurocle.Application.Projects
             Failure = failure;
         }
 
-        /// <summary>取得匯入失敗原因。</summary>
+        // 取得匯入失敗原因。
         public ImageImportFailure Failure { get; }
     }
 
-    /// <summary>重新連結既有圖片時可回報的失敗原因。</summary>
+    // 重新連結既有圖片時可回報的失敗原因。
     public enum ImageRelinkFailure
     {
-        /// <summary>專案中找不到指定圖片。</summary>
+        // 專案中找不到指定圖片。
         ImageNotFound,
-        /// <summary>指定的來源檔案不存在。</summary>
+        // 指定的來源檔案不存在。
         SourceNotFound,
-        /// <summary>來源檔案內容雜湊與原圖片不符。</summary>
+        // 來源檔案內容雜湊與原圖片不符。
         ContentMismatch,
-        /// <summary>圖片目前已可用，無需重新連結。</summary>
+        // 圖片目前已可用，無需重新連結。
         ImageIsAvailable
     }
 
-    /// <summary>以可識別的失敗原因回報圖片重新連結失敗。</summary>
+    // 以可識別的失敗原因回報圖片重新連結失敗。
     public sealed class ImageRelinkException : Exception
     {
         /// <summary>建立圖片重新連結失敗例外。</summary>
@@ -268,11 +268,11 @@ namespace Neurocle.Application.Projects
             Failure = failure;
         }
 
-        /// <summary>取得重新連結失敗原因。</summary>
+        // 取得重新連結失敗原因。
         public ImageRelinkFailure Failure { get; }
     }
 
-    /// <summary>表示一份可供檢視或還原的專案備份。</summary>
+    // 表示一份可供檢視或還原的專案備份。
     public sealed class ProjectBackup
     {
         /// <summary>建立備份摘要。</summary>
@@ -284,13 +284,13 @@ namespace Neurocle.Application.Projects
             CreatedUtc = createdUtc;
         }
 
-        /// <summary>取得備份檔案路徑。</summary>
+        // 取得備份檔案路徑。
         public string Path { get; }
-        /// <summary>取得備份建立的 UTC 時間。</summary>
+        // 取得備份建立的 UTC 時間。
         public DateTime CreatedUtc { get; }
     }
 
-    /// <summary>表示專案資料庫無法開啟，並附帶可供復原的備份資訊。</summary>
+    // 表示專案資料庫無法開啟，並附帶可供復原的備份資訊。
     public sealed class ProjectOpenException : Exception
     {
         /// <summary>建立專案開啟失敗例外。</summary>
@@ -304,13 +304,13 @@ namespace Neurocle.Application.Projects
             Backups = backups;
         }
 
-        /// <summary>取得無法開啟的專案路徑。</summary>
+        // 取得無法開啟的專案路徑。
         public string ProjectPath { get; }
-        /// <summary>取得開啟失敗時可用的備份清單。</summary>
+        // 取得開啟失敗時可用的備份清單。
         public IReadOnlyList<ProjectBackup> Backups { get; }
     }
 
-    /// <summary>表示備份還原失敗，但原專案已重新開啟的結果。</summary>
+    // 表示備份還原失敗，但原專案已重新開啟的結果。
     public sealed class ProjectRestoreException : Exception
     {
         /// <summary>建立還原失敗但已恢復原專案工作階段的例外。</summary>
@@ -322,11 +322,11 @@ namespace Neurocle.Application.Projects
             RecoveredSession = recoveredSession;
         }
 
-        /// <summary>取得還原失敗後重新開啟的原專案工作階段。</summary>
+        // 取得還原失敗後重新開啟的原專案工作階段。
         public IProjectSession RecoveredSession { get; }
     }
 
-    /// <summary>指出單一圖片匯入失敗檔案及其原因。</summary>
+    // 指出單一圖片匯入失敗檔案及其原因。
     public sealed class ImageImportFailureDetail
     {
         /// <summary>建立單一檔案的匯入失敗摘要。</summary>
@@ -338,13 +338,13 @@ namespace Neurocle.Application.Projects
             Failure = failure;
         }
 
-        /// <summary>取得失敗檔案路徑。</summary>
+        // 取得失敗檔案路徑。
         public string FilePath { get; }
-        /// <summary>取得失敗原因。</summary>
+        // 取得失敗原因。
         public ImageImportFailure Failure { get; }
     }
 
-    /// <summary>彙整圖片匯入成功、失敗及掃描取消後未處理的結果。</summary>
+    // 彙整圖片匯入成功、失敗及掃描取消後未處理的結果。
     public sealed class ImageImportReport
     {
         /// <summary>建立圖片匯入報告。</summary>
@@ -360,17 +360,17 @@ namespace Neurocle.Application.Projects
             WasCancelledDuringScan = wasCancelledDuringScan;
         }
 
-        /// <summary>取得成功匯入的圖片。</summary>
+        // 取得成功匯入的圖片。
         public IReadOnlyList<ProjectImage> Imported { get; }
-        /// <summary>取得各失敗檔案的原因。</summary>
+        // 取得各失敗檔案的原因。
         public IReadOnlyList<ImageImportFailureDetail> Failures { get; }
-        /// <summary>取得取消後未處理的檔案數量。</summary>
+        // 取得取消後未處理的檔案數量。
         public int UnprocessedCount { get; }
-        /// <summary>取得是否在目錄掃描階段取消。</summary>
+        // 取得是否在目錄掃描階段取消。
         public bool WasCancelledDuringScan { get; }
     }
 
-    /// <summary>表示可回報給匯入進度介面的累計處理數量。</summary>
+    // 表示可回報給匯入進度介面的累計處理數量。
     public sealed class ImageImportProgress
     {
         /// <summary>建立圖片匯入進度快照。</summary>
@@ -386,20 +386,20 @@ namespace Neurocle.Application.Projects
             FailedCount = failedCount;
         }
 
-        /// <summary>取得已處理檔案數量。</summary>
+        // 取得已處理檔案數量。
         public int ProcessedCount { get; }
-        /// <summary>取得預計處理檔案總數。</summary>
+        // 取得預計處理檔案總數。
         public int TotalCount { get; }
-        /// <summary>取得成功匯入檔案數量。</summary>
+        // 取得成功匯入檔案數量。
         public int SuccessfulCount { get; }
-        /// <summary>取得匯入失敗檔案數量。</summary>
+        // 取得匯入失敗檔案數量。
         public int FailedCount { get; }
     }
 
-    /// <summary>提供專案資料、圖片、標註、資料集狀態及操作歷史的工作階段契約。</summary>
+    // 提供專案資料、圖片、標註、資料集狀態及操作歷史的工作階段契約。
     public interface IProjectSession : IDisposable
     {
-        /// <summary>取得此工作階段所開啟的專案檔案路徑。</summary>
+        // 取得此工作階段所開啟的專案檔案路徑。
         string ProjectPath { get; }
         /// <summary>將目前尚未提交的專案狀態寫入持久儲存。</summary>
         void Save();
@@ -647,20 +647,20 @@ namespace Neurocle.Application.Projects
         bool CanRedo(string annotationSetId);
     }
 
-    /// <summary>圖片在單一標註集中的資料集分配狀態。</summary>
+    // 圖片在單一標註集中的資料集分配狀態。
     public enum DatasetAssignmentStatus
     {
-        /// <summary>尚未分配至資料集。</summary>
+        // 尚未分配至資料集。
         Unassigned,
-        /// <summary>分配至訓練集。</summary>
+        // 分配至訓練集。
         Train,
-        /// <summary>分配至測試／驗證集。</summary>
+        // 分配至測試／驗證集。
         Test,
-        /// <summary>標記為不使用。</summary>
+        // 標記為不使用。
         NotUsed
     }
 
-    /// <summary>表示圖片在指定標註集中的資料集狀態及 Retest 旗標。</summary>
+    // 表示圖片在指定標註集中的資料集狀態及 Retest 旗標。
     public sealed class DatasetAssignment
     {
         /// <summary>建立圖片的資料集分配摘要。</summary>
@@ -676,17 +676,17 @@ namespace Neurocle.Application.Projects
             Retest = retest;
         }
 
-        /// <summary>取得標註集識別碼。</summary>
+        // 取得標註集識別碼。
         public string AnnotationSetId { get; }
-        /// <summary>取得圖片識別碼。</summary>
+        // 取得圖片識別碼。
         public string ImageId { get; }
-        /// <summary>取得資料集分配狀態。</summary>
+        // 取得資料集分配狀態。
         public DatasetAssignmentStatus Status { get; }
-        /// <summary>取得 Retest 旗標。</summary>
+        // 取得 Retest 旗標。
         public bool Retest { get; }
     }
 
-    /// <summary>表示一張圖片在指定標註集中的類別與標註數量摘要。</summary>
+    // 表示一張圖片在指定標註集中的類別與標註數量摘要。
     public sealed class ImageAnnotationSummary
     {
         /// <summary>建立圖片標註摘要。</summary>
@@ -700,15 +700,15 @@ namespace Neurocle.Application.Projects
             AnnotationCount = annotationCount;
         }
 
-        /// <summary>取得圖片識別碼。</summary>
+        // 取得圖片識別碼。
         public string ImageId { get; private set; }
-        /// <summary>取得圖片上實際使用的類別識別碼。</summary>
+        // 取得圖片上實際使用的類別識別碼。
         public IReadOnlyList<string> ClassIds { get; private set; }
-        /// <summary>取得圖片目前的標註數量。</summary>
+        // 取得圖片目前的標註數量。
         public int AnnotationCount { get; private set; }
     }
 
-    /// <summary>表示專案中的受管理圖片及其來源、尺寸與可用狀態。</summary>
+    // 表示專案中的受管理圖片及其來源、尺寸與可用狀態。
     public sealed class ProjectImage
     {
         /// <summary>建立圖片資料摘要。</summary>
@@ -732,25 +732,25 @@ namespace Neurocle.Application.Projects
             IsMissing = isMissing;
         }
 
-        /// <summary>取得圖片不可變識別碼。</summary>
+        // 取得圖片不可變識別碼。
         public string Id { get; }
-        /// <summary>取得匯入時來源檔名。</summary>
+        // 取得匯入時來源檔名。
         public string OriginalFileName { get; }
-        /// <summary>取得目前受管理圖片檔名。</summary>
+        // 取得目前受管理圖片檔名。
         public string ManagedFileName { get; }
-        /// <summary>取得來源內容的 SHA-256 雜湊值。</summary>
+        // 取得來源內容的 SHA-256 雜湊值。
         public string Sha256 { get; }
-        /// <summary>取得圖片寬度。</summary>
+        // 取得圖片寬度。
         public int Width { get; }
-        /// <summary>取得圖片高度。</summary>
+        // 取得圖片高度。
         public int Height { get; }
-        /// <summary>取得目前顯示序號。</summary>
+        // 取得目前顯示序號。
         public int Sequence { get; }
-        /// <summary>取得受管理圖片檔案是否缺失。</summary>
+        // 取得受管理圖片檔案是否缺失。
         public bool IsMissing { get; }
     }
 
-    /// <summary>建立、開啟或從備份還原專案的生命週期操作契約。</summary>
+    // 建立、開啟或從備份還原專案的生命週期操作契約。
     public interface IProjectLifecycle
     {
         /// <summary>建立新專案資料庫及受管理圖片目錄。</summary>

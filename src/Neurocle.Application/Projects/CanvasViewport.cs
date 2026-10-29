@@ -3,14 +3,14 @@ using System.Drawing;
 
 namespace Neurocle.Application.Projects
 {
-    /// <summary>維護原圖座標與畫布螢幕座標之間的縮放、平移及捲動狀態。</summary>
+    // 維護原圖座標與畫布螢幕座標之間的縮放、平移及捲動狀態。
     public sealed class CanvasViewport
     {
-        /// <summary>允許的最小縮放倍率。</summary>
+        // 允許的最小縮放倍率。
         private const double MinimumZoom = 0.01d;
-        /// <summary>允許的最大縮放倍率。</summary>
+        // 允許的最大縮放倍率。
         private const double MaximumZoom = 4d;
-        /// <summary>指出目前視角是否由 FitToWindow 自動計算。</summary>
+        // 指出目前視角是否由 FitToWindow 自動計算。
         private bool isFitted;
 
         /// <summary>建立視角並立即將原圖置中縮放至可視範圍。</summary>
@@ -23,27 +23,27 @@ namespace Neurocle.Application.Projects
             FitToWindow();
         }
 
-        /// <summary>目前原圖的像素尺寸。</summary>
+        // 目前原圖的像素尺寸。
         public Size ImageSize { get; private set; }
-        /// <summary>目前畫布可視區域的螢幕尺寸。</summary>
+        // 目前畫布可視區域的螢幕尺寸。
         public Size ViewportSize { get; private set; }
-        /// <summary>原圖像素轉換為螢幕像素所使用的倍率。</summary>
+        // 原圖像素轉換為螢幕像素所使用的倍率。
         public double Zoom { get; private set; }
-        /// <summary>原圖左上角在畫布螢幕座標中的位置。</summary>
+        // 原圖左上角在畫布螢幕座標中的位置。
         public PointF Origin { get; private set; }
-        /// <summary>取得視角是否仍由 FitToWindow 維持。</summary>
+        // 取得視角是否仍由 FitToWindow 維持。
         public bool IsFitted { get { return isFitted; } }
-        /// <summary>取得原圖水平超出畫布時是否可捲動。</summary>
+        // 取得原圖水平超出畫布時是否可捲動。
         public bool CanScrollHorizontally { get { return HorizontalScrollMaximum > 0; } }
-        /// <summary>取得原圖垂直超出畫布時是否可捲動。</summary>
+        // 取得原圖垂直超出畫布時是否可捲動。
         public bool CanScrollVertically { get { return VerticalScrollMaximum > 0; } }
-        /// <summary>取得水平捲動位置的最大原圖螢幕像素值。</summary>
+        // 取得水平捲動位置的最大原圖螢幕像素值。
         public int HorizontalScrollMaximum { get { return GetScrollMaximum(ImageSize.Width * Zoom, ViewportSize.Width); } }
-        /// <summary>取得垂直捲動位置的最大原圖螢幕像素值。</summary>
+        // 取得垂直捲動位置的最大原圖螢幕像素值。
         public int VerticalScrollMaximum { get { return GetScrollMaximum(ImageSize.Height * Zoom, ViewportSize.Height); } }
-        /// <summary>取得目前水平捲動位置；不可捲動時為零。</summary>
+        // 取得目前水平捲動位置；不可捲動時為零。
         public int HorizontalScrollPosition { get { return CanScrollHorizontally ? (int)Math.Round(-Origin.X) : 0; } }
-        /// <summary>取得目前垂直捲動位置；不可捲動時為零。</summary>
+        // 取得目前垂直捲動位置；不可捲動時為零。
         public int VerticalScrollPosition { get { return CanScrollVertically ? (int)Math.Round(-Origin.Y) : 0; } }
 
         /// <summary>更新原圖尺寸，並重新以 FitToWindow 設定視角。</summary>

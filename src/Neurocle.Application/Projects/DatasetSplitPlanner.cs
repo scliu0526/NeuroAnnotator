@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace Neurocle.Application.Projects
 {
-    /// <summary>提供自動分配資料集時供規劃器使用的圖片、類別及可用狀態。</summary>
+    // 提供自動分配資料集時供規劃器使用的圖片、類別及可用狀態。
     public sealed class DatasetSplitCandidate
     {
         /// <summary>建立單張圖片的切分候選資料。</summary>
@@ -17,15 +17,15 @@ namespace Neurocle.Application.Projects
             ClassIds = classIds ?? throw new ArgumentNullException(nameof(classIds));
             IsAvailable = isAvailable;
         }
-        /// <summary>取得候選圖片的識別碼。</summary>
+        // 取得候選圖片的識別碼。
         public string ImageId { get; }
-        /// <summary>取得候選圖片的標註類別識別碼。</summary>
+        // 取得候選圖片的標註類別識別碼。
         public IReadOnlyList<string> ClassIds { get; }
-        /// <summary>取得候選圖片是否可供匯出或訓練使用。</summary>
+        // 取得候選圖片是否可供匯出或訓練使用。
         public bool IsAvailable { get; }
     }
 
-    /// <summary>保存自動切分後的訓練圖片、測試圖片及未達成條件的警告。</summary>
+    // 保存自動切分後的訓練圖片、測試圖片及未達成條件的警告。
     public sealed class DatasetSplitPlan
     {
         /// <summary>建立資料集切分結果。</summary>
@@ -36,15 +36,15 @@ namespace Neurocle.Application.Projects
         {
             TrainImageIds = trainImageIds; TestImageIds = testImageIds; Warnings = warnings;
         }
-        /// <summary>取得訓練集圖片識別碼。</summary>
+        // 取得訓練集圖片識別碼。
         public IReadOnlyList<string> TrainImageIds { get; }
-        /// <summary>取得測試集圖片識別碼。</summary>
+        // 取得測試集圖片識別碼。
         public IReadOnlyList<string> TestImageIds { get; }
-        /// <summary>取得無法完全滿足測試集或類別最小數量條件的警告代碼。</summary>
+        // 取得無法完全滿足測試集或類別最小數量條件的警告代碼。
         public IReadOnlyList<string> Warnings { get; }
     }
 
-    /// <summary>依圖片類別分布建立隨機切分，並在可行時保留每類至少十張訓練圖片。</summary>
+    // 依圖片類別分布建立隨機切分，並在可行時保留每類至少十張訓練圖片。
     public static class DatasetSplitPlanner
     {
         /// <summary>依指定比例建立切分結果；至少三張可用圖片時，測試集目標數量不低於三張。</summary>
@@ -107,7 +107,7 @@ namespace Neurocle.Application.Projects
             return new DatasetSplitPlan(shuffled.Where(value => !test.Contains(value.ImageId)).Select(value => value.ImageId).ToArray(), shuffled.Where(value => test.Contains(value.ImageId)).Select(value => value.ImageId).ToArray(), warnings);
         }
 
-        /// <summary>保存單一類別的總數、已選數及待檢查候選圖片。</summary>
+        // 保存單一類別的總數、已選數及待檢查候選圖片。
         private sealed class ClassBucket
         {
             /// <summary>建立一個類別的切分統計桶。</summary>
@@ -115,17 +115,17 @@ namespace Neurocle.Application.Projects
             {
                 ClassId = classId; Total = total; Candidates = new Queue<DatasetSplitCandidate>(candidates);
             }
-            /// <summary>取得此桶代表的類別識別碼。</summary>
+            // 取得此桶代表的類別識別碼。
             public string ClassId { get; }
-            /// <summary>取得此類別在可用圖片中的總出現數。</summary>
+            // 取得此類別在可用圖片中的總出現數。
             public int Total { get; }
-            /// <summary>取得已分配至測試集且包含此類別的圖片數。</summary>
+            // 取得已分配至測試集且包含此類別的圖片數。
             public int Selected { get; set; }
-            /// <summary>取得尚待檢查的候選圖片佇列。</summary>
+            // 取得尚待檢查的候選圖片佇列。
             public Queue<DatasetSplitCandidate> Candidates { get; }
         }
 
-        /// <summary>依類別目前選取比例、總量及識別碼建立穩定排序。</summary>
+        // 依類別目前選取比例、總量及識別碼建立穩定排序。
         private sealed class ClassBucketComparer : IComparer<ClassBucket>
         {
             /// <summary>比較兩個類別的測試集選取比例，並以固定欄位打破平手。</summary>
