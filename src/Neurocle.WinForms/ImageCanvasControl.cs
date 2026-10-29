@@ -13,83 +13,151 @@ using Neurocle.Domain.Segmentation;
 
 namespace Neurocle.WinForms
 {
+    // 繪製圖片、標註、互動預覽與目前畫布視角。
     internal sealed class ImageCanvasControl : Control
     {
+        // 指定 OBD 及 SEG 編輯控制點的畫面尺寸。
         private const float HandleSize = 8f;
+        // 設定 SEG 框選運算使用的整數縮放精度。
         private const long SegSelectionScale = 1000;
+        // 保存隱藏系統游標，供自繪工具游標顯示時使用。
         private static readonly Cursor InvisibleCursor = CreateInvisibleCursor();
+        // 保存圖片尺寸、縮放倍率及原圖畫面位置。
         private readonly CanvasViewport viewport = new CanvasViewport(Size.Empty, Size.Empty);
+        // 確保圖片解碼不會同時進行多次。
         private readonly SemaphoreSlim imageLoadGate = new SemaphoreSlim(1, 1);
+        // 保存目前顯示的圖片預覽影像。
         private Image image;
+        // 保存目前載入圖片的來源路徑。
         private string loadedImagePath;
+        // 保存目前圖片載入作業的取消權杖。
         private CancellationTokenSource imageLoad;
+        // 指出目前是否以滑鼠拖曳平移畫布。
         private bool panning;
+        // 指出目前是否正在拖曳縮圖中的視野框。
         private bool thumbnailPanning;
+        // 記錄導覽縮圖是否已收合。
         private bool thumbnailCollapsed;
+        // 保存縮圖像素轉換為原圖位移的比例。
         private float thumbnailDragScale;
+        // 保存前一個滑鼠座標供拖曳計算。
         private Point previousPoint;
+        // 保存 OBD 或 SEG 框選手勢的原圖起點。
         private PointF? selectionStart;
+        // 保存框選手勢起始螢幕座標以判斷是否實際拖曳。
         private Point selectionScreenStart;
+        // 保存框選手勢的即時預覽矩形。
         private RectangleF? selectionPreview;
+        // 指出框選是否保留既有選取並加入新項目。
         private bool selectionAdditive;
+        // 指出目前框選目標是 SEG 還是 OBD。
         private bool selectionIsSeg;
+        // 保存 OBD 矩形繪製的原圖起點。
         private PointF obdStart;
+        // 保存尚未提交的 OBD 矩形預覽。
         private RectangleF? obdPreview;
+        // 保存 OBD 拖曳或鍵盤移動中的多選預覽位置。
         private IReadOnlyDictionary<string, RectangleF> obdPreviews = new Dictionary<string, RectangleF>();
+        // 保存目前畫布要繪製的 OBD 標註。
         private IReadOnlyList<ObdAnnotation> obdAnnotations = new List<ObdAnnotation>();
+        // 保存 OBD 標註識別碼對應的類別顯示資料。
         private IReadOnlyDictionary<string, AnnotationClass> obdClasses = new Dictionary<string, AnnotationClass>();
+        // 保存目前拖曳編輯的 OBD 標註。
         private ObdAnnotation activeObd;
+        // 記錄目前 OBD 建立、移動或縮放手勢。
         private ObdDragKind obdDrag;
+        // 保存 OBD 編輯前的原始矩形。
         private RectangleF obdOriginal;
+        // 保存 OBD 拖曳手勢的原圖起點。
         private PointF obdDragStart;
+        // 保存目前選取的全部 OBD 標註識別碼。
         private readonly HashSet<string> selectedObdIds = new HashSet<string>(StringComparer.Ordinal);
+        // 保存主要 OBD 選取識別碼。
         private string selectedObdId;
+        // 指出方向鍵移動預覽是否正在累積。
         private bool keyboardNudgeActive;
+        // 指出目前鍵盤移動預覽屬於 OBD 或 SEG。
         private bool keyboardNudgeIsObd;
+        // 保存尚未提交的鍵盤水平移動量。
         private int keyboardNudgeX;
+        // 保存尚未提交的鍵盤垂直移動量。
         private int keyboardNudgeY;
+        // 保存 SEG 矩形或橢圓繪製的原圖起點。
         private PointF segStart;
+        // 保存尚未提交的 SEG 矩形或橢圓預覽。
         private RectangleF? segPreview;
+        // 保存目前畫筆、線形或多邊形的路徑點。
         private readonly List<PointF> segPath = new List<PointF>();
+        // 指出目前是否按住滑鼠持續繪製 SEG 路徑。
         private bool segPathDragging;
+        // 保存線形工具目前線段的固定起點。
         private PointF? segLineStart;
+        // 保存線形預覽的目前指標位置。
         private PointF segCursor;
+        // 保存自繪工具游標的目前畫面座標。
         private PointF toolCursor;
+        // 保存最後一次滑鼠移動座標供工具游標重算。
         private Point lastMousePosition;
+        // 指出滑鼠指標目前是否位於畫布內。
         private bool pointerInside;
+        // 指出目前是否需要繪製自訂工具游標。
         private bool hasToolCursor;
+        // 保存目前畫布要繪製的 SEG 區域。
         private IReadOnlyList<SegRegion> segRegions = new List<SegRegion>();
+        // 保存 SEG 區域識別碼對應的類別顯示資料。
         private IReadOnlyDictionary<string, AnnotationClass> segClasses = new Dictionary<string, AnnotationClass>();
+        // 保存目前選取的全部 SEG 區域識別碼。
         private readonly HashSet<string> selectedSegIds = new HashSet<string>(StringComparer.Ordinal);
+        // 保存主要 SEG 選取識別碼。
         private string selectedSegId;
+        // 保存 SEG 拖曳、縮放、旋轉或鍵盤移動預覽。
         private IReadOnlyDictionary<string, SegRegion> segPreviews = new Dictionary<string, SegRegion>();
+        // 保存 SEG 編輯手勢的原圖起點。
         private PointF segDragStart;
+        // 記錄目前 SEG 移動、縮放或旋轉手勢。
         private SegDragKind segDrag;
+        // 保存 SEG 編輯前的原始區域。
         private SegRegion segOriginal;
+        // 保存 SEG 編輯前的外接矩形。
         private RectangleF segOriginalBounds;
+        // 保存目前 SEG 旋轉預覽角度。
         private double segRotationAngle;
+        // 保存目前 SEG 筆刷寬度設定。
         private int segStrokeWidth = 15;
+        // 保存正在繪製路徑所使用的筆畫寬度。
         private int segPathStrokeWidth;
+        // 保存目前繪製與閉環預覽使用的顏色。
         private Color previewColor = Color.White;
+        // 記錄標註是否顯示並允許選取。
         private bool annotationsVisible = true;
 
+        // 取得或設定 OBD 工具是否啟用。
         public bool ObdEnabled { get { return obdEnabled; } set { obdEnabled = value; UpdateToolCursor(); Invalidate(); } }
+        // 記錄 OBD 工具是否啟用。
         private bool obdEnabled;
+        // 取得或設定 OBD 是否處於選取模式。
         public bool ObdSelectMode
         {
             get { return obdSelectMode; }
             set { obdSelectMode = value; UpdateToolCursor(); Invalidate(); }
         }
+        // 記錄 OBD 工具是否處於選取模式。
         private bool obdSelectMode;
+        // 提供目前修飾鍵狀態的可替換來源。
         internal Func<Keys> ModifierKeysProvider { get; set; }
+        // 取得或設定 SEG 工具是否啟用。
         public bool SegEnabled { get { return segEnabled; } set { segEnabled = value; UpdateToolCursor(); Invalidate(); } }
+        // 記錄 SEG 工具是否啟用。
         private bool segEnabled;
+        // 取得或設定目前使用的 SEG 工具。
         public SegToolKind? SegTool
         {
             get { return segTool; }
             set { segTool = value; UpdateToolCursor(); Invalidate(); }
         }
+        // 記錄目前使用的 SEG 工具種類。
         private SegToolKind? segTool;
+        // 取得或設定 SEG 筆刷寬度，範圍為 1 至 100。
         public int SegStrokeWidth
         {
             get { return segStrokeWidth; }
@@ -101,9 +169,13 @@ namespace Neurocle.WinForms
                 Invalidate();
             }
         }
+        // 取得目前修飾鍵，必要時使用測試替代來源。
         private Keys CurrentModifierKeys { get { return ModifierKeysProvider == null ? ModifierKeys : ModifierKeysProvider(); } }
+        // 設定 OBD 標註的顯示透明度。
         public float ObdOpacity { get; set; } = 0.4f;
+        // 設定 SEG 標註的顯示透明度。
         public float SegOpacity { get; set; } = 0.4f;
+        // 取得或設定標註的顯示與互動狀態。
         public bool AnnotationsVisible
         {
             get { return annotationsVisible; }
@@ -120,15 +192,21 @@ namespace Neurocle.WinForms
                 Invalidate();
             }
         }
+        // 取得或設定目前繪製預覽顏色。
         public Color PreviewColor
         {
             get { return previewColor; }
             set { previewColor = value; Invalidate(); }
         }
+        // 取得主要選取的 SEG 區域識別碼。
         public string SelectedSegId { get { return selectedSegId; } }
+        // 取得所有已選取的 SEG 區域識別碼。
         public IReadOnlyCollection<string> SelectedSegIds { get { return selectedSegIds; } }
+        // 取得主要選取的 OBD 標註識別碼。
         public string SelectedObdId { get { return selectedObdId; } }
+        // 取得所有已選取的 OBD 標註識別碼。
         public IReadOnlyCollection<string> SelectedObdIds { get { return selectedObdIds; } }
+        /// <summary>選取目前畫布上的全部 OBD 標註，並更新主要選取識別碼。</summary>
         public void SelectAllObd()
         {
             if (!AnnotationsVisible) return;
@@ -137,6 +215,7 @@ namespace Neurocle.WinForms
             selectedObdId = selectedObdIds.FirstOrDefault();
             Invalidate();
         }
+        /// <summary>依提供的識別碼選取現有 OBD 標註，忽略不存在的識別碼。</summary>
         public void SelectObdAnnotations(IEnumerable<string> annotationIds)
         {
             selectedObdIds.Clear();
@@ -148,6 +227,7 @@ namespace Neurocle.WinForms
             selectedObdId = selectedObdIds.FirstOrDefault();
             Invalidate();
         }
+        /// <summary>選取目前畫布上的全部 SEG 區域，並更新主要選取識別碼。</summary>
         public void SelectAllSeg()
         {
             if (!AnnotationsVisible) return;
@@ -157,6 +237,7 @@ namespace Neurocle.WinForms
             Invalidate();
         }
 
+        /// <summary>依方向鍵累積移動所選 OBD 或 SEG 標註一像素的預覽；整組越界時拒絕移動。</summary>
         internal bool NudgeSelectedAnnotations(int deltaX, int deltaY)
         {
             if ((deltaX == 0 && deltaY == 0) || !AnnotationsVisible || image == null) return false;
@@ -191,6 +272,7 @@ namespace Neurocle.WinForms
             return true;
         }
 
+        /// <summary>完成鍵盤移動預覽並一次發出整組標註變更事件。</summary>
         internal bool CommitKeyboardNudge()
         {
             if (!keyboardNudgeActive) return false;
@@ -212,6 +294,7 @@ namespace Neurocle.WinForms
             else if (!moveObd && segChanges.Length > 0) SegRegionsChanged?.Invoke(segChanges);
             return true;
         }
+        /// <summary>依提供的識別碼選取現有 SEG 區域，忽略不存在的識別碼。</summary>
         public void SelectSegRegions(IEnumerable<string> regionIds)
         {
             selectedSegIds.Clear();
@@ -223,6 +306,7 @@ namespace Neurocle.WinForms
             selectedSegId = selectedSegIds.FirstOrDefault();
             Invalidate();
         }
+        // 取得或更新目前畫布顯示的 OBD 標註。
         public IReadOnlyList<ObdAnnotation> ObdAnnotations
         {
             get { return obdAnnotations; }
@@ -234,7 +318,9 @@ namespace Neurocle.WinForms
                 Invalidate();
             }
         }
+        // 取得或更新 OBD 類別顯示資料。
         public IReadOnlyDictionary<string, AnnotationClass> ObdClasses { get { return obdClasses; } set { obdClasses = value ?? new Dictionary<string, AnnotationClass>(); Invalidate(); } }
+        // 取得或更新目前畫布顯示的 SEG 區域。
         public IReadOnlyList<SegRegion> SegRegions
         {
             get { return segRegions; }
@@ -246,16 +332,26 @@ namespace Neurocle.WinForms
                 Invalidate();
             }
         }
+        // 取得或更新 SEG 類別顯示資料。
         public IReadOnlyDictionary<string, AnnotationClass> SegClasses { get { return segClasses; } set { segClasses = value ?? new Dictionary<string, AnnotationClass>(); Invalidate(); } }
+        // 通知外層 OBD 矩形已完成繪製。
         public event Action<Rectangle> ObdRectangleCreated;
+        // 通知外層一組 OBD 標註位置或尺寸已變更。
         public event Action<IReadOnlyDictionary<string, Rectangle>> ObdRectanglesChanged;
+        // 通知外層刪除指定 OBD 標註。
         public event Action<IReadOnlyCollection<string>> ObdAnnotationsDeleteRequested;
+        // 通知外層矩形或橢圓 SEG 區域已完成繪製。
         public event Action<SegRegionType, Rectangle> SegRegionCreated;
+        // 通知外層多邊形或線形 SEG 路徑已完成繪製。
         public event Action<SegRegionType, IReadOnlyList<SegPoint>, int> SegPathCreated;
+        // 通知外層以指定筆畫擦除 SEG 區域。
         public event Action<IReadOnlyList<SegPoint>, int> SegEraseRequested;
+        // 通知外層一組 SEG 區域幾何已變更。
         public event Action<IReadOnlyList<SegRegion>> SegRegionsChanged;
+        // 通知外層刪除指定 SEG 區域。
         public event Action<IReadOnlyCollection<string>> SegRegionsDeleteRequested;
 
+        /// <summary>初始化雙緩衝畫布並同步視角與控制項尺寸。</summary>
         public ImageCanvasControl()
         {
             DoubleBuffered = true;
@@ -264,15 +360,24 @@ namespace Neurocle.WinForms
             Resize += (sender, args) => { viewport.SetViewportSize(ClientSize); RefreshToolCursor(); Invalidate(); RaiseViewChanged(); };
         }
 
+        // 取得目前畫布縮放倍率。
         public double Zoom { get { return viewport.Zoom; } }
+        // 取得導覽縮圖是否收合。
         internal bool IsThumbnailCollapsed { get { return thumbnailCollapsed; } }
+        // 取得水平捲動位置的最大值。
         internal int HorizontalScrollMaximum { get { return viewport.HorizontalScrollMaximum; } }
+        // 取得垂直捲動位置的最大值。
         internal int VerticalScrollMaximum { get { return viewport.VerticalScrollMaximum; } }
+        // 通知外層畫布縮放倍率已變更。
         public event EventHandler ZoomChanged;
+        // 通知外層畫布位置或可視範圍已變更。
         public event EventHandler ViewChanged;
+        // 取得目前載入圖片的路徑。
         internal string LoadedImagePath { get { return loadedImagePath; } }
+        // 取得供畫布同步使用的縮放與位置快照。
         internal CanvasViewState ViewState { get { return new CanvasViewState(viewport.Zoom, viewport.Origin, viewport.IsFitted); } }
 
+        /// <summary>套用圖片頁或標註頁同步傳入的縮放與原圖位置。</summary>
         internal void SetViewState(CanvasViewState state)
         {
             viewport.SetView(state.Zoom, state.Origin, state.IsFitted);
@@ -281,6 +386,7 @@ namespace Neurocle.WinForms
             RaiseViewChanged();
         }
 
+        /// <summary>取消舊圖片載入及未完成形狀，再開始載入指定圖片。</summary>
         public void LoadImage(string path)
         {
             DiscardUnfinishedShape();
@@ -289,6 +395,7 @@ namespace Neurocle.WinForms
             if (path != null) LoadImageAsync(path);
         }
 
+        /// <summary>在背景載入圖片，並將有效結果安全地套用至 UI 執行緒。</summary>
         private async void LoadImageAsync(string path)
         {
             var cancellation = new CancellationTokenSource();
@@ -320,6 +427,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>在可取消的載入閘門內解碼圖片並建立畫布預覽影像。</summary>
         private CanvasImage LoadCanvasImage(string path, CancellationToken cancellation)
         {
             bool acquired = false;
@@ -338,6 +446,7 @@ namespace Neurocle.WinForms
             finally { if (acquired) imageLoadGate.Release(); }
         }
 
+        /// <summary>清除目前圖片與畫布視角，並重繪空白畫布狀態。</summary>
         private void ClearImage()
         {
             Image previous = image;
@@ -352,8 +461,10 @@ namespace Neurocle.WinForms
             RaiseViewChanged();
         }
 
+        /// <summary>取消目前尚未完成的圖片載入要求。</summary>
         private void CancelImageLoad() { imageLoad?.Cancel(); imageLoad = null; }
 
+        /// <summary>在控制項可用時將指定動作派送到 UI 執行緒。</summary>
         private bool TryInvokeOnUiThread(Action action)
         {
             if (IsDisposed || Disposing) return false;
@@ -365,7 +476,9 @@ namespace Neurocle.WinForms
             }
             catch (InvalidOperationException) { return false; }
         }
+        /// <summary>將完整圖片等比例縮放並置中於目前可視範圍。</summary>
         public void FitToWindow() { viewport.FitToWindow(); RefreshToolCursor(); Invalidate(); RaiseViewChanged(); }
+        /// <summary>以目前可視範圍中心套用指定縮放百分比。</summary>
         public void SetZoomPercent(double percent)
         {
             viewport.SetZoomAt(percent / 100d, new PointF(ClientSize.Width / 2f, ClientSize.Height / 2f));
@@ -374,6 +487,7 @@ namespace Neurocle.WinForms
             RaiseViewChanged();
         }
 
+        /// <summary>設定原圖水平與垂直捲動位置並通知視角變更。</summary>
         internal void SetScrollPosition(int horizontal, int vertical)
         {
             viewport.SetScrollPosition(horizontal, vertical);
@@ -382,6 +496,7 @@ namespace Neurocle.WinForms
             RaiseViewChanged();
         }
 
+        /// <summary>取消尚未完成的繪製、選取、路徑或工具預覽。</summary>
         public void DiscardUnfinishedShape()
         {
             CancelInProgressGesture();
@@ -389,6 +504,7 @@ namespace Neurocle.WinForms
             selectedSegId = null;
         }
 
+        /// <summary>取消目前滑鼠手勢並清除尚未提交的預覽與滑鼠捕捉。</summary>
         internal void CancelInProgressGesture()
         {
             obdPreview = null;
@@ -415,6 +531,7 @@ namespace Neurocle.WinForms
             Invalidate();
         }
 
+        /// <summary>取消目前 OBD 或 SEG 拖曳編輯，還原尚未提交的預覽狀態。</summary>
         private void CancelAnnotationEditGesture()
         {
             bool cancelCapture = false;
@@ -441,6 +558,7 @@ namespace Neurocle.WinForms
             if (cancelCapture) Capture = false;
         }
 
+        /// <summary>依目前視角繪製圖片、標註、編輯預覽、工具游標及導覽縮圖。</summary>
         protected override void OnPaint(PaintEventArgs args)
         {
             base.OnPaint(args);
@@ -592,6 +710,7 @@ namespace Neurocle.WinForms
             DrawCanvasThumbnail(args.Graphics);
         }
 
+        /// <summary>依縮放狀態繪製原圖縮圖、目前視野框及收合切換鈕。</summary>
         private void DrawCanvasThumbnail(Graphics graphics)
         {
             CanvasThumbnailLayout layout;
@@ -609,6 +728,7 @@ namespace Neurocle.WinForms
             DrawThumbnailToggle(graphics, layout.ToggleBounds, thumbnailCollapsed, dpiScale);
         }
 
+        /// <summary>依縮圖收合狀態繪製方向提示按鈕。</summary>
         private static void DrawThumbnailToggle(Graphics graphics, RectangleF bounds, bool collapsed, float dpiScale)
         {
             using (var background = new SolidBrush(Color.FromArgb(220, 24, 24, 27))) graphics.FillRectangle(background, bounds);
@@ -623,12 +743,14 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>只有圖片超出可視範圍時建立縮圖及視野框配置。</summary>
         private bool TryGetThumbnailLayout(out CanvasThumbnailLayout layout)
         {
             layout = default(CanvasThumbnailLayout);
             return image != null && CanvasThumbnailLayout.TryCreate(viewport.ImageSize, ClientSize, viewport.Zoom, viewport.Origin, DeviceDpi / 96f, out layout);
         }
 
+        /// <summary>將縮圖點位轉回原圖座標並以該點置中目前畫布視角。</summary>
         private void CenterViewportOnThumbnailPoint(PointF thumbnailPoint, CanvasThumbnailLayout layout)
         {
             float scale = layout.ImageBounds.Width / viewport.ImageSize.Width;
@@ -644,6 +766,7 @@ namespace Neurocle.WinForms
             RaiseViewChanged();
         }
 
+        /// <summary>依目前標註工具繪製滑鼠位置的筆刷、線型或橡皮擦預覽。</summary>
         private void DrawToolCursor(Graphics graphics)
         {
             if (!hasToolCursor || (!ObdEnabled && !SegEnabled)) return;
@@ -684,12 +807,14 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>依啟用工具與指標位置更新系統游標樣式。</summary>
         private void UpdateToolCursor()
         {
             RefreshToolCursor();
             ApplyToolCursor();
         }
 
+        /// <summary>在系統游標與隱藏游標之間切換目前畫布工具游標。</summary>
         private void ApplyToolCursor()
         {
             bool crosshair = ObdEnabled && !ObdSelectMode || SegEnabled && (SegTool == SegToolKind.Rect || SegTool == SegToolKind.Ellipse || SegTool == SegToolKind.Polygon);
@@ -697,6 +822,7 @@ namespace Neurocle.WinForms
             Cursor = hasToolCursor && (crosshair || ring) ? InvisibleCursor : Cursors.Arrow;
         }
 
+        /// <summary>建立供畫布自繪工具游標時使用的透明系統游標。</summary>
         private static Cursor CreateInvisibleCursor()
         {
             using (var stream = new MemoryStream())
@@ -733,11 +859,13 @@ namespace Neurocle.WinForms
 
         private Color PreviewTrackColor { get { return Color.FromArgb(ToAlpha(0.4f), previewColor); } }
 
+        /// <summary>將不透明度比例限制後轉換為 GDI+ 使用的 Alpha 值。</summary>
         private static int ToAlpha(float opacity)
         {
             return Math.Max(0, Math.Min(255, (int)Math.Round(255f * opacity)));
         }
 
+        /// <summary>在 OBD 選取矩形周圍繪製調整控制點。</summary>
         private static void DrawHandles(Graphics graphics, RectangleF rectangle)
         {
             using (var outline = new Pen(Color.Black, 3f)) graphics.DrawRectangle(outline, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
@@ -750,6 +878,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>依 SEG 區域類型繪製移動、縮放或旋轉控制點。</summary>
         private static void DrawSegHandles(Graphics graphics, RectangleF rectangle)
         {
             DrawHandles(graphics, rectangle);
@@ -759,6 +888,7 @@ namespace Neurocle.WinForms
             using (var pen = new Pen(Color.Black)) graphics.DrawEllipse(pen, rotation.X - 5f, rotation.Y - 5f, 10f, 10f);
         }
 
+        /// <summary>依旋轉後的矩形角點繪製 SEG 旋轉控制點。</summary>
         private void DrawRotatedSegHandles(Graphics graphics, SegRegion region, double angle)
         {
             RectangleF bounds = GetSegBounds(region);
@@ -779,12 +909,14 @@ namespace Neurocle.WinForms
             using (var pen = new Pen(Color.Black)) graphics.DrawEllipse(pen, rotation.X - 5f, rotation.Y - 5f, 10f, 10f);
         }
 
+        /// <summary>以指定中心及角度計算點位旋轉後的座標。</summary>
         private static PointF RotatePoint(PointF point, PointF center, double angle)
         {
             double cosine = Math.Cos(angle), sine = Math.Sin(angle);
             return new PointF((float)(center.X + (point.X - center.X) * cosine - (point.Y - center.Y) * sine), (float)(center.Y + (point.X - center.X) * sine + (point.Y - center.Y) * cosine));
         }
 
+        /// <summary>依 Ctrl、Shift 或未修飾滾輪分別縮放、水平或垂直平移。</summary>
         protected override void OnMouseWheel(MouseEventArgs args)
         {
             if ((ModifierKeys & Keys.Control) == Keys.Control) viewport.SetZoomAt(viewport.Zoom * (args.Delta > 0 ? 1.1d : 1d / 1.1d), args.Location);
@@ -796,6 +928,7 @@ namespace Neurocle.WinForms
             base.OnMouseWheel(args);
         }
 
+        /// <summary>依縮圖、平移狀態與目前標註工具開始對應的滑鼠手勢。</summary>
         protected override void OnMouseDown(MouseEventArgs args)
         {
             Focus();
@@ -973,6 +1106,7 @@ namespace Neurocle.WinForms
             base.OnMouseDown(args);
         }
 
+        /// <summary>記錄所選 OBD 拖曳的起點及原始矩形，準備移動或縮放預覽。</summary>
         private void BeginObdDrag(ObdDragKind drag, PointF point, ObdAnnotation annotation)
         {
             activeObd = annotation;
@@ -983,6 +1117,7 @@ namespace Neurocle.WinForms
             obdPreviews = new Dictionary<string, RectangleF>();
         }
 
+        /// <summary>依目前手勢更新平移、框選、標註編輯及繪製工具預覽。</summary>
         protected override void OnMouseMove(MouseEventArgs args)
         {
             pointerInside = true;
@@ -1073,6 +1208,7 @@ namespace Neurocle.WinForms
             base.OnMouseMove(args);
         }
 
+        /// <summary>計算工具游標重繪所需的畫面範圍。</summary>
         private Rectangle GetToolCursorBounds(PointF center)
         {
             float radius = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser)
@@ -1081,6 +1217,7 @@ namespace Neurocle.WinForms
             return Rectangle.Round(new RectangleF(center.X - radius, center.Y - radius, radius * 2f, radius * 2f));
         }
 
+        /// <summary>依最後指標位置及目前工具寬度重新計算游標位置。</summary>
         private void RefreshToolCursor()
         {
             hasToolCursor = pointerInside && image != null;
@@ -1090,6 +1227,7 @@ namespace Neurocle.WinForms
             toolCursor = viewport.ImageToScreen(widthTool ? ClampSegPathPoint(imagePoint) : ClampPoint(imagePoint));
         }
 
+        /// <summary>離開畫布時隱藏自繪工具游標並恢復系統游標。</summary>
         protected override void OnMouseLeave(EventArgs args)
         {
             pointerInside = false;
@@ -1099,6 +1237,7 @@ namespace Neurocle.WinForms
             base.OnMouseLeave(args);
         }
 
+        /// <summary>完成目前滑鼠手勢，提交標註變更事件並釋放滑鼠捕捉。</summary>
         protected override void OnMouseUp(MouseEventArgs args)
         {
             if (args.Button == MouseButtons.Left && thumbnailPanning)
@@ -1239,6 +1378,7 @@ namespace Neurocle.WinForms
             base.OnMouseUp(args);
         }
 
+        /// <summary>處理畫布焦點中的 Escape 取消及 Delete 標註刪除命令。</summary>
         protected override void OnKeyDown(KeyEventArgs args)
         {
             if (args.KeyCode == Keys.Escape) { DiscardUnfinishedShape(); args.Handled = true; }
@@ -1257,6 +1397,7 @@ namespace Neurocle.WinForms
             base.OnKeyDown(args);
         }
 
+        /// <summary>依指標偏移計算選取 OBD 標註的預覽矩形。</summary>
         private IReadOnlyDictionary<string, RectangleF> MoveRectangles(PointF point)
         {
             ObdAnnotation[] selected = obdAnnotations.Where(item => selectedObdIds.Contains(item.Id)).ToArray();
@@ -1267,6 +1408,7 @@ namespace Neurocle.WinForms
             return selected.ToDictionary(item => item.Id, item => new RectangleF(item.X + xOffset, item.Y + yOffset, item.Width, item.Height));
         }
 
+        /// <summary>依指標偏移計算選取 SEG 區域的預覽位置。</summary>
         private IReadOnlyDictionary<string, SegRegion> MoveSegRegions(PointF point)
         {
             SegRegion[] selected = segRegions.Where(item => selectedSegIds.Contains(item.Id)).ToArray();
@@ -1277,6 +1419,7 @@ namespace Neurocle.WinForms
             return selected.ToDictionary(item => item.Id, item => TranslateSegRegion(item, xOffset, yOffset));
         }
 
+        /// <summary>建立將指定位移套用至 SEG 座標與點位的新區域。</summary>
         private static SegRegion TranslateSegRegion(SegRegion region, float xOffset, float yOffset)
         {
             if (region.Points.Count > 0)
@@ -1286,12 +1429,14 @@ namespace Neurocle.WinForms
             return new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, region.ClassId, region.Type, (int)Math.Round(region.X + xOffset, MidpointRounding.AwayFromZero), (int)Math.Round(region.Y + yOffset, MidpointRounding.AwayFromZero), region.Width, region.Height, region.ZOrder);
         }
 
+        /// <summary>依畫布顯示順序找出指定原圖座標最上層的 SEG 區域。</summary>
         private SegRegion TopmostSegAt(PointF point)
         {
             if (!AnnotationsVisible) return null;
             return segRegions.Where(item => selectedSegIds.Contains(item.Id)).Reverse().Concat(segRegions.Where(item => !selectedSegIds.Contains(item.Id)).Reverse()).FirstOrDefault(item => ContainsSegPoint(item, point));
         }
 
+        /// <summary>依矩形、橢圓、線段筆畫或多邊形填色判斷點位是否命中。</summary>
         private static bool ContainsSegPoint(SegRegion region, PointF point)
         {
             if (region.Type == SegRegionType.Rect) return new RectangleF(region.X, region.Y, region.Width, region.Height).Contains(point);
@@ -1316,6 +1461,7 @@ namespace Neurocle.WinForms
             return winding != 0;
         }
 
+        /// <summary>計算點到線段最近投影位置的歐氏距離。</summary>
         private static float DistanceToSegment(PointF point, SegPoint first, SegPoint second)
         {
             float x = second.X - first.X, y = second.Y - first.Y;
@@ -1325,6 +1471,7 @@ namespace Neurocle.WinForms
             return (float)Math.Sqrt(dx * dx + dy * dy);
         }
 
+        /// <summary>取得 SEG 區域在原圖座標中的外接範圍。</summary>
         private static RectangleF GetStoredBounds(SegRegion region)
         {
             if (region.Points.Count == 0) return GetSegBounds(region);
@@ -1332,6 +1479,7 @@ namespace Neurocle.WinForms
             return RectangleF.FromLTRB(region.Points.Min(point => point.X) - inset, region.Points.Min(point => point.Y) - inset, region.Points.Max(point => point.X) + inset, region.Points.Max(point => point.Y) + inset);
         }
 
+        /// <summary>判斷指標命中的 SEG 編輯控制點及所屬區域。</summary>
         private SegDragKind HitSegHandle(Point point, out SegRegion hitRegion)
         {
             if (!AnnotationsVisible) { hitRegion = null; return SegDragKind.None; }
@@ -1357,6 +1505,7 @@ namespace Neurocle.WinForms
             return SegDragKind.None;
         }
 
+        /// <summary>依目前拖曳控制點調整 SEG 區域幾何尺寸或邊界。</summary>
         private SegRegion ResizeSegRegion(SegRegion region, PointF point)
         {
             float left = segOriginalBounds.Left, top = segOriginalBounds.Top, right = segOriginalBounds.Right, bottom = segOriginalBounds.Bottom;
@@ -1375,6 +1524,7 @@ namespace Neurocle.WinForms
             return ScaleSegRegion(region, segOriginalBounds, target);
         }
 
+        /// <summary>以指定中心及比例調整 SEG 區域及其路徑點座標。</summary>
         private static SegRegion ScaleSegRegion(SegRegion region, RectangleF source, RectangleF target)
         {
             float scaleX = target.Width / source.Width, scaleY = target.Height / source.Height;
@@ -1395,6 +1545,7 @@ namespace Neurocle.WinForms
         }
 
 
+        /// <summary>計算所選 SEG 區域的共同旋轉預覽並回報角度。</summary>
         private bool TryRotateSegRegions(PointF point, out IReadOnlyDictionary<string, SegRegion> previews, out double angle)
         {
             PointF pivot = new PointF(segOriginalBounds.Left + segOriginalBounds.Width / 2f, segOriginalBounds.Top + segOriginalBounds.Height / 2f);
@@ -1419,6 +1570,7 @@ namespace Neurocle.WinForms
             return true;
         }
 
+        /// <summary>建立套用指定中心與角度的 SEG 區域副本。</summary>
         private SegRegion RotateSegRegion(SegRegion region, double angle)
         {
             RectangleF bounds = GetSegBounds(region);
@@ -1435,6 +1587,7 @@ namespace Neurocle.WinForms
             return result;
         }
 
+        /// <summary>產生旋轉矩形四角與旋轉控制點的原圖座標。</summary>
         private static IEnumerable<SegPoint> GetRotationPoints(SegRegion region)
         {
             if (region.Points.Count > 0) return region.Points;
@@ -1442,6 +1595,7 @@ namespace Neurocle.WinForms
             return Enumerable.Range(0, 32).Select(index => new SegPoint((int)Math.Round(region.X + region.Width * Math.Cos(2d * Math.PI * index / 32d)), (int)Math.Round(region.Y + region.Height * Math.Sin(2d * Math.PI * index / 32d))));
         }
 
+        /// <summary>清除目前的 SEG 區域選取與主要選取識別碼。</summary>
         private void ClearSegSelection()
         {
             selectedSegIds.Clear();
@@ -1449,11 +1603,13 @@ namespace Neurocle.WinForms
             segPreviews = new Dictionary<string, SegRegion>();
         }
 
+        /// <summary>比較兩個 SEG 區域的識別碼、幾何、點位及繪製屬性。</summary>
         private static bool SegEquals(SegRegion first, SegRegion second)
         {
             return first.ClassId == second.ClassId && first.Type == second.Type && first.X == second.X && first.Y == second.Y && first.Width == second.Width && first.Height == second.Height && first.StrokeWidth == second.StrokeWidth && first.Points.Count == second.Points.Count && first.Points.Zip(second.Points, (left, right) => left.X == right.X && left.Y == right.Y).All(equal => equal);
         }
 
+        /// <summary>依指定拖曳控制點及指標位置調整矩形邊界。</summary>
         private RectangleF ResizeRectangle(PointF point)
         {
             float left = obdOriginal.Left, top = obdOriginal.Top, right = obdOriginal.Right, bottom = obdOriginal.Bottom;
@@ -1464,6 +1620,7 @@ namespace Neurocle.WinForms
             return Clamp(RectangleF.FromLTRB(left, top, right, bottom));
         }
 
+        /// <summary>判斷指標命中的 OBD 矩形縮放控制點及標註。</summary>
         private ObdDragKind HitHandle(Point point, out ObdAnnotation hitAnnotation)
         {
             if (!AnnotationsVisible) { hitAnnotation = null; return ObdDragKind.None; }
@@ -1482,6 +1639,7 @@ namespace Neurocle.WinForms
             return ObdDragKind.None;
         }
 
+        /// <summary>依畫布顯示順序找出指定原圖座標最上層的 OBD 標註。</summary>
         private ObdAnnotation TopmostObdAt(PointF point)
         {
             if (!AnnotationsVisible) return null;
@@ -1490,17 +1648,20 @@ namespace Neurocle.WinForms
             return obdAnnotations.Reverse().FirstOrDefault(item => !selectedObdIds.Contains(item.Id) && new RectangleF(item.X, item.Y, item.Width, item.Height).Contains(point));
         }
 
+        /// <summary>清除目前的 OBD 標註選取與主要選取識別碼。</summary>
         private void ClearObdSelection()
         {
             selectedObdIds.Clear();
             selectedObdId = null;
         }
 
+        /// <summary>判斷兩個矩形範圍是否相交或接觸。</summary>
         private static bool RectanglesTouch(RectangleF first, RectangleF second)
         {
             return first.Left <= second.Right && first.Right >= second.Left && first.Top <= second.Bottom && first.Bottom >= second.Top;
         }
 
+        /// <summary>記錄框選起點、螢幕座標及是否加入既有選取。</summary>
         private void BeginSelectionGesture(PointF point, Point screenPoint, bool isSeg)
         {
             selectionStart = point;
@@ -1511,6 +1672,7 @@ namespace Neurocle.WinForms
             Capture = true;
         }
 
+        /// <summary>判斷 SEG 區域是否與框選矩形相交。</summary>
         private static bool IntersectsSegArea(SegRegion region, RectangleF selection)
         {
             long left = ScaleSegCoordinate(selection.Left), top = ScaleSegCoordinate(selection.Top);
@@ -1538,24 +1700,29 @@ namespace Neurocle.WinForms
             return SegGeometryPrototype.Area(overlap) > 0d;
         }
 
+        /// <summary>依比例調整座標並限制在圖片允許的範圍內。</summary>
         private static long ScaleSegCoordinate(float value)
         {
             return (long)Math.Round(value * SegSelectionScale, MidpointRounding.AwayFromZero);
         }
 
+        /// <summary>取得矩形各邊中點與角點的控制點座標。</summary>
         private static PointF[] GetHandlePoints(RectangleF rectangle)
         {
             return new[] { new PointF(rectangle.Left, rectangle.Top), new PointF(rectangle.Left + rectangle.Width / 2f, rectangle.Top), new PointF(rectangle.Right, rectangle.Top), new PointF(rectangle.Right, rectangle.Top + rectangle.Height / 2f), new PointF(rectangle.Right, rectangle.Bottom), new PointF(rectangle.Left + rectangle.Width / 2f, rectangle.Bottom), new PointF(rectangle.Left, rectangle.Bottom), new PointF(rectangle.Left, rectangle.Top + rectangle.Height / 2f) };
         }
 
+        /// <summary>將原圖座標矩形轉成畫布螢幕座標矩形。</summary>
         private RectangleF ToScreenRectangle(float x, float y, float width, float height)
         {
             PointF topLeft = viewport.ImageToScreen(new PointF(x, y));
             return new RectangleF(topLeft.X, topLeft.Y, (float)(width * viewport.Zoom), (float)(height * viewport.Zoom));
         }
 
+        /// <summary>將原圖座標矩形轉成畫布螢幕座標矩形。</summary>
         private RectangleF ToScreenRectangle(RectangleF rectangle) { return ToScreenRectangle(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height); }
 
+        /// <summary>依區域種類取得 SEG 幾何的原圖座標範圍。</summary>
         private static RectangleF GetSegBounds(SegRegion region)
         {
             if (region.Type == SegRegionType.Rect) return new RectangleF(region.X, region.Y, region.Width, region.Height);
@@ -1565,7 +1732,9 @@ namespace Neurocle.WinForms
             return RectangleF.FromLTRB(left - inset, top - inset, right + inset, bottom + inset);
         }
 
+        /// <summary>將座標限制在圖片邊界內。</summary>
         private PointF ClampPoint(PointF value) { return new PointF(Math.Max(0f, Math.Min(value.X, viewport.ImageSize.Width)), Math.Max(0f, Math.Min(value.Y, viewport.ImageSize.Height))); }
+        /// <summary>通知外層控制項目前畫布視角已變更。</summary>
         private void RaiseViewChanged()
         {
             if (IsDisposed || Disposing) return;
@@ -1578,6 +1747,7 @@ namespace Neurocle.WinForms
             ZoomChanged?.Invoke(this, EventArgs.Empty);
             ViewChanged?.Invoke(this, EventArgs.Empty);
         }
+        /// <summary>將數值限制在指定的最小值與最大值之間。</summary>
         private RectangleF Clamp(RectangleF value)
         {
             float left = Math.Max(0f, Math.Min(value.Left, viewport.ImageSize.Width));
@@ -1586,8 +1756,11 @@ namespace Neurocle.WinForms
             float bottom = Math.Max(top, Math.Min(value.Bottom, viewport.ImageSize.Height));
             return RectangleF.FromLTRB(left, top, right, bottom);
         }
+        /// <summary>依兩個對角點建立非負寬高的矩形。</summary>
         private static RectangleF Normalize(PointF first, PointF second) { return RectangleF.FromLTRB(Math.Min(first.X, second.X), Math.Min(first.Y, second.Y), Math.Max(first.X, second.X), Math.Max(first.Y, second.Y)); }
+        /// <summary>將浮點矩形四捨五入為整數座標矩形。</summary>
         private static Rectangle ToIntegerRectangle(RectangleF rectangle) { return Rectangle.FromLTRB((int)Math.Round(rectangle.Left), (int)Math.Round(rectangle.Top), (int)Math.Round(rectangle.Right), (int)Math.Round(rectangle.Bottom)); }
+        /// <summary>依筆畫半徑將 SEG 路徑點限制在圖片可繪製範圍。</summary>
         private PointF ClampSegPathPoint(PointF point)
         {
             int width = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser || SegTool == SegToolKind.Line ? SegStrokeWidth : 0;
@@ -1595,33 +1768,46 @@ namespace Neurocle.WinForms
             Size size = viewport.ImageSize;
             return new PointF(Math.Max(inset, Math.Min(size.Width - inset, point.X)), Math.Max(inset, Math.Min(size.Height - inset, point.Y)));
         }
+        /// <summary>判斷目前圖片是否有足夠空間容納完整筆畫寬度。</summary>
         private bool CanFitSegPath()
         {
             int width = SegStrokeWidth;
             int inset = (width + 1) / 2;
             return viewport.ImageSize.Width >= inset * 2 && viewport.ImageSize.Height >= inset * 2;
         }
+        /// <summary>將畫布點位四捨五入為整數 SEG 座標。</summary>
         private static SegPoint ToSegPoint(PointF point) { return new SegPoint((int)Math.Round(point.X, MidpointRounding.AwayFromZero), (int)Math.Round(point.Y, MidpointRounding.AwayFromZero)); }
+        /// <summary>將兩個原圖點位轉成螢幕座標後計算距離。</summary>
         private float DistanceInScreenPixels(PointF first, PointF second) { PointF a = viewport.ImageToScreen(first); PointF b = viewport.ImageToScreen(second); float x = a.X - b.X, y = a.Y - b.Y; return (float)Math.Sqrt(x * x + y * y); }
 
+        /// <summary>釋放載入中的取消權杖及目前圖片資源。</summary>
         protected override void Dispose(bool disposing)
         {
             if (disposing) { CancelImageLoad(); image?.Dispose(); }
             base.Dispose(disposing);
         }
 
+        // 表示 OBD 建立、移動及各方向縮放手勢狀態。
         private enum ObdDragKind { None, Create, Move, ResizeN, ResizeS, ResizeW, ResizeE, ResizeNw, ResizeNe, ResizeSw, ResizeSe }
+        // 表示 SEG 移動、各方向縮放及旋轉手勢狀態。
         private enum SegDragKind { None, Move, ResizeN, ResizeS, ResizeW, ResizeE, ResizeNw, ResizeNe, ResizeSw, ResizeSe, Rotate }
+        // 列出標註畫布支援的 SEG 工具種類。
         public enum SegToolKind { Select, Rect, Ellipse, Polygon, Brush, Line, Eraser }
+        // 保存解碼後的圖片預覽及來源尺寸。
         private sealed class CanvasImage
         {
+            /// <summary>保存畫布預覽影像及其原始圖片尺寸。</summary>
             public CanvasImage(Image preview, Size originalSize) { Preview = preview; OriginalSize = originalSize; }
+            // 取得用於畫布顯示的預覽影像。
             public Image Preview { get; private set; }
+            // 取得來源圖片的原始尺寸。
             public Size OriginalSize { get; private set; }
         }
 
+        // 表示可在圖片頁與標註頁間同步的畫布視角。
         internal struct CanvasViewState
         {
+            /// <summary>保存畫布縮放倍率、原圖位置與適配視窗狀態。</summary>
             public CanvasViewState(double zoom, PointF origin, bool isFitted)
             {
                 Zoom = zoom;
@@ -1629,17 +1815,25 @@ namespace Neurocle.WinForms
                 IsFitted = isFitted;
             }
 
+            // 取得此視角的縮放倍率。
             public double Zoom { get; private set; }
+            // 取得此視角的原圖畫面原點。
             public PointF Origin { get; private set; }
+            // 指出此視角是否由適配視窗狀態產生。
             public bool IsFitted { get; private set; }
         }
 
+        // 保存畫布導覽縮圖與視野框的幾何配置。
         internal struct CanvasThumbnailLayout
         {
+            // 限制縮圖的最大畫面寬度。
             private const float MaximumWidth = 180f;
+            // 限制縮圖的最大畫面高度。
             private const float MaximumHeight = 120f;
+            // 設定縮圖與畫布邊緣間距。
             private const float Margin = 8f;
 
+            /// <summary>保存縮圖、視野框及縮圖切換鈕的畫面範圍。</summary>
             private CanvasThumbnailLayout(RectangleF imageBounds, RectangleF viewportBounds, RectangleF toggleBounds)
             {
                 ImageBounds = imageBounds;
@@ -1647,10 +1841,14 @@ namespace Neurocle.WinForms
                 ToggleBounds = toggleBounds;
             }
 
+            // 取得縮圖在畫布上的顯示範圍。
             internal RectangleF ImageBounds { get; private set; }
+            // 取得縮圖中目前視野框的範圍。
             internal RectangleF ViewportBounds { get; private set; }
+            // 取得縮圖收合切換鈕的範圍。
             internal RectangleF ToggleBounds { get; private set; }
 
+            /// <summary>在圖片超出可視範圍時建立符合 DPI 與畫布尺寸的縮圖配置。</summary>
             internal static bool TryCreate(Size imageSize, Size viewportSize, double zoom, PointF origin, float dpiScale, out CanvasThumbnailLayout layout)
             {
                 layout = default(CanvasThumbnailLayout);

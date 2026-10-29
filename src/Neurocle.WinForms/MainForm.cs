@@ -14,31 +14,45 @@ using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
+    // 管理專案操作、標註工作流程及主視窗頁面。
     public sealed partial class MainForm : Form
     {
+        // 提供建立、開啟、儲存與替換專案的生命週期操作。
         private readonly IProjectLifecycle projectLifecycle;
+        // 保存主視窗共用的診斷事件記錄器。
         private readonly DiagnosticLog diagnosticLog;
+        // 保存目前開啟的專案工作階段。
         private IProjectSession project;
         private Label status;
         private Label toastMessage;
         private Timer toastTimer;
         private ToolStripMenuItem projectMenu;
         private ImageBrowserControl imageBrowser;
+        // 保存圖片瀏覽頁使用的畫布。
         private ImageCanvasControl imageCanvas;
+        // 保存標註頁使用的畫布。
         private ImageCanvasControl canvas;
         private TabControl pages;
         private TabPage imagesPage;
         private TabPage annotationPage;
         private TabPage datasetPage;
         private TabPage exportPage;
+        // 追蹤目前鍵盤與工具操作作用中的畫布。
         private ImageCanvasControl activeCanvas;
+        // 保存資料集指派頁面的操作控制項。
         private DatasetAssignmentControl datasetAssignments;
+        // 保存標註頁目前選取的標註集欄位。
         private ComboBox annotationSets;
+        // 保存資料集頁面目前選取的標註集欄位。
         private ComboBox datasetAnnotationSets;
         private Panel annotationSidebar;
+        // 承載目前標註集的類別控制項。
         private FlowLayoutPanel annotationClasses;
+        // 承載標註工具按鈕並管理其版面。
         private FlowLayoutPanel annotationTools;
+        // 提供工具名稱及快捷鍵提示。
         private ToolTip annotationToolTips;
+        // 保留自載入的工具圖示以便視窗結束時釋放。
         private readonly List<Image> annotationToolIcons = new List<Image>();
         private NumericUpDown segStrokeWidth;
         private TrackBar segStrokeWidthSlider;
@@ -92,25 +106,44 @@ namespace Neurocle.WinForms
         private Button exportJson;
         private Button exportSelected;
         private Button exportAll;
+        // 保存目前選取圖片的檔案路徑。
         private string selectedImagePath;
+        // 保存目前選取圖片的專案識別碼。
         private string selectedImageId;
+        // 保存目前選取的 SEG 類別識別碼。
         private string selectedSegClassId;
+        // 保存目前選取的 OBD 類別識別碼。
         private string selectedObdClassId;
+        // 避免同時啟動多個圖片匯入工作。
         private bool importInProgress;
+        // 避免同時啟動多個匯出工作。
         private bool exportInProgress;
+        // 避免重疊執行需要背景處理的標註操作。
         private bool annotationOperationInProgress;
+        // 保存標註操作期間等待套用的圖片選取事件。
         private ImageSelectedEventArgs pendingImageSelection;
+        // 避免同步兩畫布視角時產生遞迴事件。
         private bool synchronizingCanvasView;
+        // 避免重新載入標註集清單時觸發選取副作用。
         private bool refreshingAnnotationSets;
+        // 避免標註頁與資料集頁同步選取時互相觸發。
         private bool synchronizingAnnotationSetSelection;
+        // 追蹤畫布目前實際顯示的標註集識別碼。
         private string displayedAnnotationSetId;
+        // 暫存剪貼簿中的 OBD 標註副本。
         private IReadOnlyList<ObdAnnotation> copiedObdAnnotations = new ObdAnnotation[0];
+        // 暫存剪貼簿中的 SEG 區域副本。
         private IReadOnlyList<SegRegion> copiedSegRegions = new SegRegion[0];
+        // 提供圖片刪除確認的可替換判斷函式。
         private Func<string, bool> confirmImageDeletion;
 
+        // 提供測試存取圖片瀏覽控制項。
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
+        // 提供測試存取圖片瀏覽畫布。
         internal ImageCanvasControl ImageCanvas { get { return imageCanvas; } }
+        // 提供測試存取標註畫布。
         internal ImageCanvasControl AnnotationCanvas { get { return canvas; } }
+        // 提供測試存取資料集指派控制項。
         internal DatasetAssignmentControl DatasetAssignments { get { return datasetAssignments; } }
 
         public MainForm(IProjectLifecycle projectLifecycle)
@@ -331,17 +364,20 @@ namespace Neurocle.WinForms
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
+        /// <summary>判斷焦點是否位於文字輸入控制項，避免快捷鍵干擾輸入。</summary>
         private bool HasTextInputFocus()
         {
             return FindFocusedTextInput(this);
         }
 
+        /// <summary>遞迴尋找控制項樹中目前取得焦點的文字欄位。</summary>
         private static bool FindFocusedTextInput(Control control)
         {
             if (control is TextBoxBase && control.Focused) return true;
             return control.Controls.Cast<Control>().Any(FindFocusedTextInput);
         }
 
+        /// <summary>依目前標註類型選取畫布上的全部標註。</summary>
         private void SelectAllAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -350,6 +386,7 @@ namespace Neurocle.WinForms
             else if (selected.Type == AnnotationSetType.Seg && canvas.SegEnabled) canvas.SelectAllSeg();
         }
 
+        /// <summary>複製目前選取的 OBD 或 SEG 標註。</summary>
         private void CopySelectedAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -366,6 +403,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>將複製的標註貼到目前圖片並建立可復原命令。</summary>
         private void PasteCopiedAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -411,6 +449,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>顯示短暫操作提示並更新提示計時器。</summary>
         private void ShowToastMessage(string message)
         {
             DisposeToastMessage();
@@ -426,6 +465,7 @@ namespace Neurocle.WinForms
             toastTimer.Start();
         }
 
+        /// <summary>停止提示計時器並釋放提示控制項。</summary>
         private void DisposeToastMessage()
         {
             if (toastTimer != null) { toastTimer.Stop(); toastTimer.Dispose(); toastTimer = null; }
@@ -435,12 +475,14 @@ namespace Neurocle.WinForms
             toastMessage = null;
         }
 
+        /// <summary>依主視窗和狀態列位置排列操作提示。</summary>
         private void PositionToastMessage()
         {
             if (toastMessage == null) return;
             toastMessage.Location = new Point(Math.Max(0, (annotationPage.ClientSize.Width - toastMessage.Width) / 2), Math.Max(0, annotationPage.ClientSize.Height - toastMessage.Height - 24));
         }
 
+        /// <summary>同步更新 SEG 筆刷寬度欄位與畫布設定。</summary>
         private void SetSegStrokeWidth(int width)
         {
             if (segStrokeWidth.Value != width) segStrokeWidth.Value = width;
@@ -448,6 +490,7 @@ namespace Neurocle.WinForms
             canvas.SegStrokeWidth = width;
         }
 
+        /// <summary>同步兩個畫布的縮放倍率與視野位置。</summary>
         private void SynchronizeCanvasView(ImageCanvasControl source, ImageCanvasControl target)
         {
             if (synchronizingCanvasView) return;
@@ -459,6 +502,7 @@ namespace Neurocle.WinForms
             finally { synchronizingCanvasView = false; }
         }
 
+        /// <summary>切換目前 SEG 工具並更新工具按鈕狀態。</summary>
         private void SelectSegTool(ImageCanvasControl.SegToolKind tool)
         {
             canvas.DiscardUnfinishedShape();
@@ -466,6 +510,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationToolButtons();
         }
 
+        /// <summary>切換 OBD 選取或矩形繪製工具。</summary>
         private void SelectObdTool(bool select)
         {
             canvas.DiscardUnfinishedShape();
@@ -473,6 +518,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationToolButtons();
         }
 
+        /// <summary>依快捷鍵切換標註工具並回報是否已處理按鍵。</summary>
         private bool TrySelectAnnotationToolByShortcut(Keys key)
         {
             if (pages.SelectedTab != annotationPage) return false;
@@ -513,6 +559,7 @@ namespace Neurocle.WinForms
             annotationToolTips.SetToolTip(button, toolName + " " + shortcut);
         }
 
+        /// <summary>從內嵌資源載入標註工具圖示。</summary>
         private Image LoadAnnotationToolIcon(string resourceName)
         {
             string manifestName = "Neurocle.WinForms.Label_tool." + resourceName;
@@ -528,6 +575,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>顯示建立專案流程並載入新專案。</summary>
         private void CreateProject()
         {
             using (var dialog = CreateProjectDialog())
@@ -538,6 +586,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>選取並開啟既有專案。</summary>
         private void OpenProject()
         {
             using (var dialog = new OpenFileDialog { Filter = Strings.ProjectFileFilter })
@@ -555,12 +604,14 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>儲存目前專案。</summary>
         private void SaveProject()
         {
             project?.Save();
             if (project != null) WriteDiagnostic(DiagnosticEvent.ProjectSaved);
         }
 
+        /// <summary>另存目前專案至使用者指定位置。</summary>
         private void SaveProjectAs()
         {
             if (project == null) return;
@@ -573,6 +624,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>刪除圖片瀏覽器目前選取的圖片。</summary>
         private void DeleteSelectedImages()
         {
             if (project == null) return;
@@ -583,6 +635,7 @@ namespace Neurocle.WinForms
             DeleteImages(imageIds);
         }
 
+        /// <summary>確認後刪除專案內全部圖片。</summary>
         private void DeleteAllImages()
         {
             if (project == null) return;
@@ -593,6 +646,7 @@ namespace Neurocle.WinForms
             DeleteImages(imageIds);
         }
 
+        /// <summary>刪除指定圖片並同步更新專案和畫面。</summary>
         private void DeleteImages(IReadOnlyCollection<string> imageIds)
         {
             bool currentImageDeleted = selectedImageId != null && imageIds.Contains(selectedImageId);
@@ -610,6 +664,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>開啟遺失圖片管理介面。</summary>
         private void ManageMissingImages()
         {
             if (project == null) return;
@@ -619,11 +674,13 @@ namespace Neurocle.WinForms
             RefreshAnnotationSets();
         }
 
+        /// <summary>開啟診斷日誌管理介面。</summary>
         private void ManageDiagnostics()
         {
             using (var dialog = new DiagnosticsForm(diagnosticLog)) dialog.ShowDialog(this);
         }
 
+        /// <summary>建立使用者選定類型的新標註集。</summary>
         private void CreateAnnotationSet()
         {
             if (project == null) return;
@@ -634,12 +691,14 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>建立指定類型與名稱的標註集並更新畫面。</summary>
         private void CreateAnnotationSet(AnnotationSetType type, string name)
         {
             AnnotationSet created = project.CreateAnnotationSet(name, type);
             RefreshAnnotationSets(created.Id);
         }
 
+        /// <summary>重新載入專案標註集清單並維持指定選取項目。</summary>
         private void RefreshAnnotationSets(string selectedId = null)
         {
             if (annotationSets == null) return;
@@ -672,6 +731,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>處理標註集選取變更並同步相關頁面。</summary>
         private void AnnotationSetSelectionChanged(ComboBox source)
         {
             if (refreshingAnnotationSets || synchronizingAnnotationSetSelection) return;
@@ -692,12 +752,14 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>將標註透明度恢復預設值。</summary>
         private void ResetAnnotationOpacity()
         {
             if (annotationOpacity != null) annotationOpacity.Value = 40;
             SetAnnotationOpacity(40);
         }
 
+        /// <summary>更新畫布標註透明度並同步數值欄位。</summary>
         private void SetAnnotationOpacity(int percent)
         {
             if (annotationOpacity.Value != percent) annotationOpacity.Value = percent;
@@ -708,12 +770,14 @@ namespace Neurocle.WinForms
             canvas.Invalidate();
         }
 
+        /// <summary>切換標註顯示狀態並更新畫布。</summary>
         private void SetAnnotationsVisible(bool visible)
         {
             imageCanvas.AnnotationsVisible = visible;
             canvas.AnnotationsVisible = visible;
         }
 
+        /// <summary>依目前標註集重建類別清單與畫布類別資料。</summary>
         private void RefreshAnnotationClasses()
         {
             if (annotationClasses == null) return;
@@ -803,8 +867,10 @@ namespace Neurocle.WinForms
             RefreshImageBrowser();
         }
 
+        // 取得目前選取的標註集模型。
         private AnnotationSet SelectedAnnotationSet { get { return annotationSets.SelectedItem as AnnotationSet; } }
 
+        /// <summary>依目前模式和工具更新工具按鈕及提示。</summary>
         private void RefreshAnnotationToolButtons()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -821,6 +887,7 @@ namespace Neurocle.WinForms
             SetAnnotationToolButtonState(segEraser, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Eraser);
         }
 
+        /// <summary>更新單一工具按鈕的啟用外觀。</summary>
         private static void SetAnnotationToolButtonState(Button button, bool active)
         {
             button.FlatStyle = FlatStyle.Flat;
@@ -831,6 +898,7 @@ namespace Neurocle.WinForms
             button.FlatAppearance.BorderColor = active ? SystemColors.Highlight : SystemColors.ControlDark;
         }
 
+        /// <summary>重新整理資料集指派頁面的標註集資料。</summary>
         private void RefreshDatasetAssignments()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -850,6 +918,7 @@ namespace Neurocle.WinForms
             datasetAssignments.LoadRows(rows, selected.Type != AnnotationSetType.Cla);
         }
 
+        /// <summary>重新載入圖片清單和目前選取狀態。</summary>
         private void RefreshImageBrowser()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -871,6 +940,7 @@ namespace Neurocle.WinForms
             imageBrowser.LoadRows(rows, GetImagesDirectory(project.ProjectPath));
         }
 
+        /// <summary>將指定圖片指派到指定資料集狀態。</summary>
         private void SetDatasetAssignments(IReadOnlyList<string> imageIds, DatasetAssignmentStatus status)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -879,6 +949,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>更新指定圖片的重測標記。</summary>
         private void SetRetest(IReadOnlyList<string> imageIds, bool retest)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -887,6 +958,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>清除指定圖片的資料集類別標記。</summary>
         private void ClearDatasetClasses(IReadOnlyList<string> imageIds)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -896,6 +968,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>依指定訓練比例自動分配資料集。</summary>
         private void AutoSplitDataset(int trainPercent)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -905,6 +978,7 @@ namespace Neurocle.WinForms
             if (plan.Warnings.Count > 0) MessageBox.Show(Strings.DatasetSplitCannotMeet, Strings.DatasetSplitWarning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
+        /// <summary>匯入標註 JSON 並更新目前專案畫面。</summary>
         private void ImportAnnotationJson()
         {
             if (project == null) return;
@@ -924,6 +998,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>非同步匯出指定圖片並顯示匯出進度。</summary>
         private async Task ExportImagesAsync(IEnumerable<string> imageIds)
         {
             if (project == null) return;
@@ -955,6 +1030,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>非同步匯出目前專案標註 JSON。</summary>
         private async Task ExportAnnotationJsonAsync()
         {
             AnnotationSet set = annotationSets.SelectedItem as AnnotationSet;
@@ -981,6 +1057,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>提交新 OBD 矩形並更新標註檢視。</summary>
         private void CreateObdRectangle(Rectangle rectangle)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -991,6 +1068,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>非同步建立矩形或橢圓 SEG 區域。</summary>
         private async Task CreateSegRegionAsync(SegRegionType type, Rectangle rectangle)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1012,6 +1090,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>非同步建立多邊形或線形 SEG 路徑。</summary>
         private async Task CreateSegPathAsync(SegRegionType type, IReadOnlyList<SegPoint> points, int width)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1024,6 +1103,7 @@ namespace Neurocle.WinForms
             await RunSegOperationAsync(session, annotationSetId, imageId, () => session.AddSegPath(annotationSetId, imageId, value.Id, type, points, width));
         }
 
+        /// <summary>非同步擦除指定路徑範圍內的 SEG 標註。</summary>
         private async Task EraseSegPathAsync(IReadOnlyList<SegPoint> points, int width)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1035,6 +1115,7 @@ namespace Neurocle.WinForms
             await RunSegOperationAsync(session, annotationSetId, imageId, () => session.EraseSegPath(annotationSetId, imageId, classId, points, width));
         }
 
+        /// <summary>執行 SEG 修改命令並處理進度、狀態與失敗復原。</summary>
         private async Task RunSegOperationAsync(IProjectSession session, string annotationSetId, string imageId, Action command)
         {
             Exception failure = null;
@@ -1073,6 +1154,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>套用圖片選取並載入對應的標註與畫布內容。</summary>
         private void ApplyImageSelection(ImageSelectedEventArgs args)
         {
             selectedImagePath = args.Image.IsMissing ? null : args.Path;
@@ -1082,6 +1164,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>提交 SEG 區域幾何變更命令。</summary>
         private void UpdateSegRegions(IReadOnlyList<SegRegion> regions)
         {
             if (project == null || SelectedAnnotationSet == null || SelectedAnnotationSet.Type != AnnotationSetType.Seg || regions.Count == 0) return;
@@ -1089,6 +1172,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>刪除指定 SEG 區域並更新選取狀態。</summary>
         private void DeleteSegRegions(IReadOnlyCollection<string> regionIds)
         {
             if (project == null || SelectedAnnotationSet == null || SelectedAnnotationSet.Type != AnnotationSetType.Seg || regionIds.Count == 0) return;
@@ -1096,6 +1180,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>將目前選取 SEG 區域移至指定類別。</summary>
         private void ChangeSelectedSegClass(string classId)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1105,6 +1190,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>提交一組 OBD 矩形位置或尺寸變更。</summary>
         private void UpdateObdRectangles(IReadOnlyDictionary<string, Rectangle> rectangles)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1119,6 +1205,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>刪除指定 OBD 標註並更新選取狀態。</summary>
         private void DeleteObdRectangles(IReadOnlyCollection<string> annotationIds)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1128,6 +1215,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>將目前選取 OBD 標註移至指定類別。</summary>
         private void ChangeSelectedObdClass(string classId)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1143,6 +1231,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>重新命名目前選取的標註集。</summary>
         private void RenameSelectedAnnotationSet()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1153,6 +1242,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationSets();
         }
 
+        /// <summary>確認後刪除目前選取的標註集。</summary>
         private void DeleteSelectedAnnotationSet()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1163,6 +1253,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationSets();
         }
 
+        /// <summary>依最大符合 classN 格式的編號加一，建立並新增下一個類別。</summary>
         private void AddAnnotationClass()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1178,6 +1269,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>重新命名指定標註類別。</summary>
         private void RenameAnnotationClass(AnnotationClass value)
         {
             string name = Prompt(Strings.AnnotationClassNamePrompt);
@@ -1186,6 +1278,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>變更指定標註類別顏色。</summary>
         private void ChangeAnnotationClassColor(AnnotationClass value)
         {
             using (var dialog = new ColorDialog { Color = AnnotationColorFormat.ToColor(value.Color) })
@@ -1196,6 +1289,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>刪除指定標註類別及其相關標註。</summary>
         private void DeleteAnnotationClass(AnnotationClass value)
         {
             if (MessageBox.Show(this, Strings.DeleteAnnotationClassPrompt, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
@@ -1203,6 +1297,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>對目前標註集執行復原或重做。</summary>
         private void UndoOrRedoSelectedAnnotationSet(bool redo)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1215,6 +1310,7 @@ namespace Neurocle.WinForms
             });
         }
 
+        /// <summary>執行標註命令並處理失敗與畫面更新。</summary>
         private void RunAnnotationCommand(Action command)
         {
             try { command(); }
@@ -1224,11 +1320,13 @@ namespace Neurocle.WinForms
             catch (Exception) { MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
+        /// <summary>提示 SEG 空洞連線網路無法建立時的處理結果。</summary>
         private void ShowSegBridgeNetworkFailure()
         {
             MessageBox.Show(this, Strings.SegBridgeNetworkFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
+        /// <summary>顯示簡短文字輸入對話框並回傳使用者輸入。</summary>
         private static string Prompt(string prompt)
         {
             using (var dialog = new Form { Text = prompt, Width = 320, Height = 125, StartPosition = FormStartPosition.CenterParent })
@@ -1241,6 +1339,7 @@ namespace Neurocle.WinForms
                 return dialog.ShowDialog() == DialogResult.OK ? input.Text : null;
             }
         }
+        /// <summary>開啟專案備份管理介面。</summary>
         private void ManageBackups()
         {
             if (project == null) return;
@@ -1250,6 +1349,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>處理專案開啟失敗並提供復原或修復選項。</summary>
         private void RestoreCorruptProject(ProjectOpenException exception)
         {
             if (exception.Backups.Count == 0)
@@ -1268,6 +1368,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>選取多個檔案並非同步匯入圖片。</summary>
         private async Task ImportFilesAsync()
         {
             if (project == null) return;
@@ -1280,6 +1381,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>選取資料夾並非同步匯入其中的圖片。</summary>
         private async Task ImportFolderAsync()
         {
             if (project == null) return;
@@ -1294,6 +1396,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>執行匯入工作並管理進度視窗與取消操作。</summary>
         private async Task ImportAsync(Func<ImportProgressForm, ImageImportReport> import)
         {
             using (var progress = new ImportProgressForm())
@@ -1322,11 +1425,13 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>建立設定專案儲存位置的資料夾選擇對話框。</summary>
         private static SaveFileDialog CreateProjectDialog()
         {
             return new SaveFileDialog { DefaultExt = "neurocle", AddExtension = true, Filter = Strings.ProjectFileFilter };
         }
 
+        /// <summary>替換目前專案工作階段並重建相關畫面。</summary>
         private void ReplaceProject(IProjectSession replacement)
         {
             IProjectSession previous = project;
@@ -1340,6 +1445,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationSets();
         }
 
+        /// <summary>依目前專案狀態更新視窗標題與狀態列。</summary>
         private void UpdateProjectStatus()
         {
             string projectName = Path.GetFileName(project.ProjectPath);
@@ -1347,11 +1453,13 @@ namespace Neurocle.WinForms
             status.Text = missingCount == 0 ? projectName : projectName + " - " + string.Format(Strings.MissingImagesStatus, missingCount);
         }
 
+        /// <summary>取得專案圖片目錄的完整路徑。</summary>
         private static string GetImagesDirectory(string projectPath)
         {
             return Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".images");
         }
 
+        /// <summary>執行專案命令並顯示操作錯誤。</summary>
         private void RunProjectCommand(Action command)
         {
             try
@@ -1365,6 +1473,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>寫入診斷事件並處理記錄失敗。</summary>
         private void WriteDiagnostic(DiagnosticEvent diagnosticEvent)
         {
             try { diagnosticLog.Write(diagnosticEvent); }
@@ -1376,6 +1485,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>將例外轉換為適合顯示的錯誤訊息。</summary>
         private static string GetErrorMessage(Exception exception)
         {
             var imageImportException = exception as ImageImportException;
@@ -1394,6 +1504,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>格式化匯入摘要與各類結果數量。</summary>
         private static string FormatImportReport(ImageImportReport report)
         {
             string unprocessedCount = report.WasCancelledDuringScan ? Strings.ImportReportUnknownCount : report.UnprocessedCount.ToString();
@@ -1404,6 +1515,7 @@ namespace Neurocle.WinForms
             return summary + Environment.NewLine + failures;
         }
 
+        /// <summary>依匯入失敗類型產生使用者可讀訊息。</summary>
         private static string GetImportFailureMessage(ImageImportFailure failure)
         {
             switch (failure)

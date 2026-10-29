@@ -2,10 +2,13 @@ using System.Windows.Forms;
 
 namespace Neurocle.WinForms
 {
+    // 顯示應用程式支援的鍵盤與畫布操作快捷鍵。
     internal sealed partial class KeyboardShortcutsForm : Form
     {
+        // 取得顯示快捷鍵、動作及適用範圍的清單。
         internal ListView Shortcuts { get { return shortcutsList; } }
 
+        /// <summary>初始化快捷鍵清單並填入各操作的適用範圍。</summary>
         internal KeyboardShortcutsForm()
         {
             InitializeComponent();
@@ -30,6 +33,7 @@ namespace Neurocle.WinForms
             Controls.Add(Shortcuts);
         }
 
+        /// <summary>新增一列快捷鍵、動作及適用範圍到清單。</summary>
         private void Add(string key, string action, string scope)
         {
             var row = new ListViewItem(key);

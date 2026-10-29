@@ -1003,6 +1003,7 @@ namespace Neurocle.Infrastructure.Persistence
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
         }
 
+        /// <summary>取得指定標註集內各圖片所使用的 CLA 類別識別碼。</summary>
         internal IReadOnlyDictionary<string, string> GetClaClassIds(string annotationSetId)
         {
             var result = new Dictionary<string, string>();
