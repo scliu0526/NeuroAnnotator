@@ -109,6 +109,11 @@ namespace Neurocle.Domain.Segmentation
 
         public static Path64 BridgeHoles(Path64 outer, IEnumerable<Path64> holes)
         {
+            return BridgeHoles(outer, holes, null);
+        }
+
+        public static Path64 BridgeHoles(Path64 outer, IEnumerable<Path64> holes, IEnumerable<BridgeConnection> existingConnections)
+        {
             if (outer == null || outer.Count < 3)
             {
                 throw new ArgumentException("Both contours must be closed regions.");
@@ -124,40 +129,106 @@ namespace Neurocle.Domain.Segmentation
                 if (Math.Sign(Clipper.Area(holePath)) == outerOrientation) holePath.Reverse();
             }
 
-            BridgeSelection[] selections = holePaths.Select((holePath, index) => FindShortestLegalBridge(outerPath, holePath, holePaths.Where((_, otherIndex) => otherIndex != index))).ToArray();
-            Array.Sort(selections);
-            outerPath = InsertBridgePoints(outerPath, selections.Select(selection => selection.OuterPoint));
-            foreach (BridgeSelection selection in selections) selection.InsertHolePoint();
-            var result = new Path64(outerPath.Count + holePaths.Sum(path => path.Count + 3));
-            for (int index = 0; index < outerPath.Count; index++)
+            Path64[] contours = new[] { outerPath }.Concat(holePaths).ToArray();
+            BridgeConnection[] existing = (existingConnections ?? Enumerable.Empty<BridgeConnection>()).ToArray();
+            if (existing.Any(link => link == null || link.FirstContourIndex < 0 || link.SecondContourIndex < 0 || link.FirstContourIndex >= contours.Length || link.SecondContourIndex >= contours.Length || link.FirstContourIndex == link.SecondContourIndex))
             {
-                Point64 outerPoint = outerPath[index];
-                result.Add(outerPoint);
-                foreach (BridgeSelection selection in selections.Where(value => value.OuterPoint == outerPoint))
+                throw new ArgumentException("Existing bridge endpoints must refer to two distinct contours.", nameof(existingConnections));
+            }
+            var candidates = new List<BridgeSelection>();
+            for (int first = 0; first < contours.Length; first++)
+            for (int second = first + 1; second < contours.Length; second++)
+            {
+                Path64[] blockers = holePaths.Where((_, index) => index + 1 != first && index + 1 != second).ToArray();
+                BridgeSelection candidate = FindShortestLegalBridge(contours[first], contours[second], outerPath, holePaths, blockers, first, second);
+                if (candidate != null) candidates.Add(candidate);
+                foreach (BridgeConnection connection in existing.Where(link => link.FirstContourIndex == first && link.SecondContourIndex == second))
                 {
-                    Path64 holePath = RotateTo(selection.Hole, selection.HolePoint);
-                    result.Add(holePath[0]);
-                    for (int holeIndex = 1; holeIndex < holePath.Count; holeIndex++) result.Add(holePath[holeIndex]);
-                    result.Add(holePath[0]);
-                    result.Add(outerPoint);
+                    if (IsLegalBridge(connection.FirstPoint, connection.SecondPoint, contours[first], contours[second], outerPath, holePaths, blockers))
+                    {
+                        candidates.Add(new BridgeSelection(connection.FirstPoint, connection.SecondPoint, first, second, true));
+                    }
                 }
             }
+            candidates.Sort();
+            var parent = Enumerable.Range(0, contours.Length).ToArray();
+            var selected = new List<BridgeSelection>();
+            foreach (BridgeSelection candidate in candidates)
+            {
+                int firstRoot = FindRoot(parent, candidate.FirstContourIndex);
+                int secondRoot = FindRoot(parent, candidate.SecondContourIndex);
+                if (firstRoot == secondRoot) continue;
+                parent[firstRoot] = secondRoot;
+                selected.Add(candidate);
+                if (selected.Count == contours.Length - 1) break;
+            }
+            if (selected.Count != contours.Length - 1) throw new InvalidOperationException("A legal hole bridge network could not be found.");
+
+            for (int index = 0; index < contours.Length; index++)
+            {
+                Point64[] endpoints = selected.SelectMany(edge => new[]
+                {
+                    edge.FirstContourIndex == index ? edge.FirstPoint : (Point64?)null,
+                    edge.SecondContourIndex == index ? edge.SecondPoint : (Point64?)null
+                }).Where(point => point.HasValue).Select(point => point.Value).ToArray();
+                contours[index] = InsertBridgePoints(contours[index], endpoints);
+            }
+            return BuildBridgeNetwork(contours, selected);
+        }
+
+        private static int FindRoot(int[] parents, int index)
+        {
+            while (parents[index] != index)
+            {
+                parents[index] = parents[parents[index]];
+                index = parents[index];
+            }
+            return index;
+        }
+
+        private static Path64 BuildBridgeNetwork(Path64[] contours, IEnumerable<BridgeSelection> edges)
+        {
+            BridgeSelection[] links = edges.ToArray();
+            var result = new Path64(contours.Sum(path => path.Count) + links.Length * 2);
+            AppendNetworkContour(0, contours[0][0], -1, contours, links, result);
             return result;
         }
 
-        private static BridgeSelection FindShortestLegalBridge(Path64 outer, Path64 hole, IEnumerable<Path64> blockers)
+        private static void AppendNetworkContour(int contourIndex, Point64 startPoint, int parentIndex, Path64[] contours, BridgeSelection[] edges, Path64 result)
+        {
+            Path64 path = RotateTo(contours[contourIndex], startPoint);
+            if (result.Count == 0 || result[result.Count - 1] != startPoint) result.Add(startPoint);
+            for (int offset = 0; offset < path.Count; offset++)
+            {
+                Point64 point = path[offset];
+                if (offset > 0) result.Add(point);
+                foreach (BridgeSelection edge in edges.Where(link =>
+                    (link.FirstContourIndex == contourIndex && link.SecondContourIndex != parentIndex && link.FirstPoint == point) ||
+                    (link.SecondContourIndex == contourIndex && link.FirstContourIndex != parentIndex && link.SecondPoint == point)))
+                {
+                    int childIndex = edge.FirstContourIndex == contourIndex ? edge.SecondContourIndex : edge.FirstContourIndex;
+                    Point64 childPoint = edge.FirstContourIndex == contourIndex ? edge.SecondPoint : edge.FirstPoint;
+                    result.Add(childPoint);
+                    AppendNetworkContour(childIndex, childPoint, contourIndex, contours, edges, result);
+                    result.Add(point);
+                }
+            }
+            if (contourIndex != 0) result.Add(startPoint);
+        }
+
+        private static BridgeSelection FindShortestLegalBridge(Path64 firstContour, Path64 secondContour, Path64 outer, Path64[] holes, IEnumerable<Path64> blockers, int firstIndex, int secondIndex)
         {
             BridgeSelection best = null;
             Path64[] blockerPaths = blockers.ToArray();
             var pairs = new List<EdgePair>();
-            for (int outerIndex = 0; outerIndex < outer.Count; outerIndex++)
+            for (int outerIndex = 0; outerIndex < firstContour.Count; outerIndex++)
             {
-                Point64 outerStart = outer[outerIndex];
-                Point64 outerEnd = outer[(outerIndex + 1) % outer.Count];
-                for (int holeIndex = 0; holeIndex < hole.Count; holeIndex++)
+                Point64 outerStart = firstContour[outerIndex];
+                Point64 outerEnd = firstContour[(outerIndex + 1) % firstContour.Count];
+                for (int holeIndex = 0; holeIndex < secondContour.Count; holeIndex++)
                 {
-                    Point64 holeStart = hole[holeIndex];
-                    Point64 holeEnd = hole[(holeIndex + 1) % hole.Count];
+                    Point64 holeStart = secondContour[holeIndex];
+                    Point64 holeEnd = secondContour[(holeIndex + 1) % secondContour.Count];
                     ClosestSegmentParameters(outerStart, outerEnd, holeStart, holeEnd, out double outerParameter, out double holeParameter);
                     pairs.Add(new EdgePair(outerStart, outerEnd, holeStart, holeEnd, outerParameter, holeParameter, outerIndex, holeIndex));
                 }
@@ -165,21 +236,20 @@ namespace Neurocle.Domain.Segmentation
             pairs.Sort();
             foreach (EdgePair pair in pairs)
             {
-                if (best != null && pair.LowerBound > SquaredDistance(best.OuterPoint, best.HolePoint)) break;
-                List<BridgeSelection> candidates = BridgeCandidates(pair, blockerPaths, hole);
+                if (best != null && pair.LowerBound > SquaredDistance(best.FirstPoint, best.SecondPoint)) break;
+                List<BridgeSelection> candidates = BridgeCandidates(pair, blockerPaths, firstIndex, secondIndex);
                 candidates.Sort();
                 foreach (BridgeSelection candidate in candidates)
                 {
-                    if (best != null && SquaredDistance(candidate.OuterPoint, candidate.HolePoint) > SquaredDistance(best.OuterPoint, best.HolePoint)) break;
-                    if (!IsLegalBridge(candidate.OuterPoint, candidate.HolePoint, outer, hole, blockerPaths)) continue;
+                    if (best != null && SquaredDistance(candidate.FirstPoint, candidate.SecondPoint) > SquaredDistance(best.FirstPoint, best.SecondPoint)) break;
+                    if (!IsLegalBridge(candidate.FirstPoint, candidate.SecondPoint, firstContour, secondContour, outer, holes, blockerPaths)) continue;
                     if (best == null || candidate.CompareTo(best) < 0) best = candidate;
                 }
             }
-            if (best == null) throw new InvalidOperationException("A legal hole bridge could not be found.");
             return best;
         }
 
-        private static List<BridgeSelection> BridgeCandidates(EdgePair pair, IEnumerable<Path64> blockers, Path64 hole)
+        private static List<BridgeSelection> BridgeCandidates(EdgePair pair, IEnumerable<Path64> blockers, int firstIndex, int secondIndex)
         {
             var outerPoints = new HashSet<Point64>(NearbyLatticePoints(pair.OuterStart, pair.OuterEnd, pair.OuterParameter));
             var holePoints = new HashSet<Point64>(NearbyLatticePoints(pair.HoleStart, pair.HoleEnd, pair.HoleParameter));
@@ -223,7 +293,7 @@ namespace Neurocle.Domain.Segmentation
             }
             var result = new List<BridgeSelection>(outerPoints.Count * holePoints.Count);
             foreach (Point64 outerPoint in outerPoints)
-            foreach (Point64 holePoint in holePoints) result.Add(new BridgeSelection(outerPoint, holePoint, hole));
+            foreach (Point64 holePoint in holePoints) result.Add(new BridgeSelection(outerPoint, holePoint, firstIndex, secondIndex));
             return result;
         }
 
@@ -308,19 +378,31 @@ namespace Neurocle.Domain.Segmentation
             return x * x + y * y;
         }
 
-        private static bool IsLegalBridge(Point64 outerPoint, Point64 holePoint, Path64 outer, Path64 hole, IEnumerable<Path64> blockers)
+        private static bool IsLegalBridge(Point64 firstPoint, Point64 secondPoint, Path64 firstContour, Path64 secondContour, Path64 outer, IEnumerable<Path64> holes, IEnumerable<Path64> blockers)
         {
-            if (outerPoint == holePoint) return false;
-            if (!PointInside(outerPoint, outer) || !PointInside(holePoint, hole)) return false;
-            if (!BridgeOnlyTouchesAt(outerPoint, holePoint, outerPoint, outer)) return false;
-            if (!BridgeOnlyTouchesAt(outerPoint, holePoint, holePoint, hole)) return false;
+            if (firstPoint == secondPoint) return false;
+            if (!PointOnPath(firstPoint, firstContour) || !PointOnPath(secondPoint, secondContour)) return false;
+            if (firstContour == outer)
+            {
+                if (!BridgeOnlyTouchesAt(firstPoint, secondPoint, firstPoint, outer)) return false;
+            }
+            else if (SegmentIntersectsPath(firstPoint, secondPoint, outer)) return false;
+            if (!BridgeOnlyTouchesAt(firstPoint, secondPoint, firstPoint, firstContour)) return false;
+            if (!BridgeOnlyTouchesAt(firstPoint, secondPoint, secondPoint, secondContour)) return false;
             foreach (Path64 blocker in blockers)
             {
-                if (SegmentIntersectsPath(outerPoint, holePoint, blocker)) return false;
-                if (PointInside(Midpoint(outerPoint, holePoint), blocker)) return false;
+                if (SegmentIntersectsPath(firstPoint, secondPoint, blocker)) return false;
             }
-            if (!PointInside(Midpoint(outerPoint, holePoint), outer) || PointInside(Midpoint(outerPoint, holePoint), hole)) return false;
+            double midpointX = (firstPoint.X + (double)secondPoint.X) / 2d;
+            double midpointY = (firstPoint.Y + (double)secondPoint.Y) / 2d;
+            if (!PointInside(midpointX, midpointY, outer) || holes.Any(hole => PointInside(midpointX, midpointY, hole))) return false;
             return true;
+        }
+
+        private static bool PointOnPath(Point64 point, Path64 path)
+        {
+            for (int index = 0; index < path.Count; index++) if (PointOnSegment(point, path[index], path[(index + 1) % path.Count])) return true;
+            return false;
         }
 
         private static bool BridgeOnlyTouchesAt(Point64 first, Point64 second, Point64 allowed, Path64 path)
@@ -356,9 +438,18 @@ namespace Neurocle.Domain.Segmentation
             return inside;
         }
 
-        private static Point64 Midpoint(Point64 first, Point64 second)
+        private static bool PointInside(double x, double y, Path64 path)
         {
-            return new Point64((first.X + second.X) / 2, (first.Y + second.Y) / 2);
+            bool inside = false;
+            for (int current = 0, previous = path.Count - 1; current < path.Count; previous = current++)
+            {
+                Point64 a = path[current];
+                Point64 b = path[previous];
+                double cross = (x - a.X) * (b.Y - a.Y) - (y - a.Y) * (b.X - a.X);
+                if (Math.Abs(cross) < 1e-9 && x >= Math.Min(a.X, b.X) && x <= Math.Max(a.X, b.X) && y >= Math.Min(a.Y, b.Y) && y <= Math.Max(a.Y, b.Y)) return false;
+                if ((a.Y > y) != (b.Y > y) && x < (b.X - a.X) * (y - a.Y) / (double)(b.Y - a.Y) + a.X) inside = !inside;
+            }
+            return inside;
         }
 
         private static bool SegmentsIntersect(Point64 firstStart, Point64 firstEnd, Point64 secondStart, Point64 secondEnd)
@@ -462,26 +553,64 @@ namespace Neurocle.Domain.Segmentation
 
         private sealed class BridgeSelection : IComparable<BridgeSelection>
         {
-            public BridgeSelection(Point64 outerPoint, Point64 holePoint, Path64 hole)
+            public BridgeSelection(Point64 firstPoint, Point64 secondPoint, int firstContourIndex, int secondContourIndex, bool isExisting = false)
             {
-                OuterPoint = outerPoint; HolePoint = holePoint; Hole = hole;
+                FirstPoint = firstPoint; SecondPoint = secondPoint; FirstContourIndex = firstContourIndex; SecondContourIndex = secondContourIndex; IsExisting = isExisting;
             }
-            public Point64 OuterPoint { get; private set; }
-            public Point64 HolePoint { get; private set; }
-            public Path64 Hole { get; private set; }
-            public void InsertHolePoint() { Hole = InsertBridgePoints(Hole, new[] { HolePoint }); }
+            public Point64 FirstPoint { get; private set; }
+            public Point64 SecondPoint { get; private set; }
+            public int FirstContourIndex { get; private set; }
+            public int SecondContourIndex { get; private set; }
+            public bool IsExisting { get; private set; }
             public int CompareTo(BridgeSelection other)
             {
-                long distance = SquaredDistance(OuterPoint, HolePoint);
-                long otherDistance = SquaredDistance(other.OuterPoint, other.HolePoint);
+                long distance = SquaredDistance(FirstPoint, SecondPoint);
+                long otherDistance = SquaredDistance(other.FirstPoint, other.SecondPoint);
                 if (distance != otherDistance) return distance < otherDistance ? -1 : 1;
-                int comparison = OuterPoint.X.CompareTo(other.OuterPoint.X);
+                if (IsExisting != other.IsExisting) return IsExisting ? -1 : 1;
+                Point64 firstLow = ComparePoint(FirstPoint, SecondPoint) <= 0 ? FirstPoint : SecondPoint;
+                Point64 firstHigh = firstLow == FirstPoint ? SecondPoint : FirstPoint;
+                Point64 secondLow = ComparePoint(other.FirstPoint, other.SecondPoint) <= 0 ? other.FirstPoint : other.SecondPoint;
+                Point64 secondHigh = secondLow == other.FirstPoint ? other.SecondPoint : other.FirstPoint;
+                int comparison = ComparePoint(firstLow, secondLow);
                 if (comparison != 0) return comparison;
-                comparison = OuterPoint.Y.CompareTo(other.OuterPoint.Y);
+                comparison = ComparePoint(firstHigh, secondHigh);
                 if (comparison != 0) return comparison;
-                comparison = HolePoint.X.CompareTo(other.HolePoint.X);
-                return comparison != 0 ? comparison : HolePoint.Y.CompareTo(other.HolePoint.Y);
+                comparison = FirstContourIndex.CompareTo(other.FirstContourIndex);
+                return comparison != 0 ? comparison : SecondContourIndex.CompareTo(other.SecondContourIndex);
             }
+
+            private static int ComparePoint(Point64 first, Point64 second)
+            {
+                int comparison = first.X.CompareTo(second.X);
+                return comparison != 0 ? comparison : first.Y.CompareTo(second.Y);
+            }
+        }
+
+        public sealed class BridgeConnection
+        {
+            public BridgeConnection(int firstContourIndex, Point64 firstPoint, int secondContourIndex, Point64 secondPoint)
+            {
+                if (firstContourIndex <= secondContourIndex)
+                {
+                    FirstContourIndex = firstContourIndex;
+                    FirstPoint = firstPoint;
+                    SecondContourIndex = secondContourIndex;
+                    SecondPoint = secondPoint;
+                }
+                else
+                {
+                    FirstContourIndex = secondContourIndex;
+                    FirstPoint = secondPoint;
+                    SecondContourIndex = firstContourIndex;
+                    SecondPoint = firstPoint;
+                }
+            }
+
+            public int FirstContourIndex { get; private set; }
+            public Point64 FirstPoint { get; private set; }
+            public int SecondContourIndex { get; private set; }
+            public Point64 SecondPoint { get; private set; }
         }
 
         public static Point64 RoundAndClamp(double x, double y, long width, long height)
