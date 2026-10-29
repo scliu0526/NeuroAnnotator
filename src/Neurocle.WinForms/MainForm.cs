@@ -346,6 +346,18 @@ namespace Neurocle.WinForms
             };
         }
 
+        /// <summary>讓圖片方向鍵先進入既有鍵盤路由，避免被 WinForms 當作焦點導覽鍵消耗。</summary>
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.Up || keyData == Keys.Down)
+            {
+                var args = new KeyEventArgs(keyData);
+                OnKeyDown(args);
+                if (args.Handled) return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
         private bool HasTextInputFocus()
         {
             return FindFocusedTextInput(this);

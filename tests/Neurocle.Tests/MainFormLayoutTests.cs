@@ -712,6 +712,31 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Arrow_key_messages_switch_images_from_the_canvas_without_a_focus_navigation_press()
+        {
+            using (var form = new MainForm(new ProjectLifecycle()))
+            {
+                form.Show();
+                form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                form.ImageBrowser.LoadImages(new[]
+                {
+                    new ProjectImage("one", "one.png", "one.png", "hash", 1, 1, 1),
+                    new ProjectImage("two", "two.png", "two.png", "hash", 1, 1, 2)
+                }, Path.GetTempPath());
+                form.AnnotationCanvas.Focus();
+                foreach (string expected in new[] { "one", "two", "two" })
+                {
+                    Message key = Message.Create(form.AnnotationCanvas.Handle, 0x100, (IntPtr)Keys.Down, IntPtr.Zero);
+                    form.AnnotationCanvas.PreProcessMessage(ref key);
+                    CollectionAssert.AreEqual(new[] { expected }, form.ImageBrowser.SelectedImageIds.ToArray());
+                }
+                Message up = Message.Create(form.AnnotationCanvas.Handle, 0x100, (IntPtr)Keys.Up, IntPtr.Zero);
+                form.AnnotationCanvas.PreProcessMessage(ref up);
+                CollectionAssert.AreEqual(new[] { "one" }, form.ImageBrowser.SelectedImageIds.ToArray());
+            }
+        }
+
+        [STATestMethod]
         public void Up_and_down_select_images_in_visible_order_without_intercepting_text_input()
         {
             ProjectImage[] images =
