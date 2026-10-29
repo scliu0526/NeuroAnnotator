@@ -162,7 +162,7 @@ namespace Neurocle.Domain.Segmentation
                 selected.Add(candidate);
                 if (selected.Count == contours.Length - 1) break;
             }
-            if (selected.Count != contours.Length - 1) throw new InvalidOperationException("A legal hole bridge network could not be found.");
+            if (selected.Count != contours.Length - 1) throw new BridgeNetworkException();
 
             for (int index = 0; index < contours.Length; index++)
             {
@@ -174,6 +174,160 @@ namespace Neurocle.Domain.Segmentation
                 contours[index] = InsertBridgePoints(contours[index], endpoints);
             }
             return BuildBridgeNetwork(contours, selected);
+        }
+
+        public static Path64 Rebridge(Path64 polygon)
+        {
+            if (polygon == null) throw new ArgumentNullException(nameof(polygon));
+            List<UndirectedEdge> bridges = FindBridgeSegments(polygon);
+            if (bridges.Count == 0) return new Path64(polygon);
+            Paths64 contours = ExtractBridgeContours(polygon, bridges);
+            if (contours == null) throw new BridgeNetworkException();
+            if (contours.Count < 2) throw new BridgeNetworkException();
+            Path64 outer = contours.OrderByDescending(path => Math.Abs(Clipper.Area(path))).First();
+            Path64[] holes = contours.Where(path => !ReferenceEquals(path, outer)).ToArray();
+            if (holes.Any(path => Math.Sign(Clipper.Area(path)) == Math.Sign(Clipper.Area(outer)) || !IsPointInside(outer, path[0]))) throw new BridgeNetworkException();
+            return BridgeHoles(outer, holes, MapBridgeSegments(bridges, new[] { outer }.Concat(holes).ToArray()));
+        }
+
+        public static IReadOnlyList<BridgeConnection> FindExistingBridgeConnections(Path64 polygon, Path64 outer, IReadOnlyList<Path64> holes)
+        {
+            if (polygon == null) throw new ArgumentNullException(nameof(polygon));
+            if (outer == null) throw new ArgumentNullException(nameof(outer));
+            if (holes == null) throw new ArgumentNullException(nameof(holes));
+            var contours = new[] { outer }.Concat(holes).ToArray();
+            return MapBridgeSegments(FindBridgeSegments(polygon), contours);
+        }
+
+        private static IReadOnlyList<BridgeConnection> MapBridgeSegments(IEnumerable<UndirectedEdge> bridges, params Path64[] contours)
+        {
+            if (contours == null) throw new ArgumentNullException(nameof(contours));
+            if (contours.Length == 0) return new BridgeConnection[0];
+            var result = new List<BridgeConnection>();
+            foreach (UndirectedEdge bridge in bridges)
+            {
+                int firstContour = FindContainingContour(contours, bridge.First);
+                int secondContour = FindContainingContour(contours, bridge.Second);
+                if (firstContour < 0 || secondContour < 0 || firstContour == secondContour) continue;
+                result.Add(new BridgeConnection(firstContour, bridge.First, secondContour, bridge.Second));
+            }
+            return result;
+        }
+
+        private static List<UndirectedEdge> FindBridgeSegments(Path64 polygon)
+        {
+            var traversals = new Dictionary<UndirectedEdge, EdgeTraversal>();
+            for (int index = 0; index < polygon.Count; index++)
+            {
+                Point64 start = polygon[index];
+                Point64 end = polygon[(index + 1) % polygon.Count];
+                if (start == end) continue;
+                bool forward;
+                var edge = new UndirectedEdge(start, end, out forward);
+                EdgeTraversal traversal;
+                if (!traversals.TryGetValue(edge, out traversal))
+                {
+                    traversal = new EdgeTraversal();
+                    traversals.Add(edge, traversal);
+                }
+                if (forward) traversal.Forward++;
+                else traversal.Reverse++;
+            }
+
+            var result = new List<UndirectedEdge>();
+            foreach (var item in traversals)
+            {
+                if (item.Value.Forward == 0 || item.Value.Reverse == 0) continue;
+                result.Add(item.Key);
+            }
+            return result;
+        }
+
+        private static Paths64 ExtractBridgeContours(Path64 polygon, IEnumerable<UndirectedEdge> bridges)
+        {
+            var bridgeSet = new HashSet<UndirectedEdge>(bridges);
+            var boundaryEdges = new Dictionary<Point64, Point64>();
+            for (int index = 0; index < polygon.Count; index++)
+            {
+                Point64 start = polygon[index];
+                Point64 end = polygon[(index + 1) % polygon.Count];
+                if (start == end || bridgeSet.Contains(new UndirectedEdge(start, end, out _))) continue;
+                if (boundaryEdges.ContainsKey(start)) return null;
+                boundaryEdges.Add(start, end);
+            }
+
+            var contours = new Paths64();
+            while (boundaryEdges.Count > 0)
+            {
+                Point64 start = boundaryEdges.Keys.First();
+                Point64 current = start;
+                var contour = new Path64();
+                do
+                {
+                    Point64 next;
+                    if (!boundaryEdges.TryGetValue(current, out next)) return null;
+                    boundaryEdges.Remove(current);
+                    contour.Add(current);
+                    current = next;
+                } while (current != start && contour.Count <= polygon.Count);
+                if (current != start || contour.Count < 3 || Math.Abs(Clipper.Area(contour)) == 0) return null;
+                contours.Add(contour);
+            }
+            return contours;
+        }
+
+        private static int FindContainingContour(IReadOnlyList<Path64> contours, Point64 point)
+        {
+            for (int index = 0; index < contours.Count; index++)
+            {
+                Path64 contour = contours[index];
+                for (int edge = 0; edge < contour.Count; edge++)
+                {
+                    if (PointOnSegment(point, contour[edge], contour[(edge + 1) % contour.Count])) return index;
+                }
+            }
+            return -1;
+        }
+
+        public static bool IsPointInside(Path64 contour, Point64 point)
+        {
+            bool inside = false;
+            for (int current = 0, previous = contour.Count - 1; current < contour.Count; previous = current++)
+            {
+                Point64 first = contour[current];
+                Point64 second = contour[previous];
+                if ((first.Y > point.Y) != (second.Y > point.Y) && point.X < (second.X - first.X) * (point.Y - first.Y) / (double)(second.Y - first.Y) + first.X) inside = !inside;
+            }
+            return inside;
+        }
+
+        private static int CompareCoordinates(Point64 first, Point64 second)
+        {
+            int comparison = first.X.CompareTo(second.X);
+            return comparison != 0 ? comparison : first.Y.CompareTo(second.Y);
+        }
+
+        private struct UndirectedEdge : IEquatable<UndirectedEdge>
+        {
+            public UndirectedEdge(Point64 start, Point64 end, out bool forward)
+            {
+                forward = CompareCoordinates(start, end) <= 0;
+                First = forward ? start : end;
+                Second = forward ? end : start;
+            }
+
+            public Point64 First { get; private set; }
+            public Point64 Second { get; private set; }
+
+            public bool Equals(UndirectedEdge other) { return First == other.First && Second == other.Second; }
+            public override bool Equals(object value) { return value is UndirectedEdge && Equals((UndirectedEdge)value); }
+            public override int GetHashCode() { return (First.GetHashCode() * 397) ^ Second.GetHashCode(); }
+        }
+
+        private sealed class EdgeTraversal
+        {
+            public int Forward;
+            public int Reverse;
         }
 
         private static int FindRoot(int[] parents, int index)
@@ -611,6 +765,11 @@ namespace Neurocle.Domain.Segmentation
             public Point64 FirstPoint { get; private set; }
             public int SecondContourIndex { get; private set; }
             public Point64 SecondPoint { get; private set; }
+        }
+
+        public sealed class BridgeNetworkException : InvalidOperationException
+        {
+            public BridgeNetworkException() : base("A legal hole bridge network could not be found.") { }
         }
 
         public static Point64 RoundAndClamp(double x, double y, long width, long height)

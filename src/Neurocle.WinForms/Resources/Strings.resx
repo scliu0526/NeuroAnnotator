@@ -151,6 +151,7 @@
   <data name="DeleteAnnotationClass" xml:space="preserve"><value>刪除類別</value></data>
   <data name="DeleteAnnotationClassPrompt" xml:space="preserve"><value>要刪除這個類別及其所有標註嗎？</value></data>
   <data name="AnnotationValidationFailed" xml:space="preserve"><value>名稱無效、重複，或標註集至少需保留一個類別。</value></data>
+  <data name="SegBridgeNetworkFailed" xml:space="preserve"><value>無法建立合法的空洞連線，這次 SEG 修改已取消；原標註與 Undo 歷史未變更。</value></data>
   <data name="CopiedAnnotationClassDeleted" xml:space="preserve"><value>複製標註所屬類別已刪除，無法貼上。</value></data>
   <data name="Ok" xml:space="preserve"><value>確定</value></data>
   <data name="Diagnostics" xml:space="preserve"><value>診斷資訊</value></data>

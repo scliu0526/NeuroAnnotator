@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
+using Neurocle.Domain.Segmentation;
 using Neurocle.Infrastructure.Persistence;
 using Neurocle.WinForms.Resources;
 
@@ -1032,7 +1033,9 @@ namespace Neurocle.WinForms
                 projectMenu.Enabled = true;
                 annotationOperationInProgress = false;
             }
-            if (failure is ArgumentException || failure is InvalidOperationException)
+            if (failure is SegGeometryPrototype.BridgeNetworkException)
+                ShowSegBridgeNetworkFailure();
+            else if (failure is ArgumentException || failure is InvalidOperationException)
                 MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             else if (failure != null)
                 MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1196,9 +1199,15 @@ namespace Neurocle.WinForms
         private void RunAnnotationCommand(Action command)
         {
             try { command(); }
+            catch (SegGeometryPrototype.BridgeNetworkException) { ShowSegBridgeNetworkFailure(); }
             catch (ArgumentException) { MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             catch (InvalidOperationException) { MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             catch (Exception) { MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        private void ShowSegBridgeNetworkFailure()
+        {
+            MessageBox.Show(this, Strings.SegBridgeNetworkFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         private static string Prompt(string prompt)

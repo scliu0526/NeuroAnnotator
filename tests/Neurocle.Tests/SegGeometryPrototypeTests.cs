@@ -186,7 +186,7 @@ namespace Neurocle.Tests
             Path64 outer = Rectangle(0, 0, 100, 100);
             Path64 outsideHole = Rectangle(120, 20, 140, 40);
 
-            Assert.ThrowsException<InvalidOperationException>(() => SegGeometryPrototype.BridgeHoles(outer, new[] { outsideHole }));
+            Assert.ThrowsException<SegGeometryPrototype.BridgeNetworkException>(() => SegGeometryPrototype.BridgeHoles(outer, new[] { outsideHole }));
         }
 
         [TestMethod]
@@ -271,6 +271,44 @@ namespace Neurocle.Tests
             stopwatch.Stop();
             Assert.IsTrue(stopwatch.Elapsed <= TimeSpan.FromSeconds(2), "17,000-point, ten-hole bridge network took {0:F3} ms.", stopwatch.Elapsed.TotalMilliseconds);
             Assert.AreEqual(10, BridgeLinks(bridged).Count);
+        }
+
+        [TestMethod]
+        [TestCategory("ManualPerformance")]
+        public void Rebuilding_a_seventeen_thousand_point_single_hole_network_completes_within_one_second()
+        {
+            Path64 outer = SegGeometryPrototype.Ellipse(5000, 5000, 4500, 4500, 17000);
+            Path64 hole = Rectangle(4900, 4900, 5100, 5100);
+            Path64 polygon = SegGeometryPrototype.BridgeHole(outer, hole);
+            var stopwatch = Stopwatch.StartNew();
+
+            Path64 rebuilt = SegGeometryPrototype.Rebridge(polygon);
+
+            stopwatch.Stop();
+            Assert.IsTrue(stopwatch.Elapsed <= TimeSpan.FromSeconds(1), "17,000-point single-hole network rebuild took {0:F3} ms.", stopwatch.Elapsed.TotalMilliseconds);
+            Assert.AreEqual(1, BridgeLinks(rebuilt).Count);
+        }
+
+        [TestMethod]
+        [TestCategory("ManualPerformance")]
+        public void Rebuilding_a_ten_hole_network_with_seventeen_thousand_total_points_completes_within_two_seconds()
+        {
+            Path64 outer = SegGeometryPrototype.Ellipse(5000, 5000, 4500, 4500, 16960);
+            Path64[] holes = Enumerable.Range(0, 10).Select(index =>
+            {
+                double radians = 2d * Math.PI * index / 10;
+                long centerX = (long)Math.Round(5000 + 2200 * Math.Cos(radians));
+                long centerY = (long)Math.Round(5000 + 2200 * Math.Sin(radians));
+                return Rectangle(centerX - 20, centerY - 20, centerX + 20, centerY + 20);
+            }).ToArray();
+            Path64 polygon = SegGeometryPrototype.BridgeHoles(outer, holes);
+            var stopwatch = Stopwatch.StartNew();
+
+            Path64 rebuilt = SegGeometryPrototype.Rebridge(polygon);
+
+            stopwatch.Stop();
+            Assert.IsTrue(stopwatch.Elapsed <= TimeSpan.FromSeconds(2), "17,000-point, ten-hole network rebuild took {0:F3} ms.", stopwatch.Elapsed.TotalMilliseconds);
+            Assert.AreEqual(10, BridgeLinks(rebuilt).Count);
         }
 
         [TestMethod]

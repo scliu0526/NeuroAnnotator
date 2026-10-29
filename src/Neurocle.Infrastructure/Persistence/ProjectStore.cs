@@ -1108,7 +1108,7 @@ namespace Neurocle.Infrastructure.Persistence
             foreach (SegRegion region in affected)
             {
                 Paths64 difference = SegGeometryPrototype.Difference(ToPaths(region), eraser);
-                next.AddRange(ToPolygonRegions(region.AnnotationSetId, region.ImageId, region.ClassId, difference, imageSize, ref zOrder));
+                next.AddRange(ToPolygonRegions(region.AnnotationSetId, region.ImageId, region.ClassId, difference, imageSize, ref zOrder, new[] { region }));
             }
             CompleteOperation((db, transaction) =>
             {
@@ -1145,7 +1145,7 @@ namespace Neurocle.Infrastructure.Persistence
                 return value;
             }
             int zOrder = NextSegZOrder(value.AnnotationSetId, value.ImageId);
-            List<SegRegion> next = ToPolygonRegions(value.AnnotationSetId, value.ImageId, value.ClassId, merged, imageSize, ref zOrder);
+            List<SegRegion> next = ToPolygonRegions(value.AnnotationSetId, value.ImageId, value.ClassId, merged, imageSize, ref zOrder, removed.Concat(new[] { value }));
             CompleteOperation((db, transaction) =>
             {
                 foreach (SegRegion region in removed) Execute(db, transaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", region.Id));
@@ -1183,7 +1183,7 @@ namespace Neurocle.Infrastructure.Persistence
             return new Paths64 { polygon };
         }
 
-        private static List<SegRegion> ToPolygonRegions(string annotationSetId, string imageId, string classId, Paths64 paths, Size imageSize, ref int zOrder)
+        private static List<SegRegion> ToPolygonRegions(string annotationSetId, string imageId, string classId, Paths64 paths, Size imageSize, ref int zOrder, IEnumerable<SegRegion> previousRegions = null)
         {
             var remaining = paths.Where(path => path.Count >= 3 && Math.Abs(Clipper.Area(path)) > 0).OrderByDescending(path => Math.Abs(Clipper.Area(path))).Select(path => new Path64(path)).ToList();
             var result = new List<SegRegion>();
@@ -1196,28 +1196,27 @@ namespace Neurocle.Infrastructure.Persistence
                 for (int index = remaining.Count - 1; index >= 0; index--)
                 {
                     Path64 possibleHole = remaining[index];
-                    if (Math.Sign(Clipper.Area(possibleHole)) != orientation && PointInPath(possibleHole[0], outer))
+                    if (Math.Sign(Clipper.Area(possibleHole)) != orientation && SegGeometryPrototype.IsPointInside(outer, possibleHole[0]))
                     {
                         holes.Add(possibleHole);
                         remaining.RemoveAt(index);
                     }
                 }
-                Path64 polygon = holes.Count == 0 ? new Path64(outer) : SegGeometryPrototype.BridgeHoles(outer, holes);
+                Path64 polygon;
+                if (holes.Count == 0) polygon = new Path64(outer);
+                else
+                {
+                    Path64[] contours = new[] { outer }.Concat(holes).ToArray();
+                    SegGeometryPrototype.BridgeConnection[] existing = (previousRegions ?? Enumerable.Empty<SegRegion>())
+                        .Where(region => region.Type == SegRegionType.PolyGon && region.Points.Count > 0)
+                        .SelectMany(region => SegGeometryPrototype.FindExistingBridgeConnections(ToPath(region.Points), outer, holes))
+                        .ToArray();
+                    polygon = SegGeometryPrototype.BridgeHoles(contours[0], contours.Skip(1), existing);
+                }
                 SegPoint[] points = polygon.Select(point => new SegPoint((int)Math.Max(0, Math.Min(imageSize.Width, point.X)), (int)Math.Max(0, Math.Min(imageSize.Height, point.Y)))).ToArray();
                 if (points.Distinct(new SegPointComparer()).Count() >= 3) result.Add(new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, SegRegionType.PolyGon, 0, 0, 0, 0, zOrder++, points));
             }
             return result;
-        }
-
-        private static bool PointInPath(Point64 point, Path64 path)
-        {
-            bool inside = false;
-            for (int current = 0, previous = path.Count - 1; current < path.Count; previous = current++)
-            {
-                Point64 a = path[current]; Point64 b = path[previous];
-                if ((a.Y > point.Y) != (b.Y > point.Y) && point.X < (b.X - a.X) * (point.Y - a.Y) / (double)(b.Y - a.Y) + a.X) inside = !inside;
-            }
-            return inside;
         }
 
         public void UpdateSegRegions(IEnumerable<SegRegion> regions)
@@ -1239,9 +1238,17 @@ namespace Neurocle.Infrastructure.Persistence
             }
             var byId = requested.ToDictionary(value => value.Id, StringComparer.Ordinal);
             int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", setId), new SqliteParameter("$image", imageId)));
-            SegRegion[] next = previous.Select((value, index) => WithZOrder(byId[value.Id], firstZOrder + index)).ToArray();
+            SegRegion[] next = previous.Select((value, index) => WithZOrder(RebridgePolygon(byId[value.Id]), firstZOrder + index)).ToArray();
             CompleteOperation((db, transaction) => { foreach (SegRegion value in next) UpdateSegRegionRaw(db, transaction, value); });
             Record(setId, () => { foreach (SegRegion value in previous) UpdateSegRegionRaw(value); }, () => { foreach (SegRegion value in next) UpdateSegRegionRaw(value); }, EstimateHistoryBytes(previous) + EstimateHistoryBytes(next));
+        }
+
+        private static SegRegion RebridgePolygon(SegRegion value)
+        {
+            if (value.Type != SegRegionType.PolyGon) return value;
+            Path64 polygon = SegGeometryPrototype.Rebridge(ToPath(value.Points));
+            SegPoint[] points = polygon.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray();
+            return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, value.ZOrder, points, value.StrokeWidth);
         }
 
         public void DeleteSegRegions(IEnumerable<string> regionIds)
