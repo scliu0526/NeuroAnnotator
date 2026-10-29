@@ -4,36 +4,62 @@ using System.Linq;
 
 namespace Neurocle.Application.Projects
 {
+    /// <summary>提供自動分配資料集時供規劃器使用的圖片、類別及可用狀態。</summary>
     public sealed class DatasetSplitCandidate
     {
+        /// <summary>建立單張圖片的切分候選資料。</summary>
+        /// <param name="imageId">圖片識別碼。</param>
+        /// <param name="classIds">圖片目前具有標註的類別識別碼。</param>
+        /// <param name="isAvailable">圖片檔案目前是否存在且可讀取。</param>
         public DatasetSplitCandidate(string imageId, IReadOnlyList<string> classIds, bool isAvailable)
         {
             ImageId = imageId ?? throw new ArgumentNullException(nameof(imageId));
             ClassIds = classIds ?? throw new ArgumentNullException(nameof(classIds));
             IsAvailable = isAvailable;
         }
+        /// <summary>取得候選圖片的識別碼。</summary>
         public string ImageId { get; }
+        /// <summary>取得候選圖片的標註類別識別碼。</summary>
         public IReadOnlyList<string> ClassIds { get; }
+        /// <summary>取得候選圖片是否可供匯出或訓練使用。</summary>
         public bool IsAvailable { get; }
     }
 
+    /// <summary>保存自動切分後的訓練圖片、測試圖片及未達成條件的警告。</summary>
     public sealed class DatasetSplitPlan
     {
+        /// <summary>建立資料集切分結果。</summary>
+        /// <param name="trainImageIds">分配至訓練集的圖片識別碼。</param>
+        /// <param name="testImageIds">分配至測試集的圖片識別碼。</param>
+        /// <param name="warnings">切分限制未能完全滿足時產生的警告代碼。</param>
         public DatasetSplitPlan(IReadOnlyList<string> trainImageIds, IReadOnlyList<string> testImageIds, IReadOnlyList<string> warnings)
         {
             TrainImageIds = trainImageIds; TestImageIds = testImageIds; Warnings = warnings;
         }
+        /// <summary>取得訓練集圖片識別碼。</summary>
         public IReadOnlyList<string> TrainImageIds { get; }
+        /// <summary>取得測試集圖片識別碼。</summary>
         public IReadOnlyList<string> TestImageIds { get; }
+        /// <summary>取得無法完全滿足測試集或類別最小數量條件的警告代碼。</summary>
         public IReadOnlyList<string> Warnings { get; }
     }
 
+    /// <summary>依圖片類別分布建立隨機切分，並在可行時保留每類至少十張訓練圖片。</summary>
     public static class DatasetSplitPlanner
     {
+        /// <summary>依指定比例建立切分結果；至少三張可用圖片時，測試集目標數量不低於三張。</summary>
+        /// <param name="values">納入切分評估的圖片候選。</param>
+        /// <param name="trainPercent">希望分配至訓練集的百分比，範圍為 1 至 99。</param>
+        /// <param name="next">提供排序隨機鍵的函式；每次以 Int32.MaxValue 作為上限呼叫。</param>
+        /// <returns>包含訓練集、測試集及限制警告的規劃結果。</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="next"/> 或 <paramref name="values"/> 為 null。</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="trainPercent"/> 不在 1 至 99 之間。</exception>
+        /// <exception cref="ArgumentException">可用圖片中存在重複的圖片識別碼。</exception>
         public static DatasetSplitPlan Create(IEnumerable<DatasetSplitCandidate> values, int trainPercent, Func<int, int> next)
         {
             if (trainPercent < 1 || trainPercent > 99) throw new ArgumentOutOfRangeException(nameof(trainPercent));
             if (next == null) throw new ArgumentNullException(nameof(next));
+            // 只有仍可讀取的圖片可分配；呼叫端提供的亂數來源決定候選順序。
             DatasetSplitCandidate[] available = (values ?? throw new ArgumentNullException(nameof(values))).Where(value => value.IsAvailable).ToArray();
             if (available.Select(value => value.ImageId).Distinct(StringComparer.Ordinal).Count() != available.Length) throw new ArgumentException("An image can only occur once.", nameof(values));
             var shuffled = available.OrderBy(value => next(Int32.MaxValue)).ToList();
@@ -53,6 +79,7 @@ namespace Neurocle.Application.Projects
             var test = new HashSet<string>(StringComparer.Ordinal);
             while (test.Count < testCount && activeBuckets.Count > 0)
             {
+                // 先處理目前測試比例較低的類別，並避免可達十筆的類別低於訓練集保留數。
                 ClassBucket bucket = activeBuckets.Min;
                 activeBuckets.Remove(bucket);
                 DatasetSplitCandidate candidate = null;
@@ -69,6 +96,7 @@ namespace Neurocle.Application.Projects
             }
             foreach (DatasetSplitCandidate candidate in shuffled.Where(value => classesByImage[value.ImageId].Length == 0))
             {
+                // 無標註圖片不影響類別平衡，僅用來補足目標測試集大小。
                 if (test.Count == testCount) break;
                 test.Add(candidate.ImageId);
             }
@@ -79,23 +107,32 @@ namespace Neurocle.Application.Projects
             return new DatasetSplitPlan(shuffled.Where(value => !test.Contains(value.ImageId)).Select(value => value.ImageId).ToArray(), shuffled.Where(value => test.Contains(value.ImageId)).Select(value => value.ImageId).ToArray(), warnings);
         }
 
+        /// <summary>保存單一類別的總數、已選數及待檢查候選圖片。</summary>
         private sealed class ClassBucket
         {
+            /// <summary>建立一個類別的切分統計桶。</summary>
             public ClassBucket(string classId, int total, IEnumerable<DatasetSplitCandidate> candidates)
             {
                 ClassId = classId; Total = total; Candidates = new Queue<DatasetSplitCandidate>(candidates);
             }
+            /// <summary>取得此桶代表的類別識別碼。</summary>
             public string ClassId { get; }
+            /// <summary>取得此類別在可用圖片中的總出現數。</summary>
             public int Total { get; }
+            /// <summary>取得已分配至測試集且包含此類別的圖片數。</summary>
             public int Selected { get; set; }
+            /// <summary>取得尚待檢查的候選圖片佇列。</summary>
             public Queue<DatasetSplitCandidate> Candidates { get; }
         }
 
+        /// <summary>依類別目前選取比例、總量及識別碼建立穩定排序。</summary>
         private sealed class ClassBucketComparer : IComparer<ClassBucket>
         {
+            /// <summary>比較兩個類別的測試集選取比例，並以固定欄位打破平手。</summary>
             public int Compare(ClassBucket left, ClassBucket right)
             {
                 if (ReferenceEquals(left, right)) return 0;
+                // 交叉相乘比較選取比例，避免以浮點數排序造成不穩定平手。
                 int ratio = ((long)left.Selected * right.Total).CompareTo((long)right.Selected * left.Total);
                 if (ratio != 0) return ratio;
                 int total = left.Total.CompareTo(right.Total);
