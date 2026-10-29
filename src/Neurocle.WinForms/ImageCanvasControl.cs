@@ -484,28 +484,35 @@ namespace Neurocle.WinForms
             {
                 PointF[] points = segPath.Select(viewport.ImageToScreen).ToArray();
                 float width = SegTool == SegToolKind.Polygon ? 3f : SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom)) : 1f;
+                bool canClosePolygon = SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], segCursor) <= 8f;
                 using (var pen = new Pen(PreviewTrackColor, width))
                 {
                     pen.LineJoin = LineJoin.Round;
                     pen.StartCap = LineCap.Round;
                     pen.EndCap = LineCap.Round;
                     if (points.Length > 1) args.Graphics.DrawLines(pen, points);
+                    if (SegTool == SegToolKind.Polygon)
+                    {
+                        PointF previewEnd = canClosePolygon ? points[0] : viewport.ImageToScreen(segCursor);
+                        args.Graphics.DrawLine(pen, points[points.Length - 1], previewEnd);
+                    }
                     else if (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser)
                     {
                         float diameter = Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom));
                         using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillEllipse(fill, points[0].X - diameter / 2f, points[0].Y - diameter / 2f, diameter, diameter);
                     }
-                    if (SegTool == SegToolKind.Polygon && points.Length > 2) args.Graphics.DrawLine(pen, points[points.Length - 1], points[0]);
                 }
                 if (SegTool == SegToolKind.Polygon)
                 {
                     PointF start = points[0];
-                    using (var fill = new SolidBrush(PreviewTrackColor)) args.Graphics.FillEllipse(fill, start.X - 4f, start.Y - 4f, 8f, 8f);
-                }
-                if (SegTool == SegToolKind.Polygon && DistanceInScreenPixels(segPath[0], segCursor) <= 8f)
-                {
-                    PointF closureOrigin = points[0];
-                    using (var pen = new Pen(PreviewTrackColor, 2f)) args.Graphics.DrawEllipse(pen, closureOrigin.X - 5f, closureOrigin.Y - 5f, 10f, 10f);
+                    float diameter = canClosePolygon ? 10f : 8f;
+                    using (var fill = new SolidBrush(canClosePolygon ? previewColor : Color.White))
+                    using (var outline = new Pen(Color.Black, 1f))
+                    {
+                        RectangleF marker = new RectangleF(start.X - diameter / 2f, start.Y - diameter / 2f, diameter, diameter);
+                        args.Graphics.FillEllipse(fill, marker);
+                        args.Graphics.DrawEllipse(outline, marker);
+                    }
                 }
             }
             if (segLineStart.HasValue && SegTool == SegToolKind.Line)
@@ -914,6 +921,10 @@ namespace Neurocle.WinForms
                     segPath.Add(ClampSegPathPoint(viewport.ScreenToImage(args.Location)));
                     segPathDragging = true;
                 }
+                Invalidate();
+            }
+            else if (segPath.Count > 0 && SegTool == SegToolKind.Polygon)
+            {
                 Invalidate();
             }
             else if (hasToolCursor)

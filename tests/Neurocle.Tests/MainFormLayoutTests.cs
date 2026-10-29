@@ -2214,6 +2214,62 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Polygon_preview_follows_cursor_after_release_and_marks_start_and_closure()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Polygon, PreviewColor = Color.Blue })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    Point start = ImagePointToScreen(canvas, 20, 20);
+                    Point next = ImagePointToScreen(canvas, 50, 20);
+                    Point cursor = ImagePointToScreen(canvas, 50, 40);
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, start.X, start.Y, 0));
+                    using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+                    {
+                        canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                        Assert.AreEqual(Color.White.ToArgb(), rendered.GetPixel(start.X, start.Y).ToArgb(), "The polygon start marker should be solid white.");
+                        Assert.AreEqual(Color.Black.ToArgb(), rendered.GetPixel(start.X + 4, start.Y).ToArgb(), "The polygon start marker should have a black outline.");
+                    }
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, next.X, next.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, next.X, next.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, cursor.X, cursor.Y, 0));
+                    using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+                    {
+                        canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                        Color previewPixel = rendered.GetPixel(cursor.X, cursor.Y - 10);
+                        Assert.IsTrue(previewPixel.B > 0, "The unfinished polygon edge should follow the cursor after the left button is released.");
+                    }
+
+                    Point third = ImagePointToScreen(canvas, 50, 50);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, third.X, third.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, third.X, third.Y, 0));
+                    Point closeCursor = ImagePointToScreen(canvas, 21, 20);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, closeCursor.X, closeCursor.Y, 0));
+                    using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+                    {
+                        canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                        Assert.AreEqual(Color.Blue.ToArgb(), rendered.GetPixel(start.X, start.Y).ToArgb(), "The closure-ready marker should use the annotation class color.");
+                        Assert.AreEqual(Color.Blue.ToArgb(), rendered.GetPixel(start.X + 3, start.Y + 3).ToArgb(), "The closure-ready marker should grow to about 10 screen pixels.");
+                    }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Brush_and_eraser_clicks_submit_single_point_round_paths()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
