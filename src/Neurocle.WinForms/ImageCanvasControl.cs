@@ -458,8 +458,7 @@ namespace Neurocle.WinForms
             if (selectionPreview.HasValue)
             {
                 RectangleF rectangle = ToScreenRectangle(selectionPreview.Value);
-                using (var fill = new SolidBrush(Color.FromArgb(45, Color.DeepSkyBlue))) args.Graphics.FillRectangle(fill, rectangle);
-                using (var pen = new Pen(Color.DeepSkyBlue, 1.5f) { DashStyle = DashStyle.Dash }) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                using (var pen = new Pen(Color.Black, 2f) { DashStyle = DashStyle.Dash }) args.Graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
             }
             if (segPreview.HasValue)
             {

@@ -22,6 +22,52 @@ namespace Neurocle.Tests
     public class MainFormLayoutTests
     {
         [STATestMethod]
+        public void Obd_and_seg_selection_marquees_have_black_dashes_and_leave_the_image_unfilled()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var image = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(image)) graphics.Clear(Color.White);
+                    image.Save(imagePath, ImageFormat.Png);
+                }
+                foreach (bool segmentation in new[] { false, true })
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(100, 100), ObdEnabled = !segmentation, ObdSelectMode = true,
+                    SegEnabled = segmentation, SegTool = ImageCanvasControl.SegToolKind.Select
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ModifierKeysProvider = () => Keys.None;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 80, 80, 0));
+                    using (Bitmap preview = RenderCanvas(canvas))
+                    {
+                        Assert.AreEqual(Color.White.ToArgb(), preview.GetPixel(50, 50).ToArgb(), "The marquee must not tint the image.");
+                        int black = 0, white = 0, thickDashes = 0;
+                        for (int x = 25; x < 75; x++)
+                        {
+                            Color pixel = preview.GetPixel(x, 20);
+                            if (pixel.R < 40 && pixel.G < 40 && pixel.B < 40) black++;
+                            if (pixel.R < 40 && preview.GetPixel(x, 19).R < 40) thickDashes++;
+                            if (pixel.R > 240 && pixel.G > 240 && pixel.B > 240) white++;
+                        }
+                        Assert.IsTrue(black > 5 && white > 5, "The edge must contain visible black dashes and gaps.");
+                        Assert.IsTrue(thickDashes > 5, "Black dashes must span two adjacent pixel rows.");
+                    }
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 80, 80, 0));
+                }
+            }
+            finally { Directory.Delete(directory, true); }
+        }
+
+        [STATestMethod]
         public void Import_progress_dialog_displays_processed_total_success_and_failure_counts()
         {
             using (var form = new ImportProgressForm())
