@@ -36,6 +36,7 @@ namespace Neurocle.WinForms
         private readonly FlowLayoutPanel annotationClasses;
         private readonly FlowLayoutPanel annotationTools;
         private readonly ToolTip annotationToolTips;
+        private readonly List<Image> annotationToolIcons = new List<Image>();
         private readonly NumericUpDown segStrokeWidth;
         private readonly TrackBar segStrokeWidthSlider;
         private readonly TrackBar annotationOpacity;
@@ -169,23 +170,23 @@ namespace Neurocle.WinForms
             deleteSet.Click += (sender, args) => RunAnnotationCommand(DeleteSelectedAnnotationSet);
             addClass = new Button { Dock = DockStyle.Top, Name = "addClass", Text = Strings.AddAnnotationClass };
             addClass.Click += (sender, args) => RunAnnotationCommand(AddAnnotationClass);
-            obdSelect = CreateAnnotationToolButton("obdSelect", "↖", "OBD 選取");
+            obdSelect = CreateAnnotationToolButton("obdSelect", "選取", "V", "01_cursor.png");
             obdSelect.Click += (sender, args) => SelectObdTool(true);
-            obdRectangle = CreateAnnotationToolButton("obdRectangle", "□", "OBD 矩形");
+            obdRectangle = CreateAnnotationToolButton("obdRectangle", "矩形", "R", "06_square.png");
             obdRectangle.Click += (sender, args) => SelectObdTool(false);
-            segRectangle = CreateAnnotationToolButton("segRectangle", "□", Strings.SegRectangleTool);
+            segRectangle = CreateAnnotationToolButton("segRectangle", "矩形", "R", "06_square.png");
             segRectangle.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Rect);
-            segEllipse = CreateAnnotationToolButton("segEllipse", "○", Strings.SegEllipseTool);
+            segEllipse = CreateAnnotationToolButton("segEllipse", "圓形", "C", "07_circle.png");
             segEllipse.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Ellipse);
-            segPolygon = CreateAnnotationToolButton("segPolygon", "✎", Strings.SegPolygonTool);
+            segPolygon = CreateAnnotationToolButton("segPolygon", "畫筆", "P", "04_pencil.png");
             segPolygon.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Polygon);
-            segBrush = CreateAnnotationToolButton("segBrush", "●", Strings.SegBrushTool);
+            segBrush = CreateAnnotationToolButton("segBrush", "筆刷", "B", "03_brush.png");
             segBrush.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Brush);
-            segLine = CreateAnnotationToolButton("segLine", "╱", Strings.SegLineTool);
+            segLine = CreateAnnotationToolButton("segLine", "線形", "L", "05_line.png");
             segLine.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Line);
-            segEraser = CreateAnnotationToolButton("segEraser", "⌫", Strings.SegEraserTool);
+            segEraser = CreateAnnotationToolButton("segEraser", "橡皮擦", "E", "02_eraser.png");
             segEraser.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Eraser);
-            segSelect = CreateAnnotationToolButton("segSelect", "↖", Strings.SegSelectTool);
+            segSelect = CreateAnnotationToolButton("segSelect", "選取", "V", "01_cursor.png");
             segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
             var segWidths = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 1 };
             segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -303,7 +304,7 @@ namespace Neurocle.WinForms
             {
                 if (importInProgress || exportInProgress || annotationOperationInProgress) args.Cancel = true;
             };
-            FormClosed += (sender, args) => { DisposeToastMessage(); project?.Dispose(); };
+            FormClosed += (sender, args) => { DisposeToastMessage(); project?.Dispose(); foreach (Image icon in annotationToolIcons) icon.Dispose(); };
             KeyDown += (sender, args) =>
             {
                 if (!args.Control) return;
@@ -316,6 +317,15 @@ namespace Neurocle.WinForms
                 else return;
                 args.Handled = true;
                 args.SuppressKeyPress = true;
+            };
+            KeyDown += (sender, args) =>
+            {
+                if (args.Handled || args.Control || args.Alt || HasTextInputFocus()) return;
+                if (TrySelectAnnotationToolByShortcut(args.KeyCode))
+                {
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                }
             };
             KeyDown += (sender, args) =>
             {
@@ -518,15 +528,60 @@ namespace Neurocle.WinForms
 
         private void SelectObdTool(bool select)
         {
+            canvas.DiscardUnfinishedShape();
             canvas.ObdSelectMode = select;
             RefreshAnnotationToolButtons();
         }
 
-        private Button CreateAnnotationToolButton(string name, string icon, string toolTip)
+        private bool TrySelectAnnotationToolByShortcut(Keys key)
         {
-            var button = new Button { Name = name, Text = icon, Size = new Size(32, 32), Margin = new Padding(2) };
-            annotationToolTips.SetToolTip(button, toolTip);
+            if (pages.SelectedTab != annotationPage) return false;
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (selected == null) return false;
+            if (selected.Type == AnnotationSetType.Obd)
+            {
+                if (key == Keys.V) SelectObdTool(true);
+                else if (key == Keys.R) SelectObdTool(false);
+                else return false;
+                return true;
+            }
+            if (selected.Type != AnnotationSetType.Seg) return false;
+            ImageCanvasControl.SegToolKind tool;
+            switch (key)
+            {
+                case Keys.V: tool = ImageCanvasControl.SegToolKind.Select; break;
+                case Keys.B: tool = ImageCanvasControl.SegToolKind.Brush; break;
+                case Keys.P: tool = ImageCanvasControl.SegToolKind.Polygon; break;
+                case Keys.C: tool = ImageCanvasControl.SegToolKind.Ellipse; break;
+                case Keys.R: tool = ImageCanvasControl.SegToolKind.Rect; break;
+                case Keys.E: tool = ImageCanvasControl.SegToolKind.Eraser; break;
+                case Keys.L: tool = ImageCanvasControl.SegToolKind.Line; break;
+                default: return false;
+            }
+            SelectSegTool(tool);
+            return true;
+        }
+
+        private Button CreateAnnotationToolButton(string name, string toolName, string shortcut, string iconResource)
+        {
+            var button = new Button { Name = name, Size = new Size(32, 32), Margin = new Padding(2), Image = LoadAnnotationToolIcon(iconResource), ImageAlign = ContentAlignment.MiddleCenter };
+            annotationToolTips.SetToolTip(button, toolName + " " + shortcut);
             return button;
+        }
+
+        private Image LoadAnnotationToolIcon(string resourceName)
+        {
+            string manifestName = "Neurocle.WinForms.Label_tool." + resourceName;
+            using (Stream stream = typeof(MainForm).Assembly.GetManifestResourceStream(manifestName))
+            {
+                if (stream == null) throw new InvalidOperationException("Missing embedded annotation tool icon: " + resourceName);
+                using (Image source = Image.FromStream(stream))
+                {
+                    Image icon = new Bitmap(source, new Size(22, 22));
+                    annotationToolIcons.Add(icon);
+                    return icon;
+                }
+            }
         }
 
         private void CreateProject()

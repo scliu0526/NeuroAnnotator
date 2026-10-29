@@ -3358,7 +3358,105 @@ namespace Neurocle.Tests
                 ToolTip toolTips = Field<ToolTip>(form, "annotationToolTips");
 
                 Assert.IsTrue(addClass.Bottom <= classes.Top);
-                Assert.AreEqual("SEG 矩形", toolTips.GetToolTip(Field<Control>(form, "segRectangle")));
+                Assert.AreEqual("矩形 R", toolTips.GetToolTip(Field<Control>(form, "segRectangle")));
+            }
+        }
+
+        [STATestMethod]
+        public void Annotation_tool_shortcuts_match_type_use_embedded_icons_and_cancel_previews()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 100);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                AnnotationSet claSet = store.CreateAnnotationSet("classes", AnnotationSetType.Cla);
+                AnnotationSet obdSet = store.CreateAnnotationSet("boxes", AnnotationSetType.Obd);
+                AnnotationSet segSet = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    form.ImageBrowser.SelectImage(image.Id);
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(store.ImagesDirectory, image.ManagedFileName)));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, image.ManagedFileName));
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    ToolTip toolTips = Field<ToolTip>(form, "annotationToolTips");
+                    Button[] toolButtons = { Field<Button>(form, "segSelect"), Field<Button>(form, "segBrush"), Field<Button>(form, "segPolygon"), Field<Button>(form, "segEllipse"), Field<Button>(form, "segRectangle"), Field<Button>(form, "segEraser"), Field<Button>(form, "segLine"), Field<Button>(form, "obdSelect"), Field<Button>(form, "obdRectangle") };
+                    foreach (Button button in toolButtons) Assert.IsNotNull(button.Image, "{0} should display its embedded tool icon.", button.Name);
+                    var expectedTooltips = new Dictionary<string, string>
+                    {
+                        { "segSelect", "選取 V" }, { "segBrush", "筆刷 B" }, { "segPolygon", "畫筆 P" }, { "segEllipse", "圓形 C" },
+                        { "segRectangle", "矩形 R" }, { "segEraser", "橡皮擦 E" }, { "segLine", "線形 L" },
+                        { "obdSelect", "選取 V" }, { "obdRectangle", "矩形 R" }
+                    };
+                    foreach (Button button in toolButtons) Assert.AreEqual(expectedTooltips[button.Name], toolTips.GetToolTip(button));
+                    string[] iconResources = { "01_cursor.png", "02_eraser.png", "03_brush.png", "04_pencil.png", "05_line.png", "06_square.png", "07_circle.png" };
+                    foreach (string resource in iconResources) Assert.IsTrue(typeof(MainForm).Assembly.GetManifestResourceNames().Contains("Neurocle.WinForms.Label_tool." + resource), "{0} should be embedded in the executable assembly.", resource);
+
+                    sets.SelectedItem = AnnotationSet(sets, segSet.Id);
+                    ImageCanvasControl canvas = form.AnnotationCanvas;
+                    var expectedTools = new Dictionary<Keys, ImageCanvasControl.SegToolKind>
+                    {
+                        { Keys.V, ImageCanvasControl.SegToolKind.Select }, { Keys.B, ImageCanvasControl.SegToolKind.Brush },
+                        { Keys.P, ImageCanvasControl.SegToolKind.Polygon }, { Keys.C, ImageCanvasControl.SegToolKind.Ellipse },
+                        { Keys.R, ImageCanvasControl.SegToolKind.Rect }, { Keys.E, ImageCanvasControl.SegToolKind.Eraser },
+                        { Keys.L, ImageCanvasControl.SegToolKind.Line }
+                    };
+                    foreach (var expected in expectedTools)
+                    {
+                        RaiseKey(form, new KeyEventArgs(expected.Key));
+                        Assert.AreEqual(expected.Value, canvas.SegTool);
+                    }
+
+                    int submittedPaths = 0;
+                    canvas.SegPathCreated += (type, points, width) => submittedPaths++;
+                    RaiseKey(form, new KeyEventArgs(Keys.B));
+                    Point start = ImagePointToScreen(canvas, 20, 20);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                    RaiseKey(form, new KeyEventArgs(Keys.R));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, start.X, start.Y, 0));
+                    Assert.AreEqual(0, submittedPaths, "Switching tools should discard an unfinished path instead of submitting it.");
+
+                    sets.SelectedItem = AnnotationSet(sets, obdSet.Id);
+                    RaiseKey(form, new KeyEventArgs(Keys.R));
+                    Assert.IsFalse(canvas.ObdSelectMode);
+                    RaiseKey(form, new KeyEventArgs(Keys.V));
+                    Assert.IsTrue(canvas.ObdSelectMode);
+                    foreach (Keys unsupported in new[] { Keys.B, Keys.P, Keys.C, Keys.E, Keys.L }) RaiseKey(form, new KeyEventArgs(unsupported));
+                    Assert.IsTrue(canvas.ObdSelectMode, "OBD should ignore SEG-only tool shortcuts.");
+
+                    sets.SelectedItem = AnnotationSet(sets, claSet.Id);
+                    bool priorObdMode = canvas.ObdSelectMode;
+                    ImageCanvasControl.SegToolKind? priorSegTool = canvas.SegTool;
+                    foreach (Keys unsupported in expectedTools.Keys) RaiseKey(form, new KeyEventArgs(unsupported));
+                    Assert.AreEqual(priorObdMode, canvas.ObdSelectMode);
+                    Assert.AreEqual(priorSegTool, canvas.SegTool, "CLA should ignore every annotation tool shortcut.");
+
+                    sets.SelectedItem = AnnotationSet(sets, segSet.Id);
+                    RaiseKey(form, new KeyEventArgs(Keys.R));
+                    var textInput = new TextBox();
+                    form.Controls.Add(textInput);
+                    textInput.BringToFront();
+                    textInput.Focus();
+                    RaiseKey(form, new KeyEventArgs(Keys.B));
+                    Assert.AreEqual(ImageCanvasControl.SegToolKind.Rect, canvas.SegTool, "Tool shortcuts should not intercept text input.");
+                    textInput.Dispose();
+                    form.Close();
+                    store = null;
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
         }
 

@@ -87,6 +87,27 @@
     <Compile Include="ImageCanvasControl.cs">
       <SubType>Component</SubType>
     </Compile>
+    <EmbeddedResource Include="..\..\icon\Label_tool\01_cursor.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.01_cursor.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\02_eraser.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.02_eraser.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\03_brush.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.03_brush.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\04_pencil.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.04_pencil.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\05_line.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.05_line.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\06_square.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.06_square.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\07_circle.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.07_circle.png</LogicalName>
+    </EmbeddedResource>
     <Compile Include="Resources\Strings.Designer.cs" />
     <EmbeddedResource Include="Resources\Strings.resx">
       <Generator>ResXFileCodeGenerator</Generator>
