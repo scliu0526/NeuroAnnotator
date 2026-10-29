@@ -24,6 +24,9 @@ namespace Neurocle.WinForms
         private string loadedImagePath;
         private CancellationTokenSource imageLoad;
         private bool panning;
+        private bool thumbnailPanning;
+        private bool thumbnailCollapsed;
+        private float thumbnailDragScale;
         private Point previousPoint;
         private PointF? selectionStart;
         private Point selectionScreenStart;
@@ -202,6 +205,7 @@ namespace Neurocle.WinForms
         }
 
         public double Zoom { get { return viewport.Zoom; } }
+        internal bool IsThumbnailCollapsed { get { return thumbnailCollapsed; } }
         internal int HorizontalScrollMaximum { get { return viewport.HorizontalScrollMaximum; } }
         internal int VerticalScrollMaximum { get { return viewport.VerticalScrollMaximum; } }
         public event EventHandler ZoomChanged;
@@ -342,6 +346,7 @@ namespace Neurocle.WinForms
             activeObd = null;
             obdDrag = ObdDragKind.None;
             panning = false;
+            thumbnailPanning = false;
             Capture = false;
             Invalidate();
         }
@@ -528,12 +533,51 @@ namespace Neurocle.WinForms
             CanvasThumbnailLayout layout;
             float dpiScale = DeviceDpi / 96f;
             if (!CanvasThumbnailLayout.TryCreate(viewport.ImageSize, ClientSize, viewport.Zoom, viewport.Origin, dpiScale, out layout)) return;
-            using (var background = new SolidBrush(Color.FromArgb(210, 24, 24, 27))) graphics.FillRectangle(background, layout.ImageBounds);
-            graphics.DrawImage(image, layout.ImageBounds);
-            using (var shade = new SolidBrush(Color.FromArgb(42, Color.DeepSkyBlue))) graphics.FillRectangle(shade, layout.ViewportBounds);
-            using (var outline = new Pen(Color.Black, 3f * dpiScale)) graphics.DrawRectangle(outline, layout.ViewportBounds.X, layout.ViewportBounds.Y, layout.ViewportBounds.Width, layout.ViewportBounds.Height);
-            using (var frame = new Pen(Color.White, 1.5f * dpiScale)) graphics.DrawRectangle(frame, layout.ViewportBounds.X, layout.ViewportBounds.Y, layout.ViewportBounds.Width, layout.ViewportBounds.Height);
-            using (var border = new Pen(Color.FromArgb(230, Color.White), dpiScale)) graphics.DrawRectangle(border, layout.ImageBounds.X, layout.ImageBounds.Y, layout.ImageBounds.Width, layout.ImageBounds.Height);
+            if (!thumbnailCollapsed)
+            {
+                using (var background = new SolidBrush(Color.FromArgb(210, 24, 24, 27))) graphics.FillRectangle(background, layout.ImageBounds);
+                graphics.DrawImage(image, layout.ImageBounds);
+                using (var shade = new SolidBrush(Color.FromArgb(42, Color.DeepSkyBlue))) graphics.FillRectangle(shade, layout.ViewportBounds);
+                using (var outline = new Pen(Color.Black, 3f * dpiScale)) graphics.DrawRectangle(outline, layout.ViewportBounds.X, layout.ViewportBounds.Y, layout.ViewportBounds.Width, layout.ViewportBounds.Height);
+                using (var frame = new Pen(Color.White, 1.5f * dpiScale)) graphics.DrawRectangle(frame, layout.ViewportBounds.X, layout.ViewportBounds.Y, layout.ViewportBounds.Width, layout.ViewportBounds.Height);
+                using (var border = new Pen(Color.FromArgb(230, Color.White), dpiScale)) graphics.DrawRectangle(border, layout.ImageBounds.X, layout.ImageBounds.Y, layout.ImageBounds.Width, layout.ImageBounds.Height);
+            }
+            DrawThumbnailToggle(graphics, layout.ToggleBounds, thumbnailCollapsed, dpiScale);
+        }
+
+        private static void DrawThumbnailToggle(Graphics graphics, RectangleF bounds, bool collapsed, float dpiScale)
+        {
+            using (var background = new SolidBrush(Color.FromArgb(220, 24, 24, 27))) graphics.FillRectangle(background, bounds);
+            using (var border = new Pen(Color.White, dpiScale)) graphics.DrawRectangle(border, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+            float centerX = bounds.X + bounds.Width / 2f;
+            float centerY = bounds.Y + bounds.Height / 2f;
+            float direction = collapsed ? 1f : -1f;
+            using (var arrow = new Pen(Color.White, 2f * dpiScale))
+            {
+                graphics.DrawLine(arrow, centerX - direction * 3f * dpiScale, centerY - 4f * dpiScale, centerX + direction * 2f * dpiScale, centerY);
+                graphics.DrawLine(arrow, centerX + direction * 2f * dpiScale, centerY, centerX - direction * 3f * dpiScale, centerY + 4f * dpiScale);
+            }
+        }
+
+        private bool TryGetThumbnailLayout(out CanvasThumbnailLayout layout)
+        {
+            layout = default(CanvasThumbnailLayout);
+            return image != null && CanvasThumbnailLayout.TryCreate(viewport.ImageSize, ClientSize, viewport.Zoom, viewport.Origin, DeviceDpi / 96f, out layout);
+        }
+
+        private void CenterViewportOnThumbnailPoint(PointF thumbnailPoint, CanvasThumbnailLayout layout)
+        {
+            float scale = layout.ImageBounds.Width / viewport.ImageSize.Width;
+            PointF imagePoint = new PointF(
+                (thumbnailPoint.X - layout.ImageBounds.Left) / scale,
+                (thumbnailPoint.Y - layout.ImageBounds.Top) / scale);
+            PointF origin = new PointF(
+                ClientSize.Width / 2f - imagePoint.X * (float)viewport.Zoom,
+                ClientSize.Height / 2f - imagePoint.Y * (float)viewport.Zoom);
+            viewport.SetView(viewport.Zoom, origin, false);
+            RefreshToolCursor();
+            Invalidate();
+            RaiseViewChanged();
         }
 
         private void DrawToolCursor(Graphics graphics)
@@ -696,6 +740,27 @@ namespace Neurocle.WinForms
             {
                 previousPoint = args.Location;
                 Capture = true;
+            }
+            CanvasThumbnailLayout thumbnailLayout;
+            if (!panning && args.Button == MouseButtons.Left && TryGetThumbnailLayout(out thumbnailLayout))
+            {
+                if (thumbnailLayout.ToggleBounds.Contains(args.Location))
+                {
+                    thumbnailCollapsed = !thumbnailCollapsed;
+                    Invalidate();
+                    base.OnMouseDown(args);
+                    return;
+                }
+                if (!thumbnailCollapsed && thumbnailLayout.ImageBounds.Contains(args.Location))
+                {
+                    thumbnailPanning = thumbnailLayout.ViewportBounds.Contains(args.Location);
+                    thumbnailDragScale = thumbnailLayout.ImageBounds.Width / viewport.ImageSize.Width;
+                    if (thumbnailPanning) previousPoint = args.Location;
+                    CenterViewportOnThumbnailPoint(args.Location, thumbnailLayout);
+                    Capture = thumbnailPanning;
+                    base.OnMouseDown(args);
+                    return;
+                }
             }
             if (args.Button == MouseButtons.Left && ObdEnabled && !panning && image != null)
             {
@@ -863,7 +928,16 @@ namespace Neurocle.WinForms
             RefreshToolCursor();
             ApplyToolCursor();
             if (SegEnabled && image != null) segCursor = ClampPoint(viewport.ScreenToImage(args.Location));
-            if (panning)
+            if (thumbnailPanning && (args.Button & MouseButtons.Left) == MouseButtons.Left)
+            {
+                float scale = thumbnailDragScale;
+                viewport.Pan(-(args.X - previousPoint.X) / scale * (float)viewport.Zoom, -(args.Y - previousPoint.Y) / scale * (float)viewport.Zoom);
+                previousPoint = args.Location;
+                RefreshToolCursor();
+                Invalidate();
+                RaiseViewChanged();
+            }
+            else if (panning)
             {
                 viewport.Pan(args.X - previousPoint.X, args.Y - previousPoint.Y);
                 previousPoint = args.Location;
@@ -963,6 +1037,14 @@ namespace Neurocle.WinForms
 
         protected override void OnMouseUp(MouseEventArgs args)
         {
+            if (args.Button == MouseButtons.Left && thumbnailPanning)
+            {
+                thumbnailPanning = false;
+                Capture = false;
+                Invalidate();
+                base.OnMouseUp(args);
+                return;
+            }
             if (args.Button == MouseButtons.Left && selectionStart.HasValue)
             {
                 bool dragged = Math.Abs(args.X - selectionScreenStart.X) > 2 || Math.Abs(args.Y - selectionScreenStart.Y) > 2;
@@ -1494,14 +1576,16 @@ namespace Neurocle.WinForms
             private const float MaximumHeight = 120f;
             private const float Margin = 8f;
 
-            private CanvasThumbnailLayout(RectangleF imageBounds, RectangleF viewportBounds)
+            private CanvasThumbnailLayout(RectangleF imageBounds, RectangleF viewportBounds, RectangleF toggleBounds)
             {
                 ImageBounds = imageBounds;
                 ViewportBounds = viewportBounds;
+                ToggleBounds = toggleBounds;
             }
 
             internal RectangleF ImageBounds { get; private set; }
             internal RectangleF ViewportBounds { get; private set; }
+            internal RectangleF ToggleBounds { get; private set; }
 
             internal static bool TryCreate(Size imageSize, Size viewportSize, double zoom, PointF origin, float dpiScale, out CanvasThumbnailLayout layout)
             {
@@ -1527,7 +1611,9 @@ namespace Neurocle.WinForms
                     imageBounds.Top + top * scale,
                     imageBounds.Left + right * scale,
                     imageBounds.Top + bottom * scale);
-                layout = new CanvasThumbnailLayout(imageBounds, viewportBounds);
+                float toggleSize = 20f * dpiScale;
+                var toggleBounds = new RectangleF(imageBounds.Right - toggleSize, imageBounds.Top, toggleSize, toggleSize);
+                layout = new CanvasThumbnailLayout(imageBounds, viewportBounds, toggleBounds);
                 return true;
             }
         }

@@ -135,6 +135,117 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Canvas_thumbnail_click_and_drag_reposition_view_without_creating_annotations()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.LimeGreen, 1000);
+                using (var canvas = new ImageCanvasControl { Size = new Size(400, 300), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Rect })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100d);
+                    int created = 0;
+                    canvas.SegRegionCreated += (type, bounds) => created++;
+                    ImageCanvasControl.CanvasThumbnailLayout layout;
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 1000), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+
+                    Point click = new Point((int)(layout.ImageBounds.Left + layout.ImageBounds.Width * 0.7f), (int)(layout.ImageBounds.Top + layout.ImageBounds.Height * 0.55f));
+                    PointF target = new PointF((click.X - layout.ImageBounds.Left) / layout.ImageBounds.Width * 1000f, (click.Y - layout.ImageBounds.Top) / layout.ImageBounds.Height * 1000f);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, click.X, click.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, click.X, click.Y, 0));
+                    PointF origin = canvas.ViewState.Origin;
+                    Assert.AreEqual(target.X, (canvas.ClientSize.Width / 2f - origin.X) / (float)canvas.Zoom, 2f);
+                    Assert.AreEqual(target.Y, (canvas.ClientSize.Height / 2f - origin.Y) / (float)canvas.Zoom, 2f);
+
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 1000), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+                    Point dragStart = Point.Round(new PointF(layout.ViewportBounds.Left + layout.ViewportBounds.Width / 2f, layout.ViewportBounds.Top + layout.ViewportBounds.Height / 2f));
+                    Point dragEnd = new Point(dragStart.X + 10, dragStart.Y + 8);
+                    PointF beforeDrag = canvas.ViewState.Origin;
+                    float thumbnailScale = layout.ImageBounds.Width / 1000f;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, dragStart.X, dragStart.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, dragEnd.X, dragEnd.Y, 0));
+                    Assert.AreEqual(beforeDrag.X - 10f / thumbnailScale * (float)canvas.Zoom, canvas.ViewState.Origin.X, 2f);
+                    Assert.AreEqual(beforeDrag.Y - 8f / thumbnailScale * (float)canvas.Zoom, canvas.ViewState.Origin.Y, 2f);
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, dragEnd.X, dragEnd.Y, 0));
+
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 1000), canvas.ClientSize, canvas.Zoom, new PointF(0, 0), canvas.DeviceDpi / 96f, out layout));
+                    Point edge = new Point((int)layout.ImageBounds.Left + 1, (int)layout.ImageBounds.Top + 1);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, edge.X, edge.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, edge.X, edge.Y, 0));
+                    Assert.IsTrue(canvas.ViewState.Origin.X <= 0f && canvas.ViewState.Origin.X >= canvas.ClientSize.Width - 1000f * (float)canvas.Zoom - 1f);
+                    Assert.IsTrue(canvas.ViewState.Origin.Y <= 0f && canvas.ViewState.Origin.Y >= canvas.ClientSize.Height - 1000f * (float)canvas.Zoom - 1f);
+
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 1000), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+                    Point cancelDrag = Point.Round(new PointF(layout.ViewportBounds.Left + layout.ViewportBounds.Width / 2f, layout.ViewportBounds.Top + layout.ViewportBounds.Height / 2f));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, cancelDrag.X, cancelDrag.Y, 0));
+                    canvas.DiscardUnfinishedShape();
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, cancelDrag.X + 5, cancelDrag.Y + 5, 0));
+                    Point annotationStart = new Point(40, 40);
+                    Point annotationEnd = new Point(100, 100);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, annotationStart.X, annotationStart.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, annotationEnd.X, annotationEnd.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, annotationEnd.X, annotationEnd.Y, 0));
+                    Assert.AreEqual(1, created, "Canceling a thumbnail drag must allow later annotation gestures.");
+                }
+            }
+            finally { Directory.Delete(directory, true); }
+        }
+
+        [STATestMethod]
+        public void Canvas_thumbnail_collapse_persists_for_the_session_and_toggle_hides_when_image_fits()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string firstImagePath = Path.Combine(directory, "first.png");
+            string secondImagePath = Path.Combine(directory, "second.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(firstImagePath, Color.LimeGreen, 1000);
+                CreateFilledImage(secondImagePath, Color.Blue, 1000);
+                using (var canvas = new ImageCanvasControl { Size = new Size(400, 300) })
+                {
+                    canvas.CreateControl();
+                    Assert.IsFalse(canvas.IsThumbnailCollapsed, "A fresh canvas should start with the thumbnail expanded.");
+                    canvas.LoadImage(firstImagePath);
+                    WaitForImage(canvas, firstImagePath);
+                    canvas.SetZoomPercent(100d);
+                    ImageCanvasControl.CanvasThumbnailLayout layout;
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 1000), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+                    Point toggle = Point.Round(new PointF(layout.ToggleBounds.Left + layout.ToggleBounds.Width / 2f, layout.ToggleBounds.Top + layout.ToggleBounds.Height / 2f));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, toggle.X, toggle.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, toggle.X, toggle.Y, 0));
+                    Assert.IsTrue(canvas.IsThumbnailCollapsed);
+                    using (Bitmap collapsed = RenderCanvas(canvas))
+                    {
+                        int x = (int)(layout.ImageBounds.Left + layout.ImageBounds.Width / 2f);
+                        int y = (int)(layout.ImageBounds.Top + layout.ImageBounds.Height / 2f);
+                        Assert.AreEqual(Color.LimeGreen.ToArgb(), collapsed.GetPixel(x, y).ToArgb(), "The collapsed thumbnail image should be hidden.");
+                    }
+
+                    canvas.LoadImage(secondImagePath);
+                    WaitForImage(canvas, secondImagePath);
+                    Assert.IsTrue(canvas.IsThumbnailCollapsed, "Changing images must retain the collapsed state for this session.");
+                    canvas.SetZoomPercent(100d);
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 1000), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+                    toggle = Point.Round(new PointF(layout.ToggleBounds.Left + layout.ToggleBounds.Width / 2f, layout.ToggleBounds.Top + layout.ToggleBounds.Height / 2f));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, toggle.X, toggle.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, toggle.X, toggle.Y, 0));
+                    Assert.IsFalse(canvas.IsThumbnailCollapsed);
+
+                    canvas.FitToWindow();
+                    Assert.IsFalse(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 1000), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout), "The thumbnail and its toggle must disappear when the entire image fits.");
+                }
+                using (var restartedCanvas = new ImageCanvasControl()) Assert.IsFalse(restartedCanvas.IsThumbnailCollapsed, "A new canvas starts expanded after restart.");
+            }
+            finally { Directory.Delete(directory, true); }
+        }
+
+        [STATestMethod]
         public void Import_progress_dialog_displays_processed_total_success_and_failure_counts()
         {
             using (var form = new ImportProgressForm())
@@ -3458,6 +3569,15 @@ namespace Neurocle.Tests
             using (var bitmap = new Bitmap(size, size))
             {
                 bitmap.SetPixel(0, 0, color);
+                bitmap.Save(path, ImageFormat.Png);
+            }
+        }
+
+        private static void CreateFilledImage(string path, Color color, int size)
+        {
+            using (var bitmap = new Bitmap(size, size))
+            {
+                using (Graphics graphics = Graphics.FromImage(bitmap)) graphics.Clear(color);
                 bitmap.Save(path, ImageFormat.Png);
             }
         }
