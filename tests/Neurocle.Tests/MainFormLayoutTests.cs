@@ -67,6 +67,73 @@ namespace Neurocle.Tests
             finally { Directory.Delete(directory, true); }
         }
 
+        [TestMethod]
+        public void Canvas_thumbnail_layout_maps_visible_image_area_and_scales_for_dpi()
+        {
+            ImageCanvasControl.CanvasThumbnailLayout layout;
+            Assert.IsFalse(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(100, 50), new Size(200, 100), 1d, new PointF(50, 25), 1f, out layout));
+
+            Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(400, 100), new Size(200, 100), 1d, new PointF(-100, 0), 1f, out layout));
+            AssertRectangle(new RectangleF(12, 8, 180, 45), layout.ImageBounds);
+            AssertRectangle(new RectangleF(57, 8, 90, 45), layout.ViewportBounds);
+            Assert.IsTrue(layout.ImageBounds.Contains(layout.ViewportBounds));
+
+            Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(100, 400), new Size(200, 200), 1d, new PointF(0, -100), 1f, out layout));
+            AssertRectangle(new RectangleF(162, 8, 30, 120), layout.ImageBounds);
+            AssertRectangle(new RectangleF(162, 38, 30, 60), layout.ViewportBounds);
+
+            Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 500), new Size(500, 400), 1d, new PointF(-250, -50), 1.5f, out layout));
+            Assert.AreEqual(270f, layout.ImageBounds.Width, 0.01f);
+            Assert.AreEqual(135f, layout.ImageBounds.Height, 0.01f);
+            Assert.AreEqual(135f, layout.ViewportBounds.Width, 0.01f);
+            Assert.AreEqual(108f, layout.ViewportBounds.Height, 0.01f);
+
+            Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1000, 500), new Size(900, 700), 1d, new PointF(-50, -20), 2f, out layout));
+            Assert.AreEqual(360f, layout.ImageBounds.Width, 0.01f);
+            Assert.AreEqual(180f, layout.ImageBounds.Height, 0.01f);
+        }
+
+        [STATestMethod]
+        public void Canvas_thumbnail_is_rendered_only_when_zoomed_image_exceeds_viewport()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(500, 300))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.LimeGreen);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(400, 200) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.FitToWindow();
+                    using (Bitmap fitted = RenderCanvas(canvas))
+                    {
+                        Assert.AreEqual(Color.FromArgb(45, 45, 48).ToArgb(), fitted.GetPixel(395, 5).ToArgb());
+                    }
+                    canvas.SetZoomPercent(100d);
+                    ImageCanvasControl.CanvasThumbnailLayout layout;
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(500, 300), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+                    using (Bitmap zoomed = RenderCanvas(canvas))
+                    {
+                        int borderX = (int)Math.Round(layout.ImageBounds.Left + layout.ImageBounds.Width / 2f);
+                        int borderY = (int)Math.Round(layout.ImageBounds.Top);
+                        Color border = zoomed.GetPixel(borderX, borderY);
+                        Assert.IsTrue(border.R > 200 && border.G > 200 && border.B > 200, "The thumbnail must have a visible border.");
+                        int thumbnailX = (int)Math.Round(layout.ImageBounds.Left + 2f);
+                        int thumbnailY = (int)Math.Round(layout.ImageBounds.Top + 2f);
+                        Assert.AreEqual(Color.LimeGreen.ToArgb(), zoomed.GetPixel(thumbnailX, thumbnailY).ToArgb());
+                    }
+                }
+            }
+            finally { Directory.Delete(directory, true); }
+        }
+
         [STATestMethod]
         public void Import_progress_dialog_displays_processed_total_success_and_failure_counts()
         {
@@ -1134,6 +1201,12 @@ namespace Neurocle.Tests
                     WaitForImage(form.ImageCanvas, imagePath);
                     WaitForImage(form.AnnotationCanvas, imagePath);
                     form.ImageCanvas.SetZoomPercent(100d);
+                    ImageCanvasControl.CanvasThumbnailLayout imageThumbnail;
+                    ImageCanvasControl.CanvasThumbnailLayout annotationThumbnail;
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1600, 1600), form.ImageCanvas.ClientSize, form.ImageCanvas.Zoom, form.ImageCanvas.ViewState.Origin, form.ImageCanvas.DeviceDpi / 96f, out imageThumbnail));
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(1600, 1600), form.AnnotationCanvas.ClientSize, form.AnnotationCanvas.Zoom, form.AnnotationCanvas.ViewState.Origin, form.AnnotationCanvas.DeviceDpi / 96f, out annotationThumbnail));
+                    Assert.IsTrue(imageThumbnail.ImageBounds.Contains(imageThumbnail.ViewportBounds));
+                    Assert.IsTrue(annotationThumbnail.ImageBounds.Contains(annotationThumbnail.ViewportBounds));
 
                     CanvasScrollHost imageHost = CanvasHost(form.ImageCanvas);
                     CanvasScrollHost annotationHost = CanvasHost(form.AnnotationCanvas);
@@ -3127,6 +3200,14 @@ namespace Neurocle.Tests
             Assert.IsTrue(fortyPercent > 0 && fortyPercent < 255, "40% opacity must blend the annotation with the image.");
             setOpacity(1f);
             Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, x, y).ToArgb());
+        }
+
+        private static void AssertRectangle(RectangleF expected, RectangleF actual)
+        {
+            Assert.AreEqual(expected.X, actual.X, 0.01f);
+            Assert.AreEqual(expected.Y, actual.Y, 0.01f);
+            Assert.AreEqual(expected.Width, actual.Width, 0.01f);
+            Assert.AreEqual(expected.Height, actual.Height, 0.01f);
         }
 
         private static Color RenderPixel(ImageCanvasControl canvas, int x, int y)

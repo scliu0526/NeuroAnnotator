@@ -513,6 +513,20 @@ namespace Neurocle.WinForms
                 using (var pen = new Pen(PreviewTrackColor, Math.Max(1f, (float)(segPathStrokeWidth * viewport.Zoom)))) args.Graphics.DrawLine(pen, viewport.ImageToScreen(segLineStart.Value), viewport.ImageToScreen(segCursor));
             }
             DrawToolCursor(args.Graphics);
+            DrawCanvasThumbnail(args.Graphics);
+        }
+
+        private void DrawCanvasThumbnail(Graphics graphics)
+        {
+            CanvasThumbnailLayout layout;
+            float dpiScale = DeviceDpi / 96f;
+            if (!CanvasThumbnailLayout.TryCreate(viewport.ImageSize, ClientSize, viewport.Zoom, viewport.Origin, dpiScale, out layout)) return;
+            using (var background = new SolidBrush(Color.FromArgb(210, 24, 24, 27))) graphics.FillRectangle(background, layout.ImageBounds);
+            graphics.DrawImage(image, layout.ImageBounds);
+            using (var shade = new SolidBrush(Color.FromArgb(42, Color.DeepSkyBlue))) graphics.FillRectangle(shade, layout.ViewportBounds);
+            using (var outline = new Pen(Color.Black, 3f * dpiScale)) graphics.DrawRectangle(outline, layout.ViewportBounds.X, layout.ViewportBounds.Y, layout.ViewportBounds.Width, layout.ViewportBounds.Height);
+            using (var frame = new Pen(Color.White, 1.5f * dpiScale)) graphics.DrawRectangle(frame, layout.ViewportBounds.X, layout.ViewportBounds.Y, layout.ViewportBounds.Width, layout.ViewportBounds.Height);
+            using (var border = new Pen(Color.FromArgb(230, Color.White), dpiScale)) graphics.DrawRectangle(border, layout.ImageBounds.X, layout.ImageBounds.Y, layout.ImageBounds.Width, layout.ImageBounds.Height);
         }
 
         private void DrawToolCursor(Graphics graphics)
@@ -1461,6 +1475,50 @@ namespace Neurocle.WinForms
             public double Zoom { get; private set; }
             public PointF Origin { get; private set; }
             public bool IsFitted { get; private set; }
+        }
+
+        internal struct CanvasThumbnailLayout
+        {
+            private const float MaximumWidth = 180f;
+            private const float MaximumHeight = 120f;
+            private const float Margin = 8f;
+
+            private CanvasThumbnailLayout(RectangleF imageBounds, RectangleF viewportBounds)
+            {
+                ImageBounds = imageBounds;
+                ViewportBounds = viewportBounds;
+            }
+
+            internal RectangleF ImageBounds { get; private set; }
+            internal RectangleF ViewportBounds { get; private set; }
+
+            internal static bool TryCreate(Size imageSize, Size viewportSize, double zoom, PointF origin, float dpiScale, out CanvasThumbnailLayout layout)
+            {
+                layout = default(CanvasThumbnailLayout);
+                if (imageSize.Width <= 0 || imageSize.Height <= 0 || viewportSize.Width <= 0 || viewportSize.Height <= 0 || zoom <= 0d || dpiScale <= 0f) return false;
+                if (imageSize.Width * zoom <= viewportSize.Width && imageSize.Height * zoom <= viewportSize.Height) return false;
+
+                float margin = Margin * dpiScale;
+                float availableWidth = Math.Min(MaximumWidth * dpiScale, viewportSize.Width - margin * 2f);
+                float availableHeight = Math.Min(MaximumHeight * dpiScale, viewportSize.Height - margin * 2f);
+                if (availableWidth <= 0f || availableHeight <= 0f) return false;
+                float scale = Math.Min(availableWidth / imageSize.Width, availableHeight / imageSize.Height);
+                float width = imageSize.Width * scale;
+                float height = imageSize.Height * scale;
+                var imageBounds = new RectangleF(viewportSize.Width - margin - width, margin, width, height);
+
+                float left = Math.Max(0f, Math.Min(imageSize.Width, (float)(-origin.X / zoom)));
+                float top = Math.Max(0f, Math.Min(imageSize.Height, (float)(-origin.Y / zoom)));
+                float right = Math.Max(left, Math.Min(imageSize.Width, (float)((viewportSize.Width - origin.X) / zoom)));
+                float bottom = Math.Max(top, Math.Min(imageSize.Height, (float)((viewportSize.Height - origin.Y) / zoom)));
+                var viewportBounds = RectangleF.FromLTRB(
+                    imageBounds.Left + left * scale,
+                    imageBounds.Top + top * scale,
+                    imageBounds.Left + right * scale,
+                    imageBounds.Top + bottom * scale);
+                layout = new CanvasThumbnailLayout(imageBounds, viewportBounds);
+                return true;
+            }
         }
     }
 }
