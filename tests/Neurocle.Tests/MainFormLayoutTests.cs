@@ -387,6 +387,7 @@ namespace Neurocle.Tests
             using (var dialog = new AnnotationSetCreationDialog())
             {
                 Button[] cards = { Field<Button>(dialog, "claCard"), Field<Button>(dialog, "obdCard"), Field<Button>(dialog, "segCard") };
+                Assert.AreEqual(3, Field<TableLayoutPanel>(dialog, "cardLayout").Controls.OfType<Button>().Count());
                 CollectionAssert.AreEqual(new[] { "CLA", "OBD", "SEG" }, cards.Select(card => card.Text.Split('\r')[0]).ToArray());
                 StringAssert.Contains(cards[0].Text, "影像分類");
                 StringAssert.Contains(cards[0].Text, "整張影像");
@@ -3486,6 +3487,12 @@ namespace Neurocle.Tests
                         Assert.IsFalse(dialog.AnnotationSetType.HasValue, "Opening the dialog should not preselect a type.");
                         Assert.IsFalse(Field<Button>(dialog, "createButton").Enabled);
                         Assert.AreEqual(1, GetDescendants(dialog).OfType<TextBox>().Count(), "The form should only request the annotation set name.");
+                        Panel footer = Field<Panel>(dialog, "footerPanel");
+                        foreach (Button button in new[] { Field<Button>(dialog, "cancelButton"), Field<Button>(dialog, "createButton") })
+                        {
+                            Assert.IsTrue(button.Visible, button.Name + " should be visible.");
+                            Assert.IsTrue(footer.ClientRectangle.Contains(button.Bounds), button.Name + " should fit inside the visible footer.");
+                        }
                         Button[] cards = { Field<Button>(dialog, "claCard"), Field<Button>(dialog, "obdCard"), Field<Button>(dialog, "segCard") };
                         Assert.AreEqual(3, cards.Length);
                         foreach (Button card in cards)

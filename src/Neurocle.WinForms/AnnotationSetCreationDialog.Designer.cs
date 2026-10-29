@@ -17,7 +17,7 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.Panel namePanel;
         private System.Windows.Forms.Label nameLabel;
         private System.Windows.Forms.TextBox name;
-        private System.Windows.Forms.Panel footerPanel;
+        private System.Windows.Forms.FlowLayoutPanel footerPanel;
         private System.Windows.Forms.Button cancelButton;
         private System.Windows.Forms.Button createButton;
 
@@ -38,7 +38,7 @@ namespace Neurocle.WinForms
             this.namePanel = new System.Windows.Forms.Panel();
             this.nameLabel = new System.Windows.Forms.Label();
             this.name = new System.Windows.Forms.TextBox();
-            this.footerPanel = new System.Windows.Forms.Panel();
+            this.footerPanel = new System.Windows.Forms.FlowLayoutPanel();
             this.cancelButton = new System.Windows.Forms.Button();
             this.createButton = new System.Windows.Forms.Button();
             this.rootLayout.SuspendLayout();
@@ -206,25 +206,26 @@ namespace Neurocle.WinForms
             this.footerPanel.Controls.Add(this.createButton);
             this.footerPanel.Controls.Add(this.cancelButton);
             this.footerPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.footerPanel.FlowDirection = System.Windows.Forms.FlowDirection.RightToLeft;
+            this.footerPanel.WrapContents = false;
+            this.footerPanel.Padding = new System.Windows.Forms.Padding(0, 4, 0, 0);
             //
             // cancelButton
             //
-            this.cancelButton.Anchor = System.Windows.Forms.AnchorStyles.Right | System.Windows.Forms.AnchorStyles.Bottom;
+            this.cancelButton.AutoSize = true;
             this.cancelButton.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.cancelButton.Location = new System.Drawing.Point(712, 9);
+            this.cancelButton.Margin = new System.Windows.Forms.Padding(4);
             this.cancelButton.Name = "cancelButton";
-            this.cancelButton.Size = new System.Drawing.Size(88, 30);
             this.cancelButton.TabIndex = 0;
             this.cancelButton.Text = "取消";
             this.cancelButton.UseVisualStyleBackColor = true;
             //
             // createButton
             //
-            this.createButton.Anchor = System.Windows.Forms.AnchorStyles.Right | System.Windows.Forms.AnchorStyles.Bottom;
+            this.createButton.AutoSize = true;
             this.createButton.DialogResult = System.Windows.Forms.DialogResult.OK;
-            this.createButton.Location = new System.Drawing.Point(808, 9);
+            this.createButton.Margin = new System.Windows.Forms.Padding(4);
             this.createButton.Name = "createButton";
-            this.createButton.Size = new System.Drawing.Size(88, 30);
             this.createButton.TabIndex = 1;
             this.createButton.Text = "建立";
             this.createButton.UseVisualStyleBackColor = true;

@@ -69,6 +69,9 @@
     <Compile Include="AnnotationSetCreationDialog.Designer.cs">
       <DependentUpon>AnnotationSetCreationDialog.cs</DependentUpon>
     </Compile>
+    <EmbeddedResource Include="AnnotationSetCreationDialog.resx">
+      <DependentUpon>AnnotationSetCreationDialog.cs</DependentUpon>
+    </EmbeddedResource>
     <Compile Include="ImportProgressForm.cs">
       <SubType>Form</SubType>
     </Compile>
