@@ -11,23 +11,38 @@ using Neurocle.Domain.Segmentation;
 
 namespace Neurocle.Infrastructure.Persistence
 {
+    // 將 SQLite 資料庫與受管理圖片目錄封裝成可交易、可復原的專案工作階段。
     public sealed class ProjectStore : IProjectSession
     {
+        // 記錄目前資料庫結構版本，供開啟與遷移流程檢查。
         private const int CurrentSchemaVersion = 7;
+        // 限制每個專案保留的備份數量。
         private const int MaximumBackupCount = 5;
+        // 提供自動分割資料集時使用的隨機數產生器。
         private static readonly Random random = new Random();
+        // 保持專案檔案鎖定期間的檔案控制代碼。
         private readonly FileStream lockStream;
+        // 保存此工作階段使用的 SQLite 連線。
         private readonly SqliteConnection connection;
+        // 依標註集分開保存尚未寫入資料庫的 Undo/Redo 動作。
         private readonly Dictionary<string, AnnotationHistory> histories = new Dictionary<string, AnnotationHistory>();
+        // 指出目前是否正在重播歷程，以免 Undo/Redo 再次建立歷程項目。
         private bool replayingHistory;
+        // 暫存 Undo/Redo 正在使用的交易，供歷程委派共用。
         private SqliteTransaction historyTransaction;
 
+        // 提供可替換的時間來源，供備份流程測試使用。
         internal static Func<DateTime> UtcNow = () => DateTime.UtcNow;
+        // 提供可替換的安全檔案替換操作，供還原流程測試使用。
         internal static Action<string, string> ReplaceFile = ReplaceFileSafely;
+        // 提供可替換的原生檔案替換操作，供復原流程測試使用。
         internal static Action<string, string> NativeReplaceFile = (source, destination) => File.Replace(source, destination, null);
+        // 提供可替換的檔案移動操作，供中斷復原流程測試使用。
         internal static Action<string, string> MoveFile = File.Move;
+        // 提供可替換的隨機數來源，供資料集切分測試使用。
         internal static Func<int, int> NextRandom = maximum => random.Next(maximum);
 
+        /// <summary>建立專案工作階段並保存資料庫連線與獨佔鎖。</summary>
         private ProjectStore(string path, FileStream lockStream, SqliteConnection connection)
         {
             ProjectPath = path;
@@ -36,9 +51,12 @@ namespace Neurocle.Infrastructure.Persistence
             this.connection = connection;
         }
 
+        // 取得目前工作階段開啟的專案資料庫路徑。
         public string ProjectPath { get; }
+        // 取得此專案受管理圖片的儲存目錄。
         public string ImagesDirectory { get; }
 
+        /// <summary>建立 SQLite 專案資料庫、受管理圖片目錄及初始備份。</summary>
         public static ProjectStore Create(string projectPath)
         {
             string fullPath = PreparePath(projectPath, false);
@@ -73,6 +91,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>開啟專案資料庫，完成結構檢查、必要遷移及暫存圖片復原。</summary>
         public static ProjectStore Open(string projectPath)
         {
             string fullPath = PreparePath(projectPath, true);
@@ -107,6 +126,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>驗證指定備份後，以備份建立目標專案並開啟工作階段。</summary>
         public static ProjectStore Restore(string projectPath, string backupPath)
         {
             string fullProjectPath = PreparePath(projectPath, true);
@@ -150,9 +170,11 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>以單一 SQLite 交易執行並提交一次專案資料變更。</summary>
         public void CompleteOperation(Action<SqliteConnection, SqliteTransaction> operation)
         {
             if (operation == null) throw new ArgumentNullException(nameof(operation));
+            // 將整組資料變更放在同一交易；委派失敗時交易會回滾。
             using (SqliteTransaction transaction = connection.BeginTransaction())
             {
                 operation(connection, transaction);
@@ -160,11 +182,13 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <inheritdoc />
         public void Save()
         {
             Execute(connection, null, "PRAGMA wal_checkpoint(FULL);");
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<ProjectImage> ImportFiles(IEnumerable<string> filePaths)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
@@ -181,22 +205,26 @@ namespace Neurocle.Infrastructure.Persistence
             return imported;
         }
 
+        /// <inheritdoc />
         public ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested)
         {
             return ImportFilesWithReport(filePaths, cancellationRequested, null);
         }
 
+        /// <inheritdoc />
         public ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
             return ImportSourcesWithReport(OrderSources(filePaths), cancellationRequested, null, progress);
         }
 
+        /// <inheritdoc />
         public ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested)
         {
             return ImportDirectory(directoryPath, includeSubdirectories, cancellationRequested, null);
         }
 
+        /// <inheritdoc />
         public ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
         {
             if (directoryPath == null) throw new ArgumentNullException(nameof(directoryPath));
@@ -225,6 +253,7 @@ namespace Neurocle.Infrastructure.Persistence
             return ImportSourcesWithReport(OrderSources(sources), cancellationRequested, failures, progress);
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<ProjectImage> GetImages()
         {
             var images = new List<ProjectImage>();
@@ -243,6 +272,7 @@ namespace Neurocle.Infrastructure.Persistence
             return images;
         }
 
+        /// <inheritdoc />
         public string ExportImagesZip(string outputPath, IEnumerable<string> imageIds)
         {
             if (String.IsNullOrWhiteSpace(outputPath)) throw new ArgumentException("The output path is required.", nameof(outputPath));
@@ -277,6 +307,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>產生不會覆寫既有輸出檔案的匯出路徑。</summary>
         private static string CreateUniqueExportPath(string requestedPath)
         {
             if (!File.Exists(requestedPath) && !Directory.Exists(requestedPath)) return requestedPath;
@@ -290,6 +321,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <inheritdoc />
         public AnnotationSet CreateAnnotationSet(string name, AnnotationSetType type)
         {
             string normalized = NormalizeName(name);
@@ -302,6 +334,7 @@ namespace Neurocle.Infrastructure.Persistence
             return set;
         }
 
+        /// <inheritdoc />
         public AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields)
         {
             ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
@@ -324,6 +357,7 @@ namespace Neurocle.Infrastructure.Persistence
             catch (ArgumentException exception) { throw new JsonAnnotationImportException(exception.Message); }
             if (classes.Select(value => value.Name).Distinct(StringComparer.Ordinal).Count() != classes.Length) throw new JsonAnnotationImportException("classes contains duplicates.");
             var classByName = classes.ToDictionary(value => value.Name, StringComparer.Ordinal);
+            // 解析與跨圖片驗證先完成，再以單一交易新增整個標註集。
             CompleteOperation((db, transaction) =>
             {
                 Execute(db, transaction, "INSERT INTO AnnotationSet (Id, Name, Type) VALUES ($id, $name, $type);", new SqliteParameter("$id", set.Id), new SqliteParameter("$name", set.Name), new SqliteParameter("$type", (int)set.Type));
@@ -346,12 +380,14 @@ namespace Neurocle.Infrastructure.Persistence
             return set;
         }
 
+        /// <inheritdoc />
         public string ExportAnnotationJson(string annotationSetId, string outputPath)
         {
             AnnotationSet set = GetAnnotationSets().Single(value => value.Id == annotationSetId);
             return JsonAnnotationExport.Write(this, set, outputPath);
         }
 
+        /// <summary>將已驗證的 SEG 區域及其點位寫入指定資料庫交易。</summary>
         private static void InsertImportedSegRegion(SqliteConnection db, SqliteTransaction transaction, string setId, string imageId, string classId, ImportedRegion region, int zOrder)
         {
             string id = Guid.NewGuid().ToString("D");
@@ -363,6 +399,7 @@ namespace Neurocle.Infrastructure.Persistence
             for (int index = 0; index < region.Points.Count; index++) Execute(db, transaction, "INSERT INTO SegRegionPoint (RegionId, Ordinal, X, Y) VALUES ($id, $ordinal, $x, $y);", new SqliteParameter("$id", id), new SqliteParameter("$ordinal", index), new SqliteParameter("$x", region.Points[index].X), new SqliteParameter("$y", region.Points[index].Y));
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<AnnotationSet> GetAnnotationSets()
         {
             var result = new List<AnnotationSet>();
@@ -374,11 +411,13 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <inheritdoc />
         public void RenameAnnotationSet(string annotationSetId, string name)
         {
             Execute(connection, null, "UPDATE AnnotationSet SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", NormalizeName(name)), new SqliteParameter("$id", annotationSetId));
         }
 
+        /// <inheritdoc />
         public bool DeleteAnnotationSet(string annotationSetId, string confirmationName)
         {
             AnnotationSet set = GetAnnotationSets().SingleOrDefault(item => item.Id == annotationSetId);
@@ -388,6 +427,7 @@ namespace Neurocle.Infrastructure.Persistence
             return true;
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<AnnotationClass> GetClasses(string annotationSetId)
         {
             var result = new List<AnnotationClass>();
@@ -400,6 +440,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <inheritdoc />
         public AnnotationClass AddClass(string annotationSetId, string name, string color)
         {
             string nextColor = color == null ? NextClassColor(GetClasses(annotationSetId).Select(item => item.Color)) : AnnotationColorFormat.Normalize(color);
@@ -409,18 +450,21 @@ namespace Neurocle.Infrastructure.Persistence
             return value;
         }
 
+        /// <inheritdoc />
         public void RenameClass(string classId, string name)
         {
             AnnotationClass previous = GetClass(classId); string next = NormalizeName(name);
             Execute(connection, null, "UPDATE AnnotationClass SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", next), new SqliteParameter("$id", classId));
             Record(previous.AnnotationSetId, () => RenameClassRaw(classId, previous.Name), () => RenameClassRaw(classId, next), EstimateHistoryBytes(classId, previous.Name, next));
         }
+        /// <inheritdoc />
         public void ChangeClassColor(string classId, string color)
         {
             AnnotationClass previous = GetClass(classId); string next = AnnotationColorFormat.Normalize(color);
             Execute(connection, null, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", next), new SqliteParameter("$id", classId));
             Record(previous.AnnotationSetId, () => ChangeClassColorRaw(classId, previous.Color), () => ChangeClassColorRaw(classId, next), EstimateHistoryBytes(classId, previous.Color, next));
         }
+        /// <inheritdoc />
         public void DeleteClass(string classId)
         {
             object setValue = ExecuteScalar(connection, "SELECT AnnotationSetId FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
@@ -435,6 +479,7 @@ namespace Neurocle.Infrastructure.Persistence
             Record(setId, () => { InsertClassRaw(deleted); foreach (var assignment in assignments) SetClaRaw(setId, assignment, classId); foreach (var annotation in obdAnnotations) InsertObdRaw(annotation); foreach (var region in segRegions) InsertSegRegionRaw(region); }, () => DeleteClassRaw(classId), EstimateHistoryBytes(deleted.Id, deleted.AnnotationSetId, deleted.Name, deleted.Color) + EstimateHistoryBytes(assignments) + EstimateHistoryBytes(obdAnnotations) + EstimateHistoryBytes(segRegions));
         }
 
+        /// <inheritdoc />
         public void SetClaClass(string annotationSetId, string imageId, string classId)
         {
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
@@ -445,6 +490,7 @@ namespace Neurocle.Infrastructure.Persistence
             Record(annotationSetId, () => SetClaRaw(annotationSetId, imageId, previous), () => SetClaRaw(annotationSetId, imageId, classId), EstimateHistoryBytes(annotationSetId, imageId, previous, classId));
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<DatasetAssignment> GetDatasetAssignments(string annotationSetId)
         {
             EnsureAnnotationSetExists(annotationSetId);
@@ -461,6 +507,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<ImageAnnotationSummary> GetImageAnnotationSummaries(string annotationSetId)
         {
             AnnotationSet set = GetAnnotationSets().SingleOrDefault(value => value.Id == annotationSetId);
@@ -488,17 +535,20 @@ namespace Neurocle.Infrastructure.Persistence
             return grouped.Select(value => new ImageAnnotationSummary(value.Key, value.Value, counts[value.Key])).ToArray();
         }
 
+        /// <inheritdoc />
         public void SetDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, DatasetAssignmentStatus status)
         {
             if (!Enum.IsDefined(typeof(DatasetAssignmentStatus), status)) throw new ArgumentOutOfRangeException(nameof(status));
             UpdateDatasetAssignments(annotationSetId, imageIds, assignment => new DatasetAssignment(annotationSetId, assignment.ImageId, status, assignment.Retest));
         }
 
+        /// <inheritdoc />
         public void SetRetest(string annotationSetId, IEnumerable<string> imageIds, bool retest)
         {
             UpdateDatasetAssignments(annotationSetId, imageIds, assignment => new DatasetAssignment(annotationSetId, assignment.ImageId, assignment.Status, retest));
         }
 
+        /// <inheritdoc />
         public void ClearAnnotations(string annotationSetId, IEnumerable<string> imageIds)
         {
             string[] ids = ValidateDatasetImageIds(annotationSetId, imageIds);
@@ -526,6 +576,7 @@ namespace Neurocle.Infrastructure.Persistence
             Record(annotationSetId, () => { foreach (SegRegion value in regions) InsertSegRegionRaw(value); }, () => { foreach (string imageId in ids) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); }, EstimateHistoryBytes(regions));
         }
 
+        /// <inheritdoc />
         public DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent)
         {
             IReadOnlyList<ImageAnnotationSummary> summaries = GetImageAnnotationSummaries(annotationSetId);
@@ -545,6 +596,7 @@ namespace Neurocle.Infrastructure.Persistence
             return plan;
         }
 
+        /// <summary>計算並交易更新圖片的資料集狀態或 Retest 旗標，再記錄復原動作。</summary>
         private void UpdateDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, Func<DatasetAssignment, DatasetAssignment> transform)
         {
             string[] ids = ValidateDatasetImageIds(annotationSetId, imageIds);
@@ -558,6 +610,7 @@ namespace Neurocle.Infrastructure.Persistence
             Record(annotationSetId, () => { foreach (DatasetAssignment value in previous) SetDatasetAssignmentRaw(connection, historyTransaction, value); }, () => { foreach (DatasetAssignment value in next) SetDatasetAssignmentRaw(connection, historyTransaction, value); }, EstimateHistoryBytes(ids));
         }
 
+        /// <summary>確認圖片識別碼屬於指定標註集，並移除重複識別碼。</summary>
         private string[] ValidateDatasetImageIds(string annotationSetId, IEnumerable<string> imageIds)
         {
             if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
@@ -568,27 +621,35 @@ namespace Neurocle.Infrastructure.Persistence
             return ids;
         }
 
+        /// <summary>確認標註集識別碼仍對應專案中的標註集。</summary>
         private void EnsureAnnotationSetExists(string annotationSetId)
         {
             if (ExecuteScalar(connection, "SELECT Id FROM AnnotationSet WHERE Id = $id;", new SqliteParameter("$id", annotationSetId)) == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
         }
 
+        /// <summary>在目前 SQLite 交易中新增或更新資料集分配資料。</summary>
         private static void SetDatasetAssignmentRaw(SqliteConnection db, SqliteTransaction transaction, DatasetAssignment value)
         {
             Execute(db, transaction, "INSERT INTO DatasetAssignment (AnnotationSetId, ImageId, Status, Retest) VALUES ($set, $image, $status, $retest) ON CONFLICT(AnnotationSetId, ImageId) DO UPDATE SET Status = excluded.Status, Retest = excluded.Retest;", new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$status", (int)value.Status), new SqliteParameter("$retest", value.Retest ? 1 : 0));
         }
 
+        /// <inheritdoc />
         public bool Undo(string annotationSetId) { return RunHistory(annotationSetId, false); }
+        /// <inheritdoc />
         public bool Redo(string annotationSetId) { return RunHistory(annotationSetId, true); }
+        /// <inheritdoc />
         public bool CanUndo(string annotationSetId) { return GetHistory(annotationSetId).CanUndo; }
+        /// <inheritdoc />
         public bool CanRedo(string annotationSetId) { return GetHistory(annotationSetId).CanRedo; }
 
+        /// <summary>將已提交操作的復原與重做動作加入對應標註集的歷程。</summary>
         private void Record(string annotationSetId, Action undo, Action redo, long sizeBytes)
         {
             if (replayingHistory) return;
             GetHistory(annotationSetId).Push(new HistoryEntry(undo, redo, sizeBytes));
         }
 
+        /// <summary>估算歷程資料所佔用的記憶體容量。</summary>
         private static long EstimateHistoryBytes(params string[] values)
         {
             long size = 256;
@@ -596,6 +657,7 @@ namespace Neurocle.Infrastructure.Persistence
             return size;
         }
 
+        /// <summary>估算歷程資料所佔用的記憶體容量。</summary>
         private static long EstimateHistoryBytes(IReadOnlyList<string> values)
         {
             long size = 64 + (long)IntPtr.Size * values.Count;
@@ -603,6 +665,7 @@ namespace Neurocle.Infrastructure.Persistence
             return size;
         }
 
+        /// <summary>估算歷程資料所佔用的記憶體容量。</summary>
         private static long EstimateHistoryBytes(IReadOnlyList<ObdAnnotation> values)
         {
             long size = 64 + (long)IntPtr.Size * values.Count;
@@ -610,6 +673,7 @@ namespace Neurocle.Infrastructure.Persistence
             return size;
         }
 
+        /// <summary>估算歷程資料所佔用的記憶體容量。</summary>
         private static long EstimateHistoryBytes(IReadOnlyList<SegRegion> values)
         {
             long size = 64 + (long)IntPtr.Size * values.Count;
@@ -617,6 +681,7 @@ namespace Neurocle.Infrastructure.Persistence
             return size;
         }
 
+        /// <summary>取得標註集的歷程狀態；尚未建立時建立空白歷程。</summary>
         private AnnotationHistory GetHistory(string annotationSetId)
         {
             if (annotationSetId == null) throw new ArgumentNullException(nameof(annotationSetId));
@@ -629,9 +694,11 @@ namespace Neurocle.Infrastructure.Persistence
             return history;
         }
 
+        /// <summary>在 SQLite 交易中執行 Undo 或 Redo，提交成功後才移動歷程項目。</summary>
         private bool RunHistory(string annotationSetId, bool redo)
         {
             AnnotationHistory history = GetHistory(annotationSetId);
+            // 暫時取出待執行項目；只有資料庫交易提交後才移到另一個堆疊。
             HistoryEntry entry = redo ? history.TakeRedo() : history.TakeUndo();
             if (entry == null) return false;
             bool moved = false;
@@ -650,6 +717,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
             catch
             {
+                // 交易失敗時，將未完成的歷程項目放回原堆疊。
                 if (!moved)
                 {
                     if (redo) history.ReturnRedo(entry); else history.ReturnUndo(entry);
@@ -664,6 +732,7 @@ namespace Neurocle.Infrastructure.Persistence
             return true;
         }
 
+        /// <summary>依類別識別碼讀取類別資料。</summary>
         private AnnotationClass GetClass(string classId)
         {
             using (var command = connection.CreateCommand())
@@ -678,6 +747,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>取得指定類別目前使用的 CLA 圖片指派。</summary>
         private IReadOnlyList<string> GetClaAssignments(string classId)
         {
             var imageIds = new List<string>();
@@ -690,6 +760,7 @@ namespace Neurocle.Infrastructure.Persistence
             return imageIds;
         }
 
+        /// <summary>取得指定類別目前使用的 OBD 標註。</summary>
         private IReadOnlyList<ObdAnnotation> GetObdAnnotationsForClass(string classId)
         {
             var result = new List<ObdAnnotation>();
@@ -702,6 +773,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <summary>取得指定類別目前使用的 SEG 區域。</summary>
         private IReadOnlyList<SegRegion> GetSegRegionsForClass(string classId)
         {
             var result = new List<SegRegion>();
@@ -714,43 +786,51 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <summary>在目前工作階段中新增類別資料列。</summary>
         private void InsertClassRaw(AnnotationClass value)
         {
             Execute(connection, historyTransaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
         }
 
+        /// <summary>在目前工作階段中刪除類別資料列。</summary>
         private void DeleteClassRaw(string classId)
         {
             Execute(connection, historyTransaction, "DELETE FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
         }
 
+        /// <summary>在目前工作階段中更新類別名稱。</summary>
         private void RenameClassRaw(string classId, string name)
         {
             Execute(connection, historyTransaction, "UPDATE AnnotationClass SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", name), new SqliteParameter("$id", classId));
         }
 
+        /// <summary>在目前工作階段中更新類別色彩。</summary>
         private void ChangeClassColorRaw(string classId, string color)
         {
             Execute(connection, historyTransaction, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", color), new SqliteParameter("$id", classId));
         }
 
+        /// <summary>在目前工作階段中設定圖片的 CLA 類別指派。</summary>
         private void SetClaRaw(string annotationSetId, string imageId, string classId)
         {
             Execute(connection, historyTransaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
             if (classId != null) Execute(connection, historyTransaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
         }
 
+        /// <summary>將目前資料列轉換為 OBD 標註物件。</summary>
         private static ObdAnnotation ReadObdAnnotation(SqliteDataReader reader)
         {
             return new ObdAnnotation(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8));
         }
 
+        /// <summary>將目前資料列與點位轉換為 SEG 區域物件。</summary>
         private SegRegion ReadSegRegion(SqliteDataReader reader)
         {
             string id = reader.GetString(0);
             return new SegRegion(id, reader.GetString(1), reader.GetString(2), reader.GetString(3), (SegRegionType)reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8), reader.GetInt32(9), GetSegPoints(id), reader.IsDBNull(10) ? 0 : reader.GetInt32(10));
         }
 
+        /// <summary>依標註識別碼讀取 OBD 標註。</summary>
         private ObdAnnotation GetObdAnnotation(string annotationId)
         {
             using (var command = connection.CreateCommand())
@@ -765,6 +845,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>確認 OBD 標註所屬標註集、圖片、類別及矩形尺寸有效。</summary>
         private void ValidateObd(string annotationSetId, string imageId, string classId, int x, int y, int width, int height)
         {
             object type = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
@@ -773,16 +854,19 @@ namespace Neurocle.Infrastructure.Persistence
             ValidateObdGeometry(GetImageSize(imageId), x, y, width, height);
         }
 
+        /// <summary>確認 OBD 矩形尺寸為正值且位於圖片範圍內。</summary>
         private static void ValidateObdGeometry(Size imageSize, int x, int y, int width, int height)
         {
             if (!IsObdGeometryWithinImage(imageSize, x, y, width, height)) throw new ArgumentOutOfRangeException(nameof(width));
         }
 
+        /// <summary>判斷 OBD 矩形是否完整位於圖片尺寸範圍內。</summary>
         private static bool IsObdGeometryWithinImage(Size imageSize, int x, int y, int width, int height)
         {
             return width >= 1 && height >= 1 && x >= 0 && y >= 0 && (long)x + width <= imageSize.Width && (long)y + height <= imageSize.Height;
         }
 
+        /// <summary>讀取指定圖片的原始尺寸。</summary>
         private Size GetImageSize(string imageId)
         {
             using (var command = connection.CreateCommand())
@@ -797,48 +881,57 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>將 OBD 標註資料列寫入目前資料庫或交易。</summary>
         private void InsertObdRaw(ObdAnnotation value)
         {
             InsertObdRaw(connection, historyTransaction, value);
         }
 
+        /// <summary>將 OBD 標註資料列寫入目前資料庫或交易。</summary>
         private static void InsertObdRaw(SqliteConnection db, SqliteTransaction transaction, ObdAnnotation value)
         {
             Execute(db, transaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder));
         }
 
+        /// <summary>將 OBD 標註資料列更新至目前資料庫或交易。</summary>
         private void UpdateObdRaw(ObdAnnotation value)
         {
             UpdateObdRaw(value, historyTransaction);
         }
 
+        /// <summary>將 OBD 標註資料列更新至目前資料庫或交易。</summary>
         private static void UpdateObdRaw(SqliteConnection db, SqliteTransaction transaction, ObdAnnotation value)
         {
             Execute(db, transaction, "UPDATE ObdAnnotation SET ClassId = $class, X = $x, Y = $y, Width = $width, Height = $height, ZOrder = $order WHERE Id = $id;", new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$id", value.Id));
         }
 
+        /// <summary>將 OBD 標註資料列更新至目前資料庫或交易。</summary>
         private void UpdateObdRaw(ObdAnnotation value, SqliteTransaction transaction)
         {
             UpdateObdRaw(connection, transaction, value);
         }
 
+        /// <summary>從資料庫移除指定 OBD 標註資料列。</summary>
         private void DeleteObdRaw(string annotationId)
         {
             Execute(connection, historyTransaction, "DELETE FROM ObdAnnotation WHERE Id = $id;", new SqliteParameter("$id", annotationId));
         }
 
+        /// <summary>將 SEG 區域資料列及其點位寫入目前資料庫或交易。</summary>
         private void InsertSegRegionRaw(SegRegion value)
         {
             if (historyTransaction != null) InsertSegRegionRaw(connection, historyTransaction, value);
             else CompleteOperation((db, transaction) => InsertSegRegionRaw(db, transaction, value));
         }
 
+        /// <summary>將 SEG 區域資料列及其點位寫入目前資料庫或交易。</summary>
         private static void InsertSegRegionRaw(SqliteConnection db, SqliteTransaction transaction, SegRegion value)
         {
             Execute(db, transaction, "INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth) VALUES ($id, $set, $image, $class, $type, $x, $y, $width, $height, $order, $stroke);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$type", (int)value.Type), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$stroke", value.StrokeWidth == 0 ? (object)DBNull.Value : value.StrokeWidth));
             InsertSegPointsRaw(db, transaction, value.Id, value.Points);
         }
 
+        /// <summary>在指定交易中依序寫入 SEG 區域點位。</summary>
         private static void InsertSegPointsRaw(SqliteConnection db, SqliteTransaction transaction, string regionId, IReadOnlyList<SegPoint> points)
         {
             using (var command = db.CreateCommand())
@@ -861,6 +954,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>依區域識別碼讀取排序後的 SEG 點位。</summary>
         private IReadOnlyList<SegPoint> GetSegPoints(string regionId)
         {
             var result = new List<SegPoint>();
@@ -873,6 +967,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <summary>依區域識別碼讀取 SEG 區域及其點位。</summary>
         private SegRegion GetSegRegion(string regionId)
         {
             using (var command = connection.CreateCommand())
@@ -887,11 +982,13 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>在目前資料庫或交易中更新 SEG 區域及其點位。</summary>
         private void UpdateSegRegionRaw(SegRegion value)
         {
             UpdateSegRegionRaw(connection, historyTransaction, value);
         }
 
+        /// <summary>在目前資料庫或交易中更新 SEG 區域及其點位。</summary>
         private static void UpdateSegRegionRaw(SqliteConnection db, SqliteTransaction transaction, SegRegion value)
         {
             Execute(db, transaction, "DELETE FROM SegRegionPoint WHERE RegionId = $id;", new SqliteParameter("$id", value.Id));
@@ -899,12 +996,14 @@ namespace Neurocle.Infrastructure.Persistence
             InsertSegPointsRaw(db, transaction, value.Id, value.Points);
         }
 
+        /// <inheritdoc />
         public string GetClaClassId(string annotationSetId, string imageId)
         {
             object value = ExecuteScalar(connection, "SELECT ClassId FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
         }
 
+        /// <summary>取得指定標註集內各圖片所使用的 CLA 類別識別碼。</summary>
         internal IReadOnlyDictionary<string, string> GetClaClassIds(string annotationSetId)
         {
             var result = new Dictionary<string, string>();
@@ -917,6 +1016,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId, string imageId)
         {
             var result = new List<ObdAnnotation>();
@@ -930,6 +1030,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <summary>讀取指定標註集所有圖片的 OBD 標註。</summary>
         internal IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId)
         {
             var result = new List<ObdAnnotation>();
@@ -942,6 +1043,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <inheritdoc />
         public ObdAnnotation AddObdAnnotation(string annotationSetId, string imageId, string classId, int x, int y, int width, int height)
         {
             ValidateObd(annotationSetId, imageId, classId, x, y, width, height);
@@ -952,6 +1054,7 @@ namespace Neurocle.Infrastructure.Persistence
             return value;
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<ObdAnnotation> AddObdAnnotationCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<ObdAnnotation> annotations)
         {
             if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
@@ -980,6 +1083,7 @@ namespace Neurocle.Infrastructure.Persistence
             return copies;
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId, string imageId)
         {
             var result = new List<SegRegion>();
@@ -993,6 +1097,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <summary>讀取指定標註集所有圖片的 SEG 區域。</summary>
         internal IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId)
         {
             var points = new Dictionary<string, List<SegPoint>>();
@@ -1012,6 +1117,7 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<SegRegion> AddSegRegionCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<SegRegion> regions)
         {
             if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
@@ -1046,6 +1152,7 @@ namespace Neurocle.Infrastructure.Persistence
             return copies;
         }
 
+        /// <inheritdoc />
         public SegRegion AddSegRegion(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height)
         {
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
@@ -1060,6 +1167,7 @@ namespace Neurocle.Infrastructure.Persistence
             return AddNewSegRegion(value, imageSize);
         }
 
+        /// <inheritdoc />
         public SegRegion AddSegPath(string annotationSetId, string imageId, string classId, SegRegionType type, IReadOnlyList<SegPoint> points, int strokeWidth)
         {
             if (points == null) throw new ArgumentNullException(nameof(points));
@@ -1087,6 +1195,7 @@ namespace Neurocle.Infrastructure.Persistence
             return AddNewSegRegion(value, imageSize);
         }
 
+        /// <inheritdoc />
         public void EraseSegPath(string annotationSetId, string imageId, string classId, IReadOnlyList<SegPoint> points, int strokeWidth)
         {
             if (points == null) throw new ArgumentNullException(nameof(points));
@@ -1108,7 +1217,7 @@ namespace Neurocle.Infrastructure.Persistence
             foreach (SegRegion region in affected)
             {
                 Paths64 difference = SegGeometryPrototype.Difference(ToPaths(region), eraser);
-                next.AddRange(ToPolygonRegions(region.AnnotationSetId, region.ImageId, region.ClassId, difference, imageSize, ref zOrder));
+                next.AddRange(ToPolygonRegions(region.AnnotationSetId, region.ImageId, region.ClassId, difference, imageSize, ref zOrder, new[] { region }));
             }
             CompleteOperation((db, transaction) =>
             {
@@ -1121,6 +1230,7 @@ namespace Neurocle.Infrastructure.Persistence
                 EstimateHistoryBytes(affected) + EstimateHistoryBytes(next));
         }
 
+        /// <summary>驗證新 SEG 區域，並合併同類別中具有正面積重疊的區域。</summary>
         private SegRegion AddNewSegRegion(SegRegion value, Size imageSize)
         {
             Paths64 merged = ToPaths(value);
@@ -1145,7 +1255,7 @@ namespace Neurocle.Infrastructure.Persistence
                 return value;
             }
             int zOrder = NextSegZOrder(value.AnnotationSetId, value.ImageId);
-            List<SegRegion> next = ToPolygonRegions(value.AnnotationSetId, value.ImageId, value.ClassId, merged, imageSize, ref zOrder);
+            List<SegRegion> next = ToPolygonRegions(value.AnnotationSetId, value.ImageId, value.ClassId, merged, imageSize, ref zOrder, removed.Concat(new[] { value }));
             CompleteOperation((db, transaction) =>
             {
                 foreach (SegRegion region in removed) Execute(db, transaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", region.Id));
@@ -1158,21 +1268,25 @@ namespace Neurocle.Infrastructure.Persistence
             return next[0];
         }
 
+        /// <summary>取得圖片內下一個 SEG 區域顯示順序值。</summary>
         private int NextSegZOrder(string annotationSetId, string imageId)
         {
             return Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
         }
 
+        /// <summary>判斷兩個 Clipper2 路徑是否有正面積重疊。</summary>
         private static bool HasAreaOverlap(Paths64 first, Paths64 second)
         {
             return SegGeometryPrototype.Area(Clipper.Intersect(first, second, FillRule.NonZero)) > 0;
         }
 
+        /// <summary>將 SEG 點位轉換為 Clipper2 整數路徑。</summary>
         private static Path64 ToPath(IEnumerable<SegPoint> points)
         {
             return new Path64(points.Select(point => new Point64(point.X, point.Y)).ToList());
         }
 
+        /// <summary>將 SEG 區域轉換為包含外框與洞的 Clipper2 路徑集合。</summary>
         private static Paths64 ToPaths(SegRegion value)
         {
             if (value.Type == SegRegionType.Rect) return new Paths64 { SegGeometryPrototype.Rectangle(value.X, value.Y, value.X + value.Width, value.Y + value.Height) };
@@ -1183,7 +1297,8 @@ namespace Neurocle.Infrastructure.Persistence
             return new Paths64 { polygon };
         }
 
-        private static List<SegRegion> ToPolygonRegions(string annotationSetId, string imageId, string classId, Paths64 paths, Size imageSize, ref int zOrder)
+        /// <summary>將布林運算路徑轉回有效的 SEG 多邊形區域。</summary>
+        private static List<SegRegion> ToPolygonRegions(string annotationSetId, string imageId, string classId, Paths64 paths, Size imageSize, ref int zOrder, IEnumerable<SegRegion> previousRegions = null)
         {
             var remaining = paths.Where(path => path.Count >= 3 && Math.Abs(Clipper.Area(path)) > 0).OrderByDescending(path => Math.Abs(Clipper.Area(path))).Select(path => new Path64(path)).ToList();
             var result = new List<SegRegion>();
@@ -1196,30 +1311,30 @@ namespace Neurocle.Infrastructure.Persistence
                 for (int index = remaining.Count - 1; index >= 0; index--)
                 {
                     Path64 possibleHole = remaining[index];
-                    if (Math.Sign(Clipper.Area(possibleHole)) != orientation && PointInPath(possibleHole[0], outer))
+                    if (Math.Sign(Clipper.Area(possibleHole)) != orientation && SegGeometryPrototype.IsPointInside(outer, possibleHole[0]))
                     {
                         holes.Add(possibleHole);
                         remaining.RemoveAt(index);
                     }
                 }
-                Path64 polygon = holes.Count == 0 ? new Path64(outer) : SegGeometryPrototype.BridgeHoles(outer, holes);
+                Path64 polygon;
+                if (holes.Count == 0) polygon = new Path64(outer);
+                else
+                {
+                    Path64[] contours = new[] { outer }.Concat(holes).ToArray();
+                    SegGeometryPrototype.BridgeConnection[] existing = (previousRegions ?? Enumerable.Empty<SegRegion>())
+                        .Where(region => region.Type == SegRegionType.PolyGon && region.Points.Count > 0)
+                        .SelectMany(region => SegGeometryPrototype.FindExistingBridgeConnections(ToPath(region.Points), outer, holes))
+                        .ToArray();
+                    polygon = SegGeometryPrototype.BridgeHoles(contours[0], contours.Skip(1), existing);
+                }
                 SegPoint[] points = polygon.Select(point => new SegPoint((int)Math.Max(0, Math.Min(imageSize.Width, point.X)), (int)Math.Max(0, Math.Min(imageSize.Height, point.Y)))).ToArray();
                 if (points.Distinct(new SegPointComparer()).Count() >= 3) result.Add(new SegRegion(Guid.NewGuid().ToString("D"), annotationSetId, imageId, classId, SegRegionType.PolyGon, 0, 0, 0, 0, zOrder++, points));
             }
             return result;
         }
 
-        private static bool PointInPath(Point64 point, Path64 path)
-        {
-            bool inside = false;
-            for (int current = 0, previous = path.Count - 1; current < path.Count; previous = current++)
-            {
-                Point64 a = path[current]; Point64 b = path[previous];
-                if ((a.Y > point.Y) != (b.Y > point.Y) && point.X < (b.X - a.X) * (point.Y - a.Y) / (double)(b.Y - a.Y) + a.X) inside = !inside;
-            }
-            return inside;
-        }
-
+        /// <inheritdoc />
         public void UpdateSegRegions(IEnumerable<SegRegion> regions)
         {
             if (regions == null) throw new ArgumentNullException(nameof(regions));
@@ -1239,11 +1354,21 @@ namespace Neurocle.Infrastructure.Persistence
             }
             var byId = requested.ToDictionary(value => value.Id, StringComparer.Ordinal);
             int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", setId), new SqliteParameter("$image", imageId)));
-            SegRegion[] next = previous.Select((value, index) => WithZOrder(byId[value.Id], firstZOrder + index)).ToArray();
+            SegRegion[] next = previous.Select((value, index) => WithZOrder(RebridgePolygon(byId[value.Id]), firstZOrder + index)).ToArray();
             CompleteOperation((db, transaction) => { foreach (SegRegion value in next) UpdateSegRegionRaw(db, transaction, value); });
             Record(setId, () => { foreach (SegRegion value in previous) UpdateSegRegionRaw(value); }, () => { foreach (SegRegion value in next) UpdateSegRegionRaw(value); }, EstimateHistoryBytes(previous) + EstimateHistoryBytes(next));
         }
 
+        /// <summary>重新輸出帶洞多邊形的橋接點位與繞行方向。</summary>
+        private static SegRegion RebridgePolygon(SegRegion value)
+        {
+            if (value.Type != SegRegionType.PolyGon) return value;
+            Path64 polygon = SegGeometryPrototype.Rebridge(ToPath(value.Points));
+            SegPoint[] points = polygon.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray();
+            return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, value.ZOrder, points, value.StrokeWidth);
+        }
+
+        /// <inheritdoc />
         public void DeleteSegRegions(IEnumerable<string> regionIds)
         {
             if (regionIds == null) throw new ArgumentNullException(nameof(regionIds));
@@ -1257,11 +1382,13 @@ namespace Neurocle.Infrastructure.Persistence
             Record(setId, () => { foreach (SegRegion value in previous) InsertSegRegionRaw(value); }, () => { foreach (string id in ids) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", id)); }, EstimateHistoryBytes(previous));
         }
 
+        /// <summary>建立套用指定顯示順序的 SEG 區域副本。</summary>
         private static SegRegion WithZOrder(SegRegion value, int zOrder)
         {
             return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, zOrder, value.Points, value.StrokeWidth);
         }
 
+        /// <summary>確認 SEG 區域座標、尺寸與點位符合圖片邊界及形狀要求。</summary>
         private static void ValidateSegGeometry(Size imageSize, SegRegion value)
         {
             if (value.Type == SegRegionType.Rect) { ValidateObdGeometry(imageSize, value.X, value.Y, value.Width, value.Height); return; }
@@ -1281,6 +1408,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (value.Type != SegRegionType.PolyGon && value.Type != SegRegionType.PolyLine) throw new ArgumentOutOfRangeException(nameof(value));
         }
 
+        /// <summary>判斷點位是否全部共線。</summary>
         private static bool AreCollinear(IReadOnlyList<SegPoint> points)
         {
             SegPoint first = points[0];
@@ -1290,10 +1418,13 @@ namespace Neurocle.Infrastructure.Persistence
 
         private sealed class SegPointComparer : IEqualityComparer<SegPoint>
         {
+            /// <summary>依 X 與 Y 座標比較兩個 SEG 點位。</summary>
             public bool Equals(SegPoint first, SegPoint second) { return first.X == second.X && first.Y == second.Y; }
+            /// <summary>依 X 與 Y 座標產生 SEG 點位雜湊碼。</summary>
             public int GetHashCode(SegPoint value) { return value.X.GetHashCode() ^ value.Y.GetHashCode(); }
         }
 
+        /// <inheritdoc />
         public void UpdateObdAnnotation(string annotationId, string classId, int x, int y, int width, int height)
         {
             ObdAnnotation previous = GetObdAnnotation(annotationId);
@@ -1304,6 +1435,7 @@ namespace Neurocle.Infrastructure.Persistence
             Record(previous.AnnotationSetId, () => UpdateObdRaw(previous), () => UpdateObdRaw(next), EstimateHistoryBytes(previous.Id, previous.ClassId, next.ClassId));
         }
 
+        /// <inheritdoc />
         public void UpdateObdAnnotations(IEnumerable<ObdAnnotation> annotations)
         {
             if (annotations == null) throw new ArgumentNullException(nameof(annotations));
@@ -1347,6 +1479,7 @@ namespace Neurocle.Infrastructure.Persistence
             Record(annotationSetId, () => { foreach (ObdAnnotation value in previous) UpdateObdRaw(value); }, () => { foreach (ObdAnnotation value in next) UpdateObdRaw(value); }, EstimateHistoryBytes(previous) + EstimateHistoryBytes(next));
         }
 
+        /// <inheritdoc />
         public void DeleteObdAnnotation(string annotationId)
         {
             ObdAnnotation previous = GetObdAnnotation(annotationId);
@@ -1354,6 +1487,7 @@ namespace Neurocle.Infrastructure.Persistence
             Record(previous.AnnotationSetId, () => InsertObdRaw(previous), () => DeleteObdRaw(annotationId), EstimateHistoryBytes(previous.Id, previous.AnnotationSetId, previous.ImageId, previous.ClassId));
         }
 
+        /// <inheritdoc />
         public void DeleteObdAnnotations(IEnumerable<string> annotationIds)
         {
             if (annotationIds == null) throw new ArgumentNullException(nameof(annotationIds));
@@ -1368,11 +1502,13 @@ namespace Neurocle.Infrastructure.Persistence
             Record(annotationSetId, () => { foreach (ObdAnnotation value in previous) InsertObdRaw(value); }, () => { foreach (string id in ids) DeleteObdRaw(id); }, EstimateHistoryBytes(previous));
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<ProjectImage> GetMissingImages()
         {
             return GetImages().Where(image => image.IsMissing).ToList();
         }
 
+        /// <inheritdoc />
         public void RelinkImage(string imageId, string sourcePath)
         {
             if (imageId == null) throw new ArgumentNullException(nameof(imageId));
@@ -1396,6 +1532,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <inheritdoc />
         public void DeleteImages(IEnumerable<string> imageIds)
         {
             if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
@@ -1410,6 +1547,7 @@ namespace Neurocle.Infrastructure.Persistence
             var stagedPaths = new Dictionary<string, string>();
             try
             {
+                // 先移至暫存目錄，讓資料庫刪除失敗時仍可將圖片復原。
                 string operationDirectory = Path.Combine(DeletingImagesDirectory, Guid.NewGuid().ToString("N"));
                 foreach (ProjectImage image in deleted)
                 {
@@ -1450,11 +1588,13 @@ namespace Neurocle.Infrastructure.Persistence
             histories.Clear();
         }
 
+        /// <inheritdoc />
         public IReadOnlyList<ProjectBackup> GetBackups()
         {
             return GetBackups(ProjectPath);
         }
 
+        /// <inheritdoc />
         public IProjectSession RestoreBackup(string backupPath)
         {
             if (backupPath == null) throw new ArgumentNullException(nameof(backupPath));
@@ -1465,6 +1605,7 @@ namespace Neurocle.Infrastructure.Persistence
             File.Copy(fullBackupPath, temporary, true);
             try
             {
+                // 在替換目前資料庫前先驗證備份副本，避免無效檔案取代可用專案。
                 ValidateDatabase(temporary);
             }
             catch
@@ -1472,6 +1613,7 @@ namespace Neurocle.Infrastructure.Persistence
                 File.Delete(temporary);
                 throw;
             }
+            // 還原失敗時保留可用備份，原工作階段可由呼叫端重新開啟。
             CreateBackup("before-restore-" + UtcNow().ToString("yyyyMMdd-HHmmssfff"));
             connection.Dispose();
             lockStream.Dispose();
@@ -1490,6 +1632,7 @@ namespace Neurocle.Infrastructure.Persistence
             return Open(ProjectPath);
         }
 
+        /// <inheritdoc />
         public IProjectSession SaveAs(string targetPath)
         {
             string fullTargetPath = PreparePath(targetPath, false);
@@ -1511,12 +1654,14 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <inheritdoc />
         public void Dispose()
         {
             connection.Dispose();
             lockStream.Dispose();
         }
 
+        /// <summary>驗證並正規化專案路徑，同時復原未完成的檔案替換。</summary>
         private static string PreparePath(string projectPath, bool mustExist)
         {
             ProjectLocationValidator.EnsureSupported(projectPath);
@@ -1530,6 +1675,7 @@ namespace Neurocle.Infrastructure.Persistence
             return fullPath;
         }
 
+        /// <summary>取得專案檔案獨佔鎖，避免多個工作階段同時操作。</summary>
         private static FileStream AcquireLock(string path)
         {
             try
@@ -1542,6 +1688,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>以暫存檔與回復副本替換專案資料庫，支援中斷後復原。</summary>
         private static void ReplaceFileSafely(string source, string destination)
         {
             try { NativeReplaceFile(source, destination); }
@@ -1549,6 +1696,7 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 string original = PendingReplacementPath(destination);
                 if (File.Exists(original)) throw new IOException("A previous database replacement has not been recovered.");
+                // 備存原資料庫後才替換；下次開啟時可依暫存檔判斷如何復原。
                 MoveFile(destination, original);
                 try
                 {
@@ -1563,6 +1711,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>在開啟專案前，依原檔與暫存回復檔狀態完成替換復原。</summary>
         private static void RecoverPendingReplacement(string projectPath)
         {
             string original = PendingReplacementPath(projectPath);
@@ -1575,11 +1724,13 @@ namespace Neurocle.Infrastructure.Persistence
             File.Delete(original);
         }
 
+        /// <summary>取得安全替換流程使用的原資料庫暫存路徑。</summary>
         private static string PendingReplacementPath(string projectPath)
         {
             return projectPath + ".restore-original";
         }
 
+        /// <summary>開啟 SQLite 連線並啟用外鍵檢查。</summary>
         private static SqliteConnection OpenConnection(string path)
         {
             var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString());
@@ -1588,6 +1739,7 @@ namespace Neurocle.Infrastructure.Persistence
             return connection;
         }
 
+        /// <summary>在指定連線及交易中執行 SQL 非查詢命令。</summary>
         private static void Execute(SqliteConnection connection, SqliteTransaction transaction, string commandText, params SqliteParameter[] parameters)
         {
             using (var command = connection.CreateCommand())
@@ -1599,6 +1751,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>執行 SQL 命令並回傳第一個資料列的第一個欄位。</summary>
         private static object ExecuteScalar(SqliteConnection connection, string commandText)
         {
             using (var command = connection.CreateCommand())
@@ -1608,6 +1761,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>執行 SQL 命令並回傳第一個資料列的第一個欄位。</summary>
         private static object ExecuteScalar(SqliteConnection connection, string commandText, params SqliteParameter[] parameters)
         {
             using (var command = connection.CreateCommand())
@@ -1618,6 +1772,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>嘗試以唯讀方式開啟圖片，判斷受管理檔案是否可用。</summary>
         private static bool CanReadImage(string path)
         {
             try
@@ -1628,6 +1783,7 @@ namespace Neurocle.Infrastructure.Persistence
             catch (UnauthorizedAccessException) { return false; }
         }
 
+        /// <summary>逐張驗證及匯入圖片，回報成功、失敗、取消與處理進度。</summary>
         private ImageImportReport ImportSourcesWithReport(IReadOnlyList<string> sources, Func<bool> cancellationRequested, IReadOnlyList<ImageImportFailureDetail> initialFailures = null, Action<ImageImportProgress> progress = null)
         {
             var imported = new List<ProjectImage>();
@@ -1655,6 +1811,7 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImageImportReport(imported, failures, 0);
         }
 
+        /// <summary>將來源圖片複製至受管理目錄並新增資料列，失敗時移除新複製檔。</summary>
         private ProjectImage ImportFile(string source, int sequence)
         {
             string managedName = NextManagedName(ProjectImageImporter.RequiresPngConversion(source)
@@ -1662,6 +1819,7 @@ namespace Neurocle.Infrastructure.Persistence
                 : Path.GetFileName(source));
             ProjectImage image = ProjectImageImporter.Read(source, managedName, sequence);
             string destination = Path.Combine(ImagesDirectory, managedName);
+            // 先寫入圖片檔，再提交資料庫記錄；資料庫寫入失敗時刪除新檔。
             ProjectImageImporter.CopyToManagedStorage(source, destination);
             try
             {
@@ -1677,11 +1835,13 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>依自然檔名排序來源路徑，讓匯入順序保持穩定。</summary>
         private static List<string> OrderSources(IEnumerable<string> filePaths)
         {
             return filePaths.OrderBy(Path.GetFileName, NaturalFileNameComparer.Instance).ToList();
         }
 
+        /// <summary>依目前類別色彩選擇下一個未使用的色彩。</summary>
         private static string NextClassColor(IEnumerable<string> existing)
         {
             var colors = new HashSet<string>(existing.Select(value => AnnotationColorFormat.Normalize(value).Replace("-custom", "")), StringComparer.Ordinal);
@@ -1698,6 +1858,7 @@ namespace Neurocle.Infrastructure.Persistence
             throw new InvalidOperationException("No available RGB colors remain.");
         }
 
+        /// <summary>檢查資料庫版本，必要時先備份再遷移至目前結構。</summary>
         private static void EnsureCurrentSchema(SqliteConnection db, string projectPath)
         {
             int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
@@ -1715,6 +1876,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>在結構遷移前建立資料庫備份。</summary>
         private static void CreateMigrationBackup(SqliteConnection db, string projectPath, int version)
         {
             Execute(db, null, "PRAGMA wal_checkpoint(FULL);");
@@ -1729,11 +1891,13 @@ namespace Neurocle.Infrastructure.Persistence
             TrimBackups(directory);
         }
 
+        // 取得此專案的備份目錄。
         private string BackupDirectory
         {
             get { return GetBackupDirectory(ProjectPath); }
         }
 
+        /// <summary>建立當日備份，並維持專案備份數量上限。</summary>
         private void CreateDailyBackup()
         {
             string name = "daily-" + UtcNow().ToString("yyyy-MM-dd") + ".neurocle";
@@ -1745,12 +1909,14 @@ namespace Neurocle.Infrastructure.Persistence
             TrimBackups(BackupDirectory);
         }
 
+        /// <summary>儲存目前資料庫後建立指定名稱的備份。</summary>
         private void CreateBackup(string name)
         {
             Save();
             CreateBackupFile(ProjectPath, name);
         }
 
+        /// <summary>建立具唯一檔名的資料庫備份並更新保留清單。</summary>
         private static void CreateBackupFile(string projectPath, string name)
         {
             string directory = GetBackupDirectory(projectPath);
@@ -1763,6 +1929,7 @@ namespace Neurocle.Infrastructure.Persistence
             TrimBackups(directory);
         }
 
+        /// <summary>列出指定專案備份目錄中的備份檔，並依建立時間由新到舊排序。</summary>
         private static IReadOnlyList<ProjectBackup> GetBackups(string projectPath)
         {
             string directory = GetBackupDirectory(projectPath);
@@ -1772,16 +1939,19 @@ namespace Neurocle.Infrastructure.Persistence
                 .OrderByDescending(backup => backup.CreatedUtc).ThenByDescending(backup => backup.Path, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
+        /// <summary>組合指定專案的備份目錄路徑。</summary>
         private static string GetBackupDirectory(string projectPath)
         {
             return Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".backups");
         }
 
+        /// <summary>刪除超出保留數量上限的舊備份檔。</summary>
         private static void TrimBackups(string directory)
         {
             foreach (string oldBackup in Directory.GetFiles(directory, "*.neurocle").OrderByDescending(File.GetLastWriteTimeUtc).ThenByDescending(file => file, StringComparer.OrdinalIgnoreCase).Skip(MaximumBackupCount)) File.Delete(oldBackup);
         }
 
+        /// <summary>開啟並檢查資料庫必要資料表、欄位及索引結構。</summary>
         private static void ValidateDatabase(string path)
         {
             using (SqliteConnection db = OpenConnection(path))
@@ -1804,6 +1974,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>確認資料表包含必要欄位、主鍵欄位與唯一欄位。</summary>
         private static void ValidateTableColumns(SqliteConnection db, string table, IReadOnlyList<string> requiredColumns, string primaryKeyColumn, IReadOnlyList<string> uniqueColumns)
         {
             var columns = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -1820,6 +1991,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (uniqueColumns != null && uniqueColumns.Any(column => !HasUniqueIndex(db, table, column))) throw new InvalidDataException("The backup database schema is incomplete.");
         }
 
+        /// <summary>檢查資料表是否有涵蓋指定欄位的唯一索引。</summary>
         private static bool HasUniqueIndex(SqliteConnection db, string table, string requiredColumn)
         {
             using (var indexList = db.CreateCommand())
@@ -1845,6 +2017,7 @@ namespace Neurocle.Infrastructure.Persistence
             return false;
         }
 
+        /// <summary>遞迴複製來源目錄中的檔案與子目錄。</summary>
         private static void CopyDirectory(string source, string target)
         {
             Directory.CreateDirectory(target);
@@ -1852,6 +2025,7 @@ namespace Neurocle.Infrastructure.Persistence
             foreach (string directory in Directory.GetDirectories(source)) CopyDirectory(directory, Path.Combine(target, Path.GetFileName(directory)));
         }
 
+        /// <summary>產生不與現有受管理圖片檔名衝突的名稱。</summary>
         private string NextManagedName(string originalName)
         {
             string stem = Path.GetFileNameWithoutExtension(originalName);
@@ -1862,11 +2036,13 @@ namespace Neurocle.Infrastructure.Persistence
             return candidate;
         }
 
+        /// <summary>在指定交易中建立圖片資料表及相關索引。</summary>
         private static void CreateImageTable(SqliteConnection db, SqliteTransaction transaction)
         {
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ImageRecord (Id TEXT PRIMARY KEY NOT NULL, OriginalFileName TEXT NOT NULL, ManagedFileName TEXT NOT NULL UNIQUE, Sha256 TEXT NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, Sequence INTEGER NOT NULL UNIQUE);");
         }
 
+        /// <summary>在指定交易中建立標註及資料集相關資料表。</summary>
         private static void CreateAnnotationTables(SqliteConnection db, SqliteTransaction transaction)
         {
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS AnnotationSet (Id TEXT PRIMARY KEY NOT NULL, Name TEXT NOT NULL, Type INTEGER NOT NULL);");
@@ -1878,6 +2054,7 @@ namespace Neurocle.Infrastructure.Persistence
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS DatasetAssignment (AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, Status INTEGER NOT NULL, Retest INTEGER NOT NULL, PRIMARY KEY (AnnotationSetId, ImageId));");
         }
 
+        /// <summary>修剪名稱前後空白並拒絕空白名稱。</summary>
         private static string NormalizeName(string name)
         {
             string normalized = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
@@ -1885,11 +2062,13 @@ namespace Neurocle.Infrastructure.Persistence
             return normalized;
         }
 
+        // 取得刪除圖片時暫存檔案的目錄。
         private string DeletingImagesDirectory
         {
             get { return ImagesDirectory + ".deleting"; }
         }
 
+        /// <summary>依資料庫記錄復原或清除刪除作業留下的暫存圖片。</summary>
         private void RecoverStagedImages()
         {
             if (!Directory.Exists(DeletingImagesDirectory)) return;
@@ -1916,6 +2095,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (Directory.Exists(DeletingImagesDirectory) && !Directory.EnumerateFileSystemEntries(DeletingImagesDirectory).Any()) Directory.Delete(DeletingImagesDirectory);
         }
 
+        /// <summary>確認受管理圖片檔名是否仍有資料庫記錄。</summary>
         private bool ImageRecordExists(string managedFileName)
         {
             using (var command = connection.CreateCommand())
@@ -1926,6 +2106,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>在檔案刪除流程失敗時將暫存圖片移回原位置。</summary>
         private static void RestoreStagedImages(IDictionary<string, string> stagedPaths)
         {
             foreach (KeyValuePair<string, string> stagedPath in stagedPaths)
@@ -1934,6 +2115,7 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>清除建立或另存失敗而留下的新專案檔及圖片目錄。</summary>
         private static void DeleteNewProject(string projectPath)
         {
             string imagesDirectory = Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".images");
@@ -1942,8 +2124,10 @@ namespace Neurocle.Infrastructure.Persistence
             if (File.Exists(projectPath + ".lock")) File.Delete(projectPath + ".lock");
         }
 
+        // 保存一個可重播的操作及其記憶體用量估算。
         private sealed class HistoryEntry
         {
+            /// <summary>建立一筆 Undo、Redo 委派及其容量估算資料。</summary>
             public HistoryEntry(Action undo, Action redo, long sizeBytes)
             {
                 Undo = undo ?? throw new ArgumentNullException(nameof(undo));
@@ -1951,23 +2135,36 @@ namespace Neurocle.Infrastructure.Persistence
                 SizeBytes = sizeBytes;
             }
 
+            // 執行操作反向還原的委派。
             public Action Undo { get; }
+            // 重新套用操作的委派。
             public Action Redo { get; }
+            // 此歷程項目的容量估算值。
             public long SizeBytes { get; }
         }
 
+        // 管理單一標註集的 Undo/Redo 堆疊與容量上限。
         private sealed class AnnotationHistory
         {
+            // 限制單一標註集歷程保留的操作數量。
             private const int MaximumActionCount = 100;
+            // 限制單一標註集歷程保留的最大記憶體估算值。
             private const long MaximumSizeBytes = 512L * 1024L * 1024L;
+            // 依新舊順序保存可復原的操作。
             private readonly List<HistoryEntry> undo = new List<HistoryEntry>();
+            // 依新舊順序保存可重做的操作。
             private readonly List<HistoryEntry> redo = new List<HistoryEntry>();
+            // 記錄 Undo 堆疊的估算容量。
             private long undoSizeBytes;
+            // 記錄 Redo 堆疊的估算容量。
             private long redoSizeBytes;
 
+            // 表示 Undo 堆疊是否有可復原項目。
             public bool CanUndo { get { return undo.Count != 0; } }
+            // 表示 Redo 堆疊是否有可重做項目。
             public bool CanRedo { get { return redo.Count != 0; } }
 
+            /// <summary>將新操作放入 Undo 歷程並清空 Redo 歷程。</summary>
             public void Push(HistoryEntry entry)
             {
                 redo.Clear();
@@ -1977,28 +2174,33 @@ namespace Neurocle.Infrastructure.Persistence
                 Trim(undo, ref undoSizeBytes);
             }
 
+            /// <summary>取出最新的 Undo 歷程項目。</summary>
             public HistoryEntry TakeUndo()
             {
                 return Take(undo, ref undoSizeBytes);
             }
 
+            /// <summary>取出最新的 Redo 歷程項目。</summary>
             public HistoryEntry TakeRedo()
             {
                 return Take(redo, ref redoSizeBytes);
             }
 
+            /// <summary>Undo 執行失敗時將歷程項目放回原堆疊。</summary>
             public void ReturnUndo(HistoryEntry entry)
             {
                 undo.Add(entry);
                 undoSizeBytes += entry.SizeBytes;
             }
 
+            /// <summary>Redo 執行失敗時將歷程項目放回原堆疊。</summary>
             public void ReturnRedo(HistoryEntry entry)
             {
                 redo.Add(entry);
                 redoSizeBytes += entry.SizeBytes;
             }
 
+            /// <summary>Undo 成功後將歷程項目移入 Redo 堆疊。</summary>
             public void MoveUndoToRedo(HistoryEntry entry)
             {
                 redo.Add(entry);
@@ -2006,6 +2208,7 @@ namespace Neurocle.Infrastructure.Persistence
                 Trim(redo, ref redoSizeBytes);
             }
 
+            /// <summary>Redo 成功後將歷程項目移入 Undo 堆疊。</summary>
             public void MoveRedoToUndo(HistoryEntry entry)
             {
                 undo.Add(entry);
@@ -2013,6 +2216,7 @@ namespace Neurocle.Infrastructure.Persistence
                 Trim(undo, ref undoSizeBytes);
             }
 
+            /// <summary>移除指定歷程堆疊最新項目並更新容量計數。</summary>
             private static HistoryEntry Take(List<HistoryEntry> entries, ref long sizeBytes)
             {
                 if (entries.Count == 0) return null;
@@ -2023,6 +2227,7 @@ namespace Neurocle.Infrastructure.Persistence
                 return entry;
             }
 
+            /// <summary>移除超過項目數或記憶體容量上限的最舊歷程項目。</summary>
             private static void Trim(List<HistoryEntry> entries, ref long sizeBytes)
             {
                 while (entries.Count > MaximumActionCount || sizeBytes > MaximumSizeBytes)
@@ -2033,10 +2238,13 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        // 以數字片段的數值順序比較檔名，例如 image2 排在 image10 前。
         private sealed class NaturalFileNameComparer : IComparer<string>
         {
+            // 共用自然檔名比較器執行個體。
             public static readonly NaturalFileNameComparer Instance = new NaturalFileNameComparer();
 
+            /// <summary>以不區分大小寫的自然數字順序比較兩個檔名。</summary>
             public int Compare(string left, string right)
             {
                 if (ReferenceEquals(left, right)) return 0;
@@ -2068,6 +2276,7 @@ namespace Neurocle.Infrastructure.Persistence
                 return left.Length.CompareTo(right.Length);
             }
 
+            /// <summary>取得檔名中連續數字片段的結束索引。</summary>
             private static int FindDigitsEnd(string value, int start)
             {
                 int index = start;
@@ -2075,6 +2284,7 @@ namespace Neurocle.Infrastructure.Persistence
                 return index;
             }
 
+            /// <summary>忽略前導零後比較兩個數字片段的數值大小。</summary>
             private static int CompareDigits(string left, int leftStart, int leftEnd, string right, int rightStart, int rightEnd)
             {
                 while (leftStart < leftEnd && left[leftStart] == '0') leftStart++;

@@ -4,22 +4,38 @@ using System.Linq;
 
 namespace Neurocle.Application.Projects
 {
+    // 圖片清單可用的排序欄位。
     public enum ImageListSortColumn
     {
+        // 依圖片顯示序號排序。
         Sequence,
+        // 依原始檔名的自然排序排序。
         FileName,
+        // 依標註類別名稱排序。
         Classes,
+        // 依標註數量排序。
         AnnotationCount
     }
 
+    // 圖片清單的排序方向。
     public enum ImageListSortDirection
     {
+        // 由小至大或由 A 至 Z 排序。
         Ascending,
+        // 由大至小或由 Z 至 A 排序。
         Descending
     }
 
+    // 將圖片資料依搜尋字串與清單欄位轉換為排序後的顯示集合。
     public static class ImageListProjection
     {
+        /// <summary>篩選圖片並排序；僅 Sequence 使用序號，其餘欄位以原始檔名自然排序；檔名比對不區分大小寫。</summary>
+        /// <param name="images">待顯示的圖片集合。</param>
+        /// <param name="searchText">要在原始檔名中搜尋的文字；空白值不篩選。</param>
+        /// <param name="column">選取的排序欄位。</param>
+        /// <param name="direction">排序方向。</param>
+        /// <returns>依指定條件排序後的新清單。</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="images"/> 為 null。</exception>
         public static IReadOnlyList<ProjectImage> FilterAndSort(IEnumerable<ProjectImage> images, string searchText, ImageListSortColumn column, ImageListSortDirection direction)
         {
             if (images == null) throw new ArgumentNullException(nameof(images));
@@ -31,6 +47,13 @@ namespace Neurocle.Application.Projects
             return (direction == ImageListSortDirection.Ascending ? ordered : ordered.Reverse()).ToList();
         }
 
+        /// <summary>篩選並排序包含類別與標註摘要的圖片列。</summary>
+        /// <param name="rows">待顯示的圖片列集合。</param>
+        /// <param name="searchText">要在原始檔名中搜尋的文字；空白值不篩選。</param>
+        /// <param name="column">選取的排序欄位。</param>
+        /// <param name="direction">排序方向。</param>
+        /// <returns>依指定條件排序後的新圖片列清單。</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="rows"/> 為 null。</exception>
         public static IReadOnlyList<ImageListRow> FilterAndSort(IEnumerable<ImageListRow> rows, string searchText, ImageListSortColumn column, ImageListSortDirection direction)
         {
             if (rows == null) throw new ArgumentNullException(nameof(rows));
@@ -55,10 +78,16 @@ namespace Neurocle.Application.Projects
             return (direction == ImageListSortDirection.Ascending ? imageOrdered : imageOrdered.Reverse()).ToList();
         }
 
+        // 比較檔名文字與數字片段，使 image2 排在 image10 之前。
         private sealed class NaturalFileNameComparer : IComparer<string>
         {
+            // 共用的自然檔名比較器實例。
             public static readonly NaturalFileNameComparer Instance = new NaturalFileNameComparer();
 
+            /// <summary>以不區分字母大小寫的字元順序及數字值比較兩個檔名。</summary>
+            /// <param name="left">排序中的第一個檔名。</param>
+            /// <param name="right">排序中的第二個檔名。</param>
+            /// <returns>依排序先後回傳負數、零或正數。</returns>
             public int Compare(string left, string right)
             {
                 if (ReferenceEquals(left, right)) return 0;
@@ -95,8 +124,15 @@ namespace Neurocle.Application.Projects
         }
     }
 
+    // 供圖片清單呈現的圖片、類別及標註數量摘要。
     public sealed class ImageListRow
     {
+        /// <summary>建立圖片清單顯示列，並將類別名稱去重後排序。</summary>
+        /// <param name="image">對應的圖片資料。</param>
+        /// <param name="classNames">圖片上已使用的類別名稱。</param>
+        /// <param name="annotationCount">圖片目前的標註數量。</param>
+        /// <param name="showAnnotationCount">介面是否顯示標註數量。</param>
+        /// <exception cref="ArgumentNullException"><paramref name="image"/> 或 <paramref name="classNames"/> 為 null。</exception>
         public ImageListRow(ProjectImage image, IReadOnlyList<string> classNames, int annotationCount, bool showAnnotationCount)
         {
             Image = image ?? throw new ArgumentNullException(nameof(image));
@@ -105,10 +141,15 @@ namespace Neurocle.Application.Projects
             ShowAnnotationCount = showAnnotationCount;
         }
 
+        // 取得此顯示列所代表的圖片。
         public ProjectImage Image { get; private set; }
+        // 取得去重並依字串順序排列的類別名稱。
         public IReadOnlyList<string> ClassNames { get; private set; }
+        // 取得此圖片目前的標註數量。
         public int AnnotationCount { get; private set; }
+        // 取得清單是否應顯示標註數量。
         public bool ShowAnnotationCount { get; private set; }
+        // 取得以逗號分隔的類別名稱顯示文字。
         public string ClassDisplay { get { return string.Join(", ", ClassNames); } }
     }
 }

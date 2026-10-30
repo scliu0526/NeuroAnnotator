@@ -7,68 +7,61 @@ using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
-    internal sealed class DatasetAssignmentControl : UserControl
+    // 顯示並編輯圖片在目前標註集中的資料集分配狀態。
+    internal sealed partial class DatasetAssignmentControl : UserControl
     {
-        private readonly ListView list;
-        private readonly ComboBox setFilter;
-        private readonly ComboBox classFilter;
-        private readonly ComboBox annotationFilter;
-        private readonly ComboBox retestFilter;
-        private readonly NumericUpDown trainPercent;
-        private readonly NumericUpDown testPercent;
-        private readonly ColumnHeader annotationCountColumn;
+        // 防止更新訓練比例時再次觸發互相同步事件。
         private bool synchronizingPercentages;
+        // 保存目前載入的所有資料集列。
         private readonly List<DatasetRow> rows = new List<DatasetRow>();
+        // 保存套用篩選條件後的可見資料集列。
         private readonly List<DatasetRow> visibleRows = new List<DatasetRow>();
 
+        /// <summary>初始化資料集控制項並接線執行期操作事件。</summary>
         public DatasetAssignmentControl()
         {
-            var actions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-            AddButton(actions, Strings.DatasetTrain, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Train));
-            AddButton(actions, Strings.DatasetTest, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Test));
-            AddButton(actions, Strings.DatasetUnassigned, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned));
-            AddButton(actions, Strings.DatasetNotUsed, () => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed));
-            AddButton(actions, Strings.DatasetRetest, () => RetestRequested?.Invoke(SelectedImageIds, true));
-            actions.Controls.Add(new Label { Text = Strings.DatasetTrainPercent, AutoSize = true, Margin = new Padding(6, 8, 2, 2) });
-            trainPercent = new NumericUpDown { Minimum = 1, Maximum = 99, Value = 80, Width = 48 };
-            actions.Controls.Add(trainPercent);
-            actions.Controls.Add(new Label { Text = Strings.DatasetTestPercent, AutoSize = true, Margin = new Padding(2, 8, 2, 2) });
-            testPercent = new NumericUpDown { Minimum = 1, Maximum = 99, Value = 20, Width = 48 };
-            trainPercent.ValueChanged += (sender, args) => SynchronizePercentages(trainPercent, testPercent);
-            testPercent.ValueChanged += (sender, args) => SynchronizePercentages(testPercent, trainPercent);
-            actions.Controls.Add(testPercent);
-            AddButton(actions, Strings.DatasetAutoSplit, () => { if (MessageBox.Show(Strings.DatasetAutoSplitConfirm, Strings.DatasetAutoSplit, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK) AutoSplitRequested?.Invoke((int)trainPercent.Value); });
-            var filters = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true };
-            setFilter = AddFilter(filters, Strings.DatasetFilterSet, new[] { Strings.DatasetFilterAll, Strings.DatasetTrain, Strings.DatasetTest, Strings.DatasetUnassigned, Strings.DatasetNotUsed });
-            classFilter = AddFilter(filters, Strings.DatasetFilterClass, new[] { Strings.DatasetFilterAll });
-            annotationFilter = AddFilter(filters, Strings.DatasetFilterAnnotation, new[] { Strings.DatasetFilterAll, Strings.DatasetFilterAnnotated, Strings.DatasetFilterEmpty });
-            retestFilter = AddFilter(filters, Strings.DatasetFilterRetest, new[] { Strings.DatasetFilterAll, Strings.DatasetFilterRetest, Strings.DatasetFilterNoRetest });
-            list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = true, HideSelection = false, VirtualMode = true };
-            list.RetrieveVirtualItem += (sender, args) => args.Item = CreateItem(visibleRows[args.ItemIndex]);
-            list.Columns.Add(Strings.ImageSequenceColumn, 70);
-            list.Columns.Add(Strings.ImageFileNameColumn, 230);
-            list.Columns.Add(Strings.DatasetColumn, 100);
-            list.Columns.Add(Strings.DatasetClassColumn, 180);
-            list.Columns.Add(Strings.DatasetAnnotatedColumn, 80);
-            annotationCountColumn = new ColumnHeader { Text = Strings.DatasetAnnotationCountColumn, Width = 80 };
-            list.Columns.Add(Strings.DatasetRetestColumn, 70);
-            var menu = new ContextMenuStrip();
-            menu.Items.Add(Strings.DatasetClearRetest, null, (sender, args) => RetestRequested?.Invoke(SelectedImageIds, false));
-            menu.Items.Add(Strings.DatasetClearClass, null, (sender, args) => ClearClassRequested?.Invoke(SelectedImageIds));
-            menu.Items.Add(Strings.DatasetClearSet, null, (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned));
-            list.ContextMenuStrip = menu;
-            Controls.Add(list);
-            Controls.Add(actions);
-            Controls.Add(filters);
+            InitializeComponent();
+            WireRuntimeEvents();
         }
 
+        /// <summary>接線篩選、分配、Retest 及自動切分的使用者操作。</summary>
+        private void WireRuntimeEvents()
+        {
+            trainPercent.ValueChanged += (sender, args) => SynchronizePercentages(trainPercent, testPercent);
+            testPercent.ValueChanged += (sender, args) => SynchronizePercentages(testPercent, trainPercent);
+            setFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
+            classFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
+            annotationFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
+            retestFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
+            list.RetrieveVirtualItem += (sender, args) => args.Item = CreateItem(visibleRows[args.ItemIndex]);
+            trainButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Train);
+            testButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Test);
+            unassignedButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned);
+            notUsedButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed);
+            retestButton.Click += (sender, args) => RetestRequested?.Invoke(SelectedImageIds, true);
+            autoSplitButton.Click += (sender, args) =>
+            {
+                if (MessageBox.Show(Strings.DatasetAutoSplitConfirm, Strings.DatasetAutoSplit, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                    AutoSplitRequested?.Invoke((int)trainPercent.Value);
+            };
+            clearRetestItem.Click += (sender, args) => RetestRequested?.Invoke(SelectedImageIds, false);
+            clearClassItem.Click += (sender, args) => ClearClassRequested?.Invoke(SelectedImageIds);
+            clearSetItem.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned);
+        }
+
+        // 通知主視窗更新所選圖片的資料集狀態。
         public event Action<IReadOnlyList<string>, DatasetAssignmentStatus> DatasetRequested;
+        // 通知主視窗更新所選圖片的 Retest 旗標。
         public event Action<IReadOnlyList<string>, bool> RetestRequested;
+        // 通知主視窗清除所選圖片的 CLA 類別。
         public event Action<IReadOnlyList<string>> ClearClassRequested;
+        // 通知主視窗以目前比例自動切分資料集。
         public event Action<int> AutoSplitRequested;
 
+        // 取得目前已載入的全部資料集列。
         internal IReadOnlyList<DatasetRow> Rows { get { return rows; } }
 
+        /// <summary>同步訓練與測試比例，使兩者總和維持百分之百。</summary>
         private void SynchronizePercentages(NumericUpDown source, NumericUpDown target)
         {
             if (synchronizingPercentages) return;
@@ -77,8 +70,10 @@ namespace Neurocle.WinForms
             synchronizingPercentages = false;
         }
 
+        // 取得目前清單選取的圖片識別碼。
         public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visibleRows[index].Image.Id).ToArray(); } }
 
+        /// <summary>載入資料集列並更新類別篩選及可選的標註數欄位。</summary>
         public void LoadRows(IEnumerable<DatasetRow> values, bool showAnnotationCount = false)
         {
             if (showAnnotationCount && !list.Columns.Contains(annotationCountColumn)) list.Columns.Insert(5, annotationCountColumn);
@@ -93,24 +88,7 @@ namespace Neurocle.WinForms
             RefreshRows();
         }
 
-        private static ComboBox AddFilter(Control parent, string label, IEnumerable<string> values)
-        {
-            parent.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(6, 8, 2, 2) });
-            var result = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 105 };
-            result.Items.AddRange(values.Cast<object>().ToArray());
-            result.SelectedIndex = 0;
-            result.SelectedIndexChanged += (sender, args) => ((DatasetAssignmentControl)parent.Parent).RefreshRows();
-            parent.Controls.Add(result);
-            return result;
-        }
-
-        private static void AddButton(Control parent, string text, Action action)
-        {
-            var button = new Button { Text = text, AutoSize = true };
-            button.Click += (sender, args) => action();
-            parent.Controls.Add(button);
-        }
-
+        /// <summary>依資料集、類別、標註及 Retest 篩選條件重建可見列。</summary>
         private void RefreshRows()
         {
             if (list == null) return;
@@ -129,6 +107,7 @@ namespace Neurocle.WinForms
             list.Invalidate();
         }
 
+        /// <summary>將資料集列轉換為虛擬清單使用的顯示項目。</summary>
         private ListViewItem CreateItem(DatasetRow row)
         {
             var item = new ListViewItem(row.Image.Sequence.ToString()) { Tag = row.Image.Id };
@@ -141,6 +120,7 @@ namespace Neurocle.WinForms
             return item;
         }
 
+        /// <summary>將資料集分配狀態轉成畫面顯示文字。</summary>
         private static string DatasetText(DatasetAssignmentStatus status)
         {
             if (status == DatasetAssignmentStatus.Train) return Strings.DatasetTrain;
@@ -150,16 +130,23 @@ namespace Neurocle.WinForms
         }
     }
 
+    // 將圖片、資料集狀態及標註摘要合併為一列畫面資料。
     internal sealed class DatasetRow
     {
+        /// <summary>建立包含圖片、分配、類別及標註數量的資料列。</summary>
         public DatasetRow(ProjectImage image, DatasetAssignment assignment, IReadOnlyList<string> classNames, int annotationCount)
         {
             Image = image; Assignment = assignment; ClassNames = classNames ?? throw new ArgumentNullException(nameof(classNames)); AnnotationCount = annotationCount;
         }
+        // 取得資料列代表的圖片。
         public ProjectImage Image { get; private set; }
+        // 取得圖片在目前標註集中的分配狀態。
         public DatasetAssignment Assignment { get; private set; }
+        // 取得圖片上實際使用的類別名稱。
         public IReadOnlyList<string> ClassNames { get; private set; }
+        // 取得圖片目前的標註數量。
         public int AnnotationCount { get; private set; }
+        // 指出圖片是否至少包含一筆標註。
         public bool HasAnnotation { get { return AnnotationCount > 0; } }
     }
 }

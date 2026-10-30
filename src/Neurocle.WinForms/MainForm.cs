@@ -3,70 +3,147 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Numerics;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
+using Neurocle.Domain.Segmentation;
 using Neurocle.Infrastructure.Persistence;
 using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
-    public sealed class MainForm : Form
+    // 管理專案操作、標註工作流程及主視窗頁面。
+    public sealed partial class MainForm : Form
     {
+        // 提供建立、開啟、儲存與替換專案的生命週期操作。
         private readonly IProjectLifecycle projectLifecycle;
+        // 保存主視窗共用的診斷事件記錄器。
         private readonly DiagnosticLog diagnosticLog;
+        // 保存目前開啟的專案工作階段。
         private IProjectSession project;
-        private readonly Label status;
+        private Label status;
         private Label toastMessage;
         private Timer toastTimer;
-        private readonly ToolStripMenuItem projectMenu;
-        private readonly ImageBrowserControl imageBrowser;
-        private readonly ImageCanvasControl imageCanvas;
-        private readonly ImageCanvasControl canvas;
-        private readonly TabControl pages;
-        private readonly TabPage annotationPage;
+        private ToolStripMenuItem projectMenu;
+        private ImageBrowserControl imageBrowser;
+        // 保存圖片瀏覽頁使用的畫布。
+        private ImageCanvasControl imageCanvas;
+        // 保存標註頁使用的畫布。
+        private ImageCanvasControl canvas;
+        private TabControl pages;
+        private TabPage imagesPage;
+        private TabPage annotationPage;
+        private TabPage datasetPage;
+        private TabPage exportPage;
+        // 追蹤目前鍵盤與工具操作作用中的畫布。
         private ImageCanvasControl activeCanvas;
-        private readonly DatasetAssignmentControl datasetAssignments;
-        private readonly ComboBox annotationSets;
-        private readonly ComboBox datasetAnnotationSets;
-        private readonly Panel annotationSidebar;
-        private readonly FlowLayoutPanel annotationClasses;
-        private readonly FlowLayoutPanel annotationTools;
-        private readonly ToolTip annotationToolTips;
-        private readonly NumericUpDown segStrokeWidth;
-        private readonly TrackBar segStrokeWidthSlider;
-        private readonly TrackBar annotationOpacity;
-        private readonly NumericUpDown annotationOpacityValue;
-        private readonly CheckBox showAnnotations;
-        private readonly Button addClass;
-        private readonly Button obdSelect;
-        private readonly Button obdRectangle;
-        private readonly Button segSelect;
-        private readonly Button segRectangle;
-        private readonly Button segEllipse;
-        private readonly Button segPolygon;
-        private readonly Button segBrush;
-        private readonly Button segLine;
-        private readonly Button segEraser;
+        // 保存資料集指派頁面的操作控制項。
+        private DatasetAssignmentControl datasetAssignments;
+        // 保存標註頁目前選取的標註集欄位。
+        private ComboBox annotationSets;
+        // 保存資料集頁面目前選取的標註集欄位。
+        private ComboBox datasetAnnotationSets;
+        private Panel annotationSidebar;
+        // 承載目前標註集的類別控制項。
+        private FlowLayoutPanel annotationClasses;
+        // 承載標註工具按鈕並管理其版面。
+        private FlowLayoutPanel annotationTools;
+        // 提供工具名稱及快捷鍵提示。
+        private ToolTip annotationToolTips;
+        // 保留自載入的工具圖示以便視窗結束時釋放。
+        private readonly List<Image> annotationToolIcons = new List<Image>();
+        private NumericUpDown segStrokeWidth;
+        private TrackBar segStrokeWidthSlider;
+        private TrackBar annotationOpacity;
+        private NumericUpDown annotationOpacityValue;
+        private CheckBox showAnnotations;
+        private Button addClass;
+        private Button obdSelect;
+        private Button obdRectangle;
+        private Button segSelect;
+        private Button segRectangle;
+        private Button segEllipse;
+        private Button segPolygon;
+        private Button segBrush;
+        private Button segLine;
+        private Button segEraser;
+        private MenuStrip menu;
+        private ToolStripMenuItem helpMenu;
+        private ToolStripMenuItem newProjectMenuItem;
+        private ToolStripMenuItem openProjectMenuItem;
+        private ToolStripMenuItem saveProjectMenuItem;
+        private ToolStripMenuItem saveProjectAsMenuItem;
+        private ToolStripMenuItem importImagesMenuItem;
+        private ToolStripMenuItem importFolderMenuItem;
+        private ToolStripMenuItem importAnnotationMenuItem;
+        private ToolStripMenuItem missingImagesMenuItem;
+        private ToolStripMenuItem backupsMenuItem;
+        private ToolStripMenuItem diagnosticsMenuItem;
+        private ToolStripMenuItem shortcutsMenuItem;
+        private CanvasScrollHost imageCanvasHost;
+        private CanvasScrollHost annotationCanvasHost;
+        private Panel imageHeader;
+        private FlowLayoutPanel imageControls;
+        private FlowLayoutPanel annotationHeader;
+        private FlowLayoutPanel datasetHeader;
+        private Button newSet;
+        private Button renameSet;
+        private Button deleteSet;
+        private Button fit;
+        private ComboBox zoom;
+        private Button imageFit;
+        private ComboBox imageZoom;
+        private Label annotationZoomText;
+        private Label imageZoomText;
+        private Button deleteSelectedImagesButton;
+        private Button deleteAllImagesButton;
+        private TableLayoutPanel segWidths;
+        private Label segWidthLabel;
+        private Label segOpacityLabel;
+        private Label datasetSetLabel;
+        private Button exportJson;
+        private Button exportSelected;
+        private Button exportAll;
+        // 保存目前選取圖片的檔案路徑。
         private string selectedImagePath;
+        // 保存目前選取圖片的專案識別碼。
         private string selectedImageId;
+        // 保存目前選取的 SEG 類別識別碼。
         private string selectedSegClassId;
+        // 保存目前選取的 OBD 類別識別碼。
         private string selectedObdClassId;
+        // 避免同時啟動多個圖片匯入工作。
         private bool importInProgress;
+        // 避免同時啟動多個匯出工作。
         private bool exportInProgress;
+        // 避免重疊執行需要背景處理的標註操作。
         private bool annotationOperationInProgress;
+        // 保存標註操作期間等待套用的圖片選取事件。
         private ImageSelectedEventArgs pendingImageSelection;
+        // 避免同步兩畫布視角時產生遞迴事件。
         private bool synchronizingCanvasView;
+        // 避免重新載入標註集清單時觸發選取副作用。
         private bool refreshingAnnotationSets;
+        // 避免標註頁與資料集頁同步選取時互相觸發。
         private bool synchronizingAnnotationSetSelection;
+        // 追蹤畫布目前實際顯示的標註集識別碼。
         private string displayedAnnotationSetId;
+        // 暫存剪貼簿中的 OBD 標註副本。
         private IReadOnlyList<ObdAnnotation> copiedObdAnnotations = new ObdAnnotation[0];
+        // 暫存剪貼簿中的 SEG 區域副本。
         private IReadOnlyList<SegRegion> copiedSegRegions = new SegRegion[0];
+        // 提供圖片刪除確認的可替換判斷函式。
         private Func<string, bool> confirmImageDeletion;
 
+        // 提供測試存取圖片瀏覽控制項。
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
+        // 提供測試存取圖片瀏覽畫布。
         internal ImageCanvasControl ImageCanvas { get { return imageCanvas; } }
+        // 提供測試存取標註畫布。
         internal ImageCanvasControl AnnotationCanvas { get { return canvas; } }
+        // 提供測試存取資料集指派控制項。
         internal DatasetAssignmentControl DatasetAssignments { get { return datasetAssignments; } }
 
         public MainForm(IProjectLifecycle projectLifecycle)
@@ -74,228 +151,21 @@ namespace Neurocle.WinForms
         {
         }
 
+        /// <summary>建立供 Visual Studio Designer 使用的主視窗版面。</summary>
+        public MainForm()
+        {
+            InitializeComponent();
+        }
+
         public MainForm(IProjectLifecycle projectLifecycle, DiagnosticLog diagnosticLog)
         {
             this.projectLifecycle = projectLifecycle ?? throw new ArgumentNullException(nameof(projectLifecycle));
             this.diagnosticLog = diagnosticLog ?? throw new ArgumentNullException(nameof(diagnosticLog));
             confirmImageDeletion = message => MessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
-            AutoScaleMode = AutoScaleMode.Dpi;
-            MinimumSize = new Size(640, 360);
-            StartPosition = FormStartPosition.CenterScreen;
+            InitializeComponent();
             WindowState = FormWindowState.Maximized;
-            Text = Strings.ApplicationTitle;
-            KeyPreview = true;
-
-            var menu = new MenuStrip();
-            projectMenu = new ToolStripMenuItem(Strings.ProjectMenu);
-            projectMenu.DropDownItems.Add(Strings.NewProject, null, (sender, args) => RunProjectCommand(CreateProject));
-            projectMenu.DropDownItems.Add(Strings.OpenProject, null, (sender, args) => RunProjectCommand(OpenProject));
-            projectMenu.DropDownItems.Add(Strings.SaveProject, null, (sender, args) => RunProjectCommand(SaveProject));
-            projectMenu.DropDownItems.Add(Strings.SaveProjectAs, null, (sender, args) => RunProjectCommand(SaveProjectAs));
-            projectMenu.DropDownItems.Add(Strings.ImportImages, null, async (sender, args) => await ImportFilesAsync());
-            projectMenu.DropDownItems.Add(Strings.ImportFolder, null, async (sender, args) => await ImportFolderAsync());
-            projectMenu.DropDownItems.Add(Strings.ImportAnnotationJson, null, (sender, args) => RunProjectCommand(ImportAnnotationJson));
-            projectMenu.DropDownItems.Add(Strings.ManageMissingImages, null, (sender, args) => ManageMissingImages());
-            projectMenu.DropDownItems.Add(Strings.ManageBackups, null, (sender, args) => ManageBackups());
-            projectMenu.DropDownItems.Add(Strings.Diagnostics, null, (sender, args) => ManageDiagnostics());
-            menu.Items.Add(projectMenu);
-            var helpMenu = new ToolStripMenuItem("說明");
-            helpMenu.DropDownItems.Add("快捷鍵", null, (sender, args) =>
-            {
-                using (var dialog = new KeyboardShortcutsForm()) dialog.ShowDialog(this);
-            });
-            menu.Items.Add(helpMenu);
-
-            status = new Label
-            {
-                AutoSize = true,
-                Dock = DockStyle.Top,
-                Padding = new Padding(24, 8, 0, 8),
-                Text = Strings.OfflineStatus
-            };
-            imageBrowser = new ImageBrowserControl { Dock = DockStyle.Left, Width = 300 };
-            imageCanvas = new ImageCanvasControl { Dock = DockStyle.Fill };
-            canvas = new ImageCanvasControl { Dock = DockStyle.Fill };
-            var imageCanvasHost = new CanvasScrollHost(imageCanvas) { Dock = DockStyle.Fill };
-            var annotationCanvasHost = new CanvasScrollHost(canvas) { Dock = DockStyle.Fill };
             activeCanvas = imageCanvas;
-            imageCanvas.ViewChanged += (sender, args) => SynchronizeCanvasView(imageCanvas, canvas);
-            canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
-            datasetAssignments = new DatasetAssignmentControl { Dock = DockStyle.Fill };
-            datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
-            datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
-            datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ClearDatasetClasses(ids));
-            datasetAssignments.AutoSplitRequested += value => RunAnnotationCommand(() => AutoSplitDataset(value));
-            canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
-            canvas.ObdRectanglesChanged += rectangles => RunAnnotationCommand(() => UpdateObdRectangles(rectangles));
-            canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
-            canvas.SegRegionCreated += async (type, rectangle) => await CreateSegRegionAsync(type, rectangle);
-            canvas.SegPathCreated += async (type, points, width) => await CreateSegPathAsync(type, points, width);
-            canvas.SegEraseRequested += async (points, width) => await EraseSegPathAsync(points, width);
-            canvas.SegRegionsChanged += regions => RunAnnotationCommand(() => UpdateSegRegions(regions));
-            canvas.SegRegionsDeleteRequested += ids => RunAnnotationCommand(() => DeleteSegRegions(ids));
-            imageBrowser.ImageSelected += (sender, args) =>
-            {
-                if (annotationOperationInProgress) pendingImageSelection = args;
-                else ApplyImageSelection(args);
-            };
-            pages = new TabControl { Dock = DockStyle.Fill };
-            var imagesPage = new TabPage(Strings.ImagesPage);
-            var imageHeader = new Panel { Dock = DockStyle.Top, Height = 56 };
-            var imageControls = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
-            imageHeader.Controls.Add(imageControls);
-            imagesPage.Controls.Add(imageCanvasHost);
-            imagesPage.Controls.Add(imageHeader);
-            annotationPage = new TabPage(Strings.AnnotationPage);
-            annotationPage.Resize += (sender, args) => PositionToastMessage();
-            var annotationHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
-            annotationHeader.SizeChanged += (sender, args) => imageHeader.Height = annotationHeader.Height;
-            annotationSets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
-            datasetAnnotationSets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
-            annotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(annotationSets);
-            datasetAnnotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(datasetAnnotationSets);
-            annotationSidebar = new Panel { Dock = DockStyle.Right, Width = 180 };
-            annotationClasses = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-            annotationTools = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
-            annotationToolTips = new ToolTip();
-            var newSet = new Button { AutoSize = true, Text = Strings.NewAnnotationSet };
-            newSet.Click += (sender, args) => RunAnnotationCommand(CreateAnnotationSet);
-            var renameSet = new Button { AutoSize = true, Text = Strings.RenameAnnotationSet };
-            renameSet.Click += (sender, args) => RunAnnotationCommand(RenameSelectedAnnotationSet);
-            var deleteSet = new Button { AutoSize = true, Text = Strings.DeleteAnnotationSet };
-            deleteSet.Click += (sender, args) => RunAnnotationCommand(DeleteSelectedAnnotationSet);
-            addClass = new Button { Dock = DockStyle.Top, Name = "addClass", Text = Strings.AddAnnotationClass };
-            addClass.Click += (sender, args) => RunAnnotationCommand(AddAnnotationClass);
-            obdSelect = CreateAnnotationToolButton("obdSelect", "↖", "OBD 選取");
-            obdSelect.Click += (sender, args) => SelectObdTool(true);
-            obdRectangle = CreateAnnotationToolButton("obdRectangle", "□", "OBD 矩形");
-            obdRectangle.Click += (sender, args) => SelectObdTool(false);
-            segRectangle = CreateAnnotationToolButton("segRectangle", "□", Strings.SegRectangleTool);
-            segRectangle.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Rect);
-            segEllipse = CreateAnnotationToolButton("segEllipse", "○", Strings.SegEllipseTool);
-            segEllipse.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Ellipse);
-            segPolygon = CreateAnnotationToolButton("segPolygon", "✎", Strings.SegPolygonTool);
-            segPolygon.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Polygon);
-            segBrush = CreateAnnotationToolButton("segBrush", "●", Strings.SegBrushTool);
-            segBrush.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Brush);
-            segLine = CreateAnnotationToolButton("segLine", "╱", Strings.SegLineTool);
-            segLine.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Line);
-            segEraser = CreateAnnotationToolButton("segEraser", "⌫", Strings.SegEraserTool);
-            segEraser.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Eraser);
-            segSelect = CreateAnnotationToolButton("segSelect", "↖", Strings.SegSelectTool);
-            segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
-            var segWidths = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 1 };
-            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            segWidths.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            segStrokeWidth = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 15, Width = 52 };
-            segStrokeWidthSlider = new TrackBar { Minimum = 1, Maximum = 100, Value = 15, TickFrequency = 10, Width = 100, AutoSize = false, Height = 28 };
-            segStrokeWidth.ValueChanged += (sender, args) => SetSegStrokeWidth((int)segStrokeWidth.Value);
-            segStrokeWidthSlider.ValueChanged += (sender, args) => SetSegStrokeWidth(segStrokeWidthSlider.Value);
-            segWidths.Controls.Add(new Label { Text = Strings.SegBrushWidth, AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
-            segWidths.Controls.Add(segStrokeWidth, 1, 0);
-            segWidths.Controls.Add(segStrokeWidthSlider, 2, 0);
-            annotationOpacity = new TrackBar { Minimum = 0, Maximum = 100, Value = 40, TickFrequency = 10, Width = 100, AutoSize = false, Height = 28 };
-            annotationOpacity.ValueChanged += (sender, args) => SetAnnotationOpacity(annotationOpacity.Value);
-            annotationOpacityValue = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 40, Width = 52 };
-            annotationOpacityValue.ValueChanged += (sender, args) => SetAnnotationOpacity((int)annotationOpacityValue.Value);
-            var segOpacityLabel = new Label { Text = Strings.SegOpacity, AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
-            showAnnotations = new CheckBox { AutoSize = true, Name = "showAnnotations", Text = Strings.ShowAnnotations, Checked = true };
-            showAnnotations.CheckedChanged += (sender, args) => SetAnnotationsVisible(showAnnotations.Checked);
-            var fit = new Button { AutoSize = true, Text = Strings.FitToWindow };
-            var zoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
-            zoom.Items.AddRange(new object[] { Strings.FitToWindow, "10%", "50%", "75%", "100%", "125%", "150%", "200%" });
-            zoom.SelectedIndex = 0;
-            var imageFit = new Button { AutoSize = true, Text = Strings.FitToWindow };
-            var imageZoom = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
-            var deleteSelectedImages = new Button { AutoSize = true, Name = "deleteSelectedImages", Text = Strings.DeleteSelectedImages };
-            deleteSelectedImages.Click += (sender, args) => RunProjectCommand(DeleteSelectedImages);
-            var deleteAllImages = new Button { AutoSize = true, Name = "deleteAllImages", Text = Strings.DeleteAllImages };
-            deleteAllImages.Click += (sender, args) => RunProjectCommand(DeleteAllImages);
-            imageZoom.Items.AddRange(zoom.Items.Cast<object>().ToArray());
-            imageZoom.SelectedIndex = 0;
-            var annotationZoomText = new Label { AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
-            var imageZoomText = new Label { AutoSize = true, Margin = new Padding(8, 6, 0, 0) };
-            Action updateZoomText = () =>
-            {
-                if (IsDisposed || Disposing || annotationZoomText.IsDisposed || imageZoomText.IsDisposed) return;
-                string value = Math.Round(activeCanvas.Zoom * 100d).ToString() + "%";
-                annotationZoomText.Text = value;
-                imageZoomText.Text = value;
-            };
-            Action<string> setZoom = selected =>
-            {
-                if (selected == Strings.FitToWindow) activeCanvas.FitToWindow();
-                else activeCanvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
-            };
-            fit.Click += (sender, args) => activeCanvas.FitToWindow();
-            imageFit.Click += (sender, args) => activeCanvas.FitToWindow();
-            zoom.SelectedIndexChanged += (sender, args) => setZoom(zoom.SelectedItem as string);
-            imageZoom.SelectedIndexChanged += (sender, args) => setZoom(imageZoom.SelectedItem as string);
-            imageCanvas.ZoomChanged += (sender, args) => updateZoomText();
-            canvas.ZoomChanged += (sender, args) => updateZoomText();
-            annotationPage.Controls.Add(annotationCanvasHost);
-            annotationSidebar.Controls.Add(annotationClasses);
-            annotationSidebar.Controls.Add(annotationTools);
-            annotationSidebar.Controls.Add(addClass);
-            annotationPage.Controls.Add(annotationSidebar);
-            annotationHeader.Controls.Add(annotationSets);
-            annotationHeader.Controls.Add(newSet);
-            annotationHeader.Controls.Add(renameSet);
-            annotationHeader.Controls.Add(deleteSet);
-            annotationHeader.Controls.Add(segOpacityLabel);
-            annotationHeader.Controls.Add(annotationOpacity);
-            annotationHeader.Controls.Add(annotationOpacityValue);
-            annotationHeader.Controls.Add(showAnnotations);
-            annotationHeader.Controls.Add(segWidths);
-            annotationHeader.Controls.Add(fit);
-            annotationHeader.Controls.Add(zoom);
-            annotationHeader.Controls.Add(annotationZoomText);
-            annotationPage.Controls.Add(annotationHeader);
-            imageControls.Controls.Add(imageFit);
-            imageControls.Controls.Add(imageZoom);
-            imageControls.Controls.Add(imageZoomText);
-            imageControls.Controls.Add(deleteSelectedImages);
-            imageControls.Controls.Add(deleteAllImages);
-            pages.TabPages.Add(imagesPage);
-            pages.TabPages.Add(annotationPage);
-            var datasetPage = new TabPage(Strings.DatasetPage);
-            var datasetHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(4, 2, 4, 2) };
-            datasetHeader.Controls.Add(new Label { Text = Strings.AnnotationSet, AutoSize = true, Margin = new Padding(4, 6, 0, 0) });
-            datasetHeader.Controls.Add(datasetAnnotationSets);
-            datasetPage.Controls.Add(datasetAssignments);
-            datasetPage.Controls.Add(datasetHeader);
-            pages.TabPages.Add(datasetPage);
-            var exportPage = new TabPage(Strings.ExportPage);
-            var exportJson = new Button { Dock = DockStyle.Top, Text = Strings.ExportAnnotationJson };
-            exportJson.Click += async (sender, args) => await ExportAnnotationJsonAsync();
-            var exportSelected = new Button { Dock = DockStyle.Top, Text = Strings.ExportSelectedImages };
-            exportSelected.Click += async (sender, args) => await ExportImagesAsync(imageBrowser.SelectedImageIds);
-            var exportAll = new Button { Dock = DockStyle.Top, Text = Strings.ExportAllImages };
-            exportAll.Click += async (sender, args) => await ExportImagesAsync(null);
-            exportPage.Controls.Add(exportSelected);
-            exportPage.Controls.Add(exportAll);
-            exportPage.Controls.Add(exportJson);
-            pages.TabPages.Add(exportPage);
-            SetAnnotationOpacity(annotationOpacity.Value);
-            pages.SelectedIndexChanged += (sender, args) =>
-            {
-                ImageCanvasControl selectedCanvas = pages.SelectedTab == imagesPage ? imageCanvas : pages.SelectedTab == annotationPage ? canvas : null;
-                if (selectedCanvas != null && !ReferenceEquals(activeCanvas, selectedCanvas))
-                {
-                    SynchronizeCanvasView(activeCanvas, selectedCanvas);
-                    activeCanvas = selectedCanvas;
-                    updateZoomText();
-                }
-                canvas.DiscardUnfinishedShape();
-                if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
-            };
-
-            MainMenuStrip = menu;
-            Controls.Add(pages);
-            Controls.Add(imageBrowser);
-            Controls.Add(status);
-            Controls.Add(menu);
+            InitializeRuntimeBehavior();
             FormClosing += (sender, args) =>
             {
                 if (importInProgress || exportInProgress || annotationOperationInProgress) args.Cancel = true;
@@ -316,6 +186,35 @@ namespace Neurocle.WinForms
             };
             KeyDown += (sender, args) =>
             {
+                if (args.Handled || args.Control || args.Alt || HasTextInputFocus()) return;
+                if (TrySelectAnnotationToolByShortcut(args.KeyCode))
+                {
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                }
+            };
+            KeyDown += (sender, args) =>
+            {
+                if (args.Handled || args.Control || HasTextInputFocus() || pages.SelectedTab != annotationPage) return;
+                int deltaX = args.KeyCode == Keys.Left ? -1 : args.KeyCode == Keys.Right ? 1 : 0;
+                int deltaY = args.KeyCode == Keys.Up ? -1 : args.KeyCode == Keys.Down ? 1 : 0;
+                if (canvas.NudgeSelectedAnnotations(deltaX, deltaY))
+                {
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                }
+            };
+            KeyUp += (sender, args) =>
+            {
+                if ((args.KeyCode == Keys.Up || args.KeyCode == Keys.Down || args.KeyCode == Keys.Left || args.KeyCode == Keys.Right) && canvas.CommitKeyboardNudge())
+                {
+                    args.Handled = true;
+                    args.SuppressKeyPress = true;
+                }
+            };
+            KeyDown += (sender, args) =>
+            {
+                if (args.Handled) return;
                 if (args.Control || HasTextInputFocus() || (pages.SelectedTab != imagesPage && pages.SelectedTab != annotationPage)) return;
                 if (args.KeyCode == Keys.F)
                 {
@@ -346,17 +245,139 @@ namespace Neurocle.WinForms
             };
         }
 
+        /// <summary>將資料命令與互動事件接到 Designer 建立的固定控制項。</summary>
+        private void InitializeRuntimeBehavior()
+        {
+            ConfigureAnnotationToolButton(obdSelect, "選取", "V", "01_cursor.png");
+            ConfigureAnnotationToolButton(obdRectangle, "矩形", "R", "06_square.png");
+            ConfigureAnnotationToolButton(segRectangle, "矩形", "R", "06_square.png");
+            ConfigureAnnotationToolButton(segEllipse, "圓形", "C", "07_circle.png");
+            ConfigureAnnotationToolButton(segPolygon, "畫筆", "P", "04_pencil.png");
+            ConfigureAnnotationToolButton(segBrush, "筆刷", "B", "03_brush.png");
+            ConfigureAnnotationToolButton(segLine, "線形", "L", "05_line.png");
+            ConfigureAnnotationToolButton(segEraser, "橡皮擦", "E", "02_eraser.png");
+            ConfigureAnnotationToolButton(segSelect, "選取", "V", "01_cursor.png");
+            annotationTools.Controls.Clear();
+            newProjectMenuItem.Click += (sender, args) => RunProjectCommand(CreateProject);
+            openProjectMenuItem.Click += (sender, args) => RunProjectCommand(OpenProject);
+            saveProjectMenuItem.Click += (sender, args) => RunProjectCommand(SaveProject);
+            saveProjectAsMenuItem.Click += (sender, args) => RunProjectCommand(SaveProjectAs);
+            importImagesMenuItem.Click += async (sender, args) => await ImportFilesAsync();
+            importFolderMenuItem.Click += async (sender, args) => await ImportFolderAsync();
+            importAnnotationMenuItem.Click += (sender, args) => RunProjectCommand(ImportAnnotationJson);
+            missingImagesMenuItem.Click += (sender, args) => ManageMissingImages();
+            backupsMenuItem.Click += (sender, args) => ManageBackups();
+            diagnosticsMenuItem.Click += (sender, args) => ManageDiagnostics();
+            shortcutsMenuItem.Click += (sender, args) =>
+            {
+                using (var dialog = new KeyboardShortcutsForm()) dialog.ShowDialog(this);
+            };
+            imageCanvas.ViewChanged += (sender, args) => SynchronizeCanvasView(imageCanvas, canvas);
+            canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
+            datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
+            datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
+            datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ClearDatasetClasses(ids));
+            datasetAssignments.AutoSplitRequested += value => RunAnnotationCommand(() => AutoSplitDataset(value));
+            canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
+            canvas.ObdRectanglesChanged += rectangles => RunAnnotationCommand(() => UpdateObdRectangles(rectangles));
+            canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
+            canvas.SegRegionCreated += async (type, rectangle) => await CreateSegRegionAsync(type, rectangle);
+            canvas.SegPathCreated += async (type, points, width) => await CreateSegPathAsync(type, points, width);
+            canvas.SegEraseRequested += async (points, width) => await EraseSegPathAsync(points, width);
+            canvas.SegRegionsChanged += regions => RunAnnotationCommand(() => UpdateSegRegions(regions));
+            canvas.SegRegionsDeleteRequested += ids => RunAnnotationCommand(() => DeleteSegRegions(ids));
+            imageBrowser.ImageSelected += (sender, args) =>
+            {
+                if (annotationOperationInProgress) pendingImageSelection = args;
+                else ApplyImageSelection(args);
+            };
+            annotationPage.Resize += (sender, args) => PositionToastMessage();
+            annotationHeader.SizeChanged += (sender, args) => imageHeader.Height = annotationHeader.Height;
+            annotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(annotationSets);
+            datasetAnnotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(datasetAnnotationSets);
+            newSet.Click += (sender, args) => RunAnnotationCommand(CreateAnnotationSet);
+            renameSet.Click += (sender, args) => RunAnnotationCommand(RenameSelectedAnnotationSet);
+            deleteSet.Click += (sender, args) => RunAnnotationCommand(DeleteSelectedAnnotationSet);
+            addClass.Click += (sender, args) => RunAnnotationCommand(AddAnnotationClass);
+            obdSelect.Click += (sender, args) => SelectObdTool(true);
+            obdRectangle.Click += (sender, args) => SelectObdTool(false);
+            segRectangle.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Rect);
+            segEllipse.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Ellipse);
+            segPolygon.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Polygon);
+            segBrush.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Brush);
+            segLine.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Line);
+            segEraser.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Eraser);
+            segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
+            segStrokeWidth.ValueChanged += (sender, args) => SetSegStrokeWidth((int)segStrokeWidth.Value);
+            segStrokeWidthSlider.ValueChanged += (sender, args) => SetSegStrokeWidth(segStrokeWidthSlider.Value);
+            annotationOpacity.ValueChanged += (sender, args) => SetAnnotationOpacity(annotationOpacity.Value);
+            annotationOpacityValue.ValueChanged += (sender, args) => SetAnnotationOpacity((int)annotationOpacityValue.Value);
+            showAnnotations.CheckedChanged += (sender, args) => SetAnnotationsVisible(showAnnotations.Checked);
+            deleteSelectedImagesButton.Click += (sender, args) => RunProjectCommand(DeleteSelectedImages);
+            deleteAllImagesButton.Click += (sender, args) => RunProjectCommand(DeleteAllImages);
+
+            Action updateZoomText = () =>
+            {
+                if (IsDisposed || Disposing || annotationZoomText.IsDisposed || imageZoomText.IsDisposed) return;
+                string value = Math.Round(activeCanvas.Zoom * 100d).ToString() + "%";
+                annotationZoomText.Text = value;
+                imageZoomText.Text = value;
+            };
+            Action<string> setZoom = selected =>
+            {
+                if (selected == Strings.FitToWindow) activeCanvas.FitToWindow();
+                else activeCanvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
+            };
+            fit.Click += (sender, args) => activeCanvas.FitToWindow();
+            imageFit.Click += (sender, args) => activeCanvas.FitToWindow();
+            zoom.SelectedIndexChanged += (sender, args) => setZoom(zoom.SelectedItem as string);
+            imageZoom.SelectedIndexChanged += (sender, args) => setZoom(imageZoom.SelectedItem as string);
+            imageCanvas.ZoomChanged += (sender, args) => updateZoomText();
+            canvas.ZoomChanged += (sender, args) => updateZoomText();
+            exportJson.Click += async (sender, args) => await ExportAnnotationJsonAsync();
+            exportSelected.Click += async (sender, args) => await ExportImagesAsync(imageBrowser.SelectedImageIds);
+            exportAll.Click += async (sender, args) => await ExportImagesAsync(null);
+            SetAnnotationOpacity(annotationOpacity.Value);
+            pages.SelectedIndexChanged += (sender, args) =>
+            {
+                ImageCanvasControl selectedCanvas = pages.SelectedTab == imagesPage ? imageCanvas : pages.SelectedTab == annotationPage ? canvas : null;
+                if (selectedCanvas != null && !ReferenceEquals(activeCanvas, selectedCanvas))
+                {
+                    SynchronizeCanvasView(activeCanvas, selectedCanvas);
+                    activeCanvas = selectedCanvas;
+                    updateZoomText();
+                }
+                canvas.DiscardUnfinishedShape();
+                if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
+            };
+        }
+
+        /// <summary>讓圖片方向鍵先進入既有鍵盤路由，避免被 WinForms 當作焦點導覽鍵消耗。</summary>
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.Up || keyData == Keys.Down)
+            {
+                var args = new KeyEventArgs(keyData);
+                OnKeyDown(args);
+                if (args.Handled) return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        /// <summary>判斷焦點是否位於文字輸入控制項，避免快捷鍵干擾輸入。</summary>
         private bool HasTextInputFocus()
         {
             return FindFocusedTextInput(this);
         }
 
+        /// <summary>遞迴尋找控制項樹中目前取得焦點的文字欄位。</summary>
         private static bool FindFocusedTextInput(Control control)
         {
             if (control is TextBoxBase && control.Focused) return true;
             return control.Controls.Cast<Control>().Any(FindFocusedTextInput);
         }
 
+        /// <summary>依目前標註類型選取畫布上的全部標註。</summary>
         private void SelectAllAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -365,6 +386,7 @@ namespace Neurocle.WinForms
             else if (selected.Type == AnnotationSetType.Seg && canvas.SegEnabled) canvas.SelectAllSeg();
         }
 
+        /// <summary>複製目前選取的 OBD 或 SEG 標註。</summary>
         private void CopySelectedAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -381,6 +403,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>將複製的標註貼到目前圖片並建立可復原命令。</summary>
         private void PasteCopiedAnnotations()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -426,6 +449,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>顯示短暫操作提示並更新提示計時器。</summary>
         private void ShowToastMessage(string message)
         {
             DisposeToastMessage();
@@ -441,6 +465,7 @@ namespace Neurocle.WinForms
             toastTimer.Start();
         }
 
+        /// <summary>停止提示計時器並釋放提示控制項。</summary>
         private void DisposeToastMessage()
         {
             if (toastTimer != null) { toastTimer.Stop(); toastTimer.Dispose(); toastTimer = null; }
@@ -450,12 +475,14 @@ namespace Neurocle.WinForms
             toastMessage = null;
         }
 
+        /// <summary>依主視窗和狀態列位置排列操作提示。</summary>
         private void PositionToastMessage()
         {
             if (toastMessage == null) return;
             toastMessage.Location = new Point(Math.Max(0, (annotationPage.ClientSize.Width - toastMessage.Width) / 2), Math.Max(0, annotationPage.ClientSize.Height - toastMessage.Height - 24));
         }
 
+        /// <summary>同步更新 SEG 筆刷寬度欄位與畫布設定。</summary>
         private void SetSegStrokeWidth(int width)
         {
             if (segStrokeWidth.Value != width) segStrokeWidth.Value = width;
@@ -463,6 +490,7 @@ namespace Neurocle.WinForms
             canvas.SegStrokeWidth = width;
         }
 
+        /// <summary>同步兩個畫布的縮放倍率與視野位置。</summary>
         private void SynchronizeCanvasView(ImageCanvasControl source, ImageCanvasControl target)
         {
             if (synchronizingCanvasView) return;
@@ -474,6 +502,7 @@ namespace Neurocle.WinForms
             finally { synchronizingCanvasView = false; }
         }
 
+        /// <summary>切換目前 SEG 工具並更新工具按鈕狀態。</summary>
         private void SelectSegTool(ImageCanvasControl.SegToolKind tool)
         {
             canvas.DiscardUnfinishedShape();
@@ -481,19 +510,72 @@ namespace Neurocle.WinForms
             RefreshAnnotationToolButtons();
         }
 
+        /// <summary>切換 OBD 選取或矩形繪製工具。</summary>
         private void SelectObdTool(bool select)
         {
+            canvas.DiscardUnfinishedShape();
             canvas.ObdSelectMode = select;
             RefreshAnnotationToolButtons();
         }
 
-        private Button CreateAnnotationToolButton(string name, string icon, string toolTip)
+        /// <summary>依快捷鍵切換標註工具並回報是否已處理按鍵。</summary>
+        private bool TrySelectAnnotationToolByShortcut(Keys key)
         {
-            var button = new Button { Name = name, Text = icon, Size = new Size(32, 32), Margin = new Padding(2) };
-            annotationToolTips.SetToolTip(button, toolTip);
-            return button;
+            if (pages.SelectedTab != annotationPage) return false;
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (selected == null) return false;
+            if (selected.Type == AnnotationSetType.Obd)
+            {
+                if (key == Keys.V) SelectObdTool(true);
+                else if (key == Keys.R) SelectObdTool(false);
+                else return false;
+                return true;
+            }
+            if (selected.Type != AnnotationSetType.Seg) return false;
+            ImageCanvasControl.SegToolKind tool;
+            switch (key)
+            {
+                case Keys.V: tool = ImageCanvasControl.SegToolKind.Select; break;
+                case Keys.B: tool = ImageCanvasControl.SegToolKind.Brush; break;
+                case Keys.P: tool = ImageCanvasControl.SegToolKind.Polygon; break;
+                case Keys.C: tool = ImageCanvasControl.SegToolKind.Ellipse; break;
+                case Keys.R: tool = ImageCanvasControl.SegToolKind.Rect; break;
+                case Keys.E: tool = ImageCanvasControl.SegToolKind.Eraser; break;
+                case Keys.L: tool = ImageCanvasControl.SegToolKind.Line; break;
+                default: return false;
+            }
+            SelectSegTool(tool);
+            return true;
         }
 
+        /// <summary>在執行期套用工具圖示與名稱及快捷鍵提示。</summary>
+        private void ConfigureAnnotationToolButton(Button button, string toolName, string shortcut, string iconResource)
+        {
+            button.Text = string.Empty;
+            button.Size = new Size(32, 32);
+            button.Margin = new Padding(2);
+            button.Image = LoadAnnotationToolIcon(iconResource);
+            button.ImageAlign = ContentAlignment.MiddleCenter;
+            annotationToolTips.SetToolTip(button, toolName + " " + shortcut);
+        }
+
+        /// <summary>從內嵌資源載入標註工具圖示。</summary>
+        private Image LoadAnnotationToolIcon(string resourceName)
+        {
+            string manifestName = "Neurocle.WinForms.Label_tool." + resourceName;
+            using (Stream stream = typeof(MainForm).Assembly.GetManifestResourceStream(manifestName))
+            {
+                if (stream == null) throw new InvalidOperationException("Missing embedded annotation tool icon: " + resourceName);
+                using (Image source = Image.FromStream(stream))
+                {
+                    Image icon = new Bitmap(source, new Size(22, 22));
+                    annotationToolIcons.Add(icon);
+                    return icon;
+                }
+            }
+        }
+
+        /// <summary>顯示建立專案流程並載入新專案。</summary>
         private void CreateProject()
         {
             using (var dialog = CreateProjectDialog())
@@ -504,6 +586,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>選取並開啟既有專案。</summary>
         private void OpenProject()
         {
             using (var dialog = new OpenFileDialog { Filter = Strings.ProjectFileFilter })
@@ -521,12 +604,14 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>儲存目前專案。</summary>
         private void SaveProject()
         {
             project?.Save();
             if (project != null) WriteDiagnostic(DiagnosticEvent.ProjectSaved);
         }
 
+        /// <summary>另存目前專案至使用者指定位置。</summary>
         private void SaveProjectAs()
         {
             if (project == null) return;
@@ -539,6 +624,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>刪除圖片瀏覽器目前選取的圖片。</summary>
         private void DeleteSelectedImages()
         {
             if (project == null) return;
@@ -549,6 +635,7 @@ namespace Neurocle.WinForms
             DeleteImages(imageIds);
         }
 
+        /// <summary>確認後刪除專案內全部圖片。</summary>
         private void DeleteAllImages()
         {
             if (project == null) return;
@@ -559,6 +646,7 @@ namespace Neurocle.WinForms
             DeleteImages(imageIds);
         }
 
+        /// <summary>刪除指定圖片並同步更新專案和畫面。</summary>
         private void DeleteImages(IReadOnlyCollection<string> imageIds)
         {
             bool currentImageDeleted = selectedImageId != null && imageIds.Contains(selectedImageId);
@@ -576,6 +664,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>開啟遺失圖片管理介面。</summary>
         private void ManageMissingImages()
         {
             if (project == null) return;
@@ -585,27 +674,31 @@ namespace Neurocle.WinForms
             RefreshAnnotationSets();
         }
 
+        /// <summary>開啟診斷日誌管理介面。</summary>
         private void ManageDiagnostics()
         {
             using (var dialog = new DiagnosticsForm(diagnosticLog)) dialog.ShowDialog(this);
         }
 
+        /// <summary>建立使用者選定類型的新標註集。</summary>
         private void CreateAnnotationSet()
         {
             if (project == null) return;
             using (var dialog = new AnnotationSetCreationDialog())
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.AnnotationSetName)) return;
-                CreateAnnotationSet(dialog.AnnotationSetType, dialog.AnnotationSetName.Trim());
+                if (dialog.ShowDialog(this) != DialogResult.OK || !dialog.AnnotationSetType.HasValue || string.IsNullOrWhiteSpace(dialog.AnnotationSetName)) return;
+                CreateAnnotationSet(dialog.AnnotationSetType.Value, dialog.AnnotationSetName.Trim());
             }
         }
 
+        /// <summary>建立指定類型與名稱的標註集並更新畫面。</summary>
         private void CreateAnnotationSet(AnnotationSetType type, string name)
         {
             AnnotationSet created = project.CreateAnnotationSet(name, type);
             RefreshAnnotationSets(created.Id);
         }
 
+        /// <summary>重新載入專案標註集清單並維持指定選取項目。</summary>
         private void RefreshAnnotationSets(string selectedId = null)
         {
             if (annotationSets == null) return;
@@ -638,6 +731,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>處理標註集選取變更並同步相關頁面。</summary>
         private void AnnotationSetSelectionChanged(ComboBox source)
         {
             if (refreshingAnnotationSets || synchronizingAnnotationSetSelection) return;
@@ -658,12 +752,14 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>將標註透明度恢復預設值。</summary>
         private void ResetAnnotationOpacity()
         {
             if (annotationOpacity != null) annotationOpacity.Value = 40;
             SetAnnotationOpacity(40);
         }
 
+        /// <summary>更新畫布標註透明度並同步數值欄位。</summary>
         private void SetAnnotationOpacity(int percent)
         {
             if (annotationOpacity.Value != percent) annotationOpacity.Value = percent;
@@ -674,12 +770,14 @@ namespace Neurocle.WinForms
             canvas.Invalidate();
         }
 
+        /// <summary>切換標註顯示狀態並更新畫布。</summary>
         private void SetAnnotationsVisible(bool visible)
         {
             imageCanvas.AnnotationsVisible = visible;
             canvas.AnnotationsVisible = visible;
         }
 
+        /// <summary>依目前標註集重建類別清單與畫布類別資料。</summary>
         private void RefreshAnnotationClasses()
         {
             if (annotationClasses == null) return;
@@ -769,8 +867,10 @@ namespace Neurocle.WinForms
             RefreshImageBrowser();
         }
 
+        // 取得目前選取的標註集模型。
         private AnnotationSet SelectedAnnotationSet { get { return annotationSets.SelectedItem as AnnotationSet; } }
 
+        /// <summary>依目前模式和工具更新工具按鈕及提示。</summary>
         private void RefreshAnnotationToolButtons()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -787,6 +887,7 @@ namespace Neurocle.WinForms
             SetAnnotationToolButtonState(segEraser, isSeg && canvas.SegTool == ImageCanvasControl.SegToolKind.Eraser);
         }
 
+        /// <summary>更新單一工具按鈕的啟用外觀。</summary>
         private static void SetAnnotationToolButtonState(Button button, bool active)
         {
             button.FlatStyle = FlatStyle.Flat;
@@ -797,6 +898,7 @@ namespace Neurocle.WinForms
             button.FlatAppearance.BorderColor = active ? SystemColors.Highlight : SystemColors.ControlDark;
         }
 
+        /// <summary>重新整理資料集指派頁面的標註集資料。</summary>
         private void RefreshDatasetAssignments()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -816,6 +918,7 @@ namespace Neurocle.WinForms
             datasetAssignments.LoadRows(rows, selected.Type != AnnotationSetType.Cla);
         }
 
+        /// <summary>重新載入圖片清單和目前選取狀態。</summary>
         private void RefreshImageBrowser()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -837,6 +940,7 @@ namespace Neurocle.WinForms
             imageBrowser.LoadRows(rows, GetImagesDirectory(project.ProjectPath));
         }
 
+        /// <summary>將指定圖片指派到指定資料集狀態。</summary>
         private void SetDatasetAssignments(IReadOnlyList<string> imageIds, DatasetAssignmentStatus status)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -845,6 +949,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>更新指定圖片的重測標記。</summary>
         private void SetRetest(IReadOnlyList<string> imageIds, bool retest)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -853,6 +958,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>清除指定圖片的資料集類別標記。</summary>
         private void ClearDatasetClasses(IReadOnlyList<string> imageIds)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -862,6 +968,7 @@ namespace Neurocle.WinForms
             RefreshDatasetAssignments();
         }
 
+        /// <summary>依指定訓練比例自動分配資料集。</summary>
         private void AutoSplitDataset(int trainPercent)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -871,6 +978,7 @@ namespace Neurocle.WinForms
             if (plan.Warnings.Count > 0) MessageBox.Show(Strings.DatasetSplitCannotMeet, Strings.DatasetSplitWarning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
+        /// <summary>匯入標註 JSON 並更新目前專案畫面。</summary>
         private void ImportAnnotationJson()
         {
             if (project == null) return;
@@ -890,6 +998,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>非同步匯出指定圖片並顯示匯出進度。</summary>
         private async Task ExportImagesAsync(IEnumerable<string> imageIds)
         {
             if (project == null) return;
@@ -921,6 +1030,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>非同步匯出目前專案標註 JSON。</summary>
         private async Task ExportAnnotationJsonAsync()
         {
             AnnotationSet set = annotationSets.SelectedItem as AnnotationSet;
@@ -947,6 +1057,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>提交新 OBD 矩形並更新標註檢視。</summary>
         private void CreateObdRectangle(Rectangle rectangle)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -957,6 +1068,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>非同步建立矩形或橢圓 SEG 區域。</summary>
         private async Task CreateSegRegionAsync(SegRegionType type, Rectangle rectangle)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -978,6 +1090,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>非同步建立多邊形或線形 SEG 路徑。</summary>
         private async Task CreateSegPathAsync(SegRegionType type, IReadOnlyList<SegPoint> points, int width)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -990,6 +1103,7 @@ namespace Neurocle.WinForms
             await RunSegOperationAsync(session, annotationSetId, imageId, () => session.AddSegPath(annotationSetId, imageId, value.Id, type, points, width));
         }
 
+        /// <summary>非同步擦除指定路徑範圍內的 SEG 標註。</summary>
         private async Task EraseSegPathAsync(IReadOnlyList<SegPoint> points, int width)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1001,6 +1115,7 @@ namespace Neurocle.WinForms
             await RunSegOperationAsync(session, annotationSetId, imageId, () => session.EraseSegPath(annotationSetId, imageId, classId, points, width));
         }
 
+        /// <summary>執行 SEG 修改命令並處理進度、狀態與失敗復原。</summary>
         private async Task RunSegOperationAsync(IProjectSession session, string annotationSetId, string imageId, Action command)
         {
             Exception failure = null;
@@ -1018,7 +1133,9 @@ namespace Neurocle.WinForms
                 projectMenu.Enabled = true;
                 annotationOperationInProgress = false;
             }
-            if (failure is ArgumentException || failure is InvalidOperationException)
+            if (failure is SegGeometryPrototype.BridgeNetworkException)
+                ShowSegBridgeNetworkFailure();
+            else if (failure is ArgumentException || failure is InvalidOperationException)
                 MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             else if (failure != null)
                 MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1037,6 +1154,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>套用圖片選取並載入對應的標註與畫布內容。</summary>
         private void ApplyImageSelection(ImageSelectedEventArgs args)
         {
             selectedImagePath = args.Image.IsMissing ? null : args.Path;
@@ -1046,6 +1164,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>提交 SEG 區域幾何變更命令。</summary>
         private void UpdateSegRegions(IReadOnlyList<SegRegion> regions)
         {
             if (project == null || SelectedAnnotationSet == null || SelectedAnnotationSet.Type != AnnotationSetType.Seg || regions.Count == 0) return;
@@ -1053,6 +1172,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>刪除指定 SEG 區域並更新選取狀態。</summary>
         private void DeleteSegRegions(IReadOnlyCollection<string> regionIds)
         {
             if (project == null || SelectedAnnotationSet == null || SelectedAnnotationSet.Type != AnnotationSetType.Seg || regionIds.Count == 0) return;
@@ -1060,6 +1180,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>將目前選取 SEG 區域移至指定類別。</summary>
         private void ChangeSelectedSegClass(string classId)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1069,6 +1190,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>提交一組 OBD 矩形位置或尺寸變更。</summary>
         private void UpdateObdRectangles(IReadOnlyDictionary<string, Rectangle> rectangles)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1083,6 +1205,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>刪除指定 OBD 標註並更新選取狀態。</summary>
         private void DeleteObdRectangles(IReadOnlyCollection<string> annotationIds)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1092,6 +1215,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>將目前選取 OBD 標註移至指定類別。</summary>
         private void ChangeSelectedObdClass(string classId)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1107,6 +1231,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>重新命名目前選取的標註集。</summary>
         private void RenameSelectedAnnotationSet()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1117,6 +1242,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationSets();
         }
 
+        /// <summary>確認後刪除目前選取的標註集。</summary>
         private void DeleteSelectedAnnotationSet()
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1127,16 +1253,23 @@ namespace Neurocle.WinForms
             RefreshAnnotationSets();
         }
 
+        /// <summary>依最大符合 classN 格式的編號加一，建立並新增下一個類別。</summary>
         private void AddAnnotationClass()
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null) return;
-            string name = Prompt(Strings.AnnotationClassNamePrompt);
-            if (name == null) return;
+            BigInteger lastNumber = project.GetClasses(selected.Id)
+                .Select(item => Regex.Match(item.Name, "^class([1-9][0-9]*)$"))
+                .Where(match => match.Success)
+                .Select(match => BigInteger.Parse(match.Groups[1].Value))
+                .DefaultIfEmpty(0)
+                .Max();
+            string name = "class" + (lastNumber + BigInteger.One).ToString();
             project.AddClass(selected.Id, name, null);
             RefreshAnnotationClasses();
         }
 
+        /// <summary>重新命名指定標註類別。</summary>
         private void RenameAnnotationClass(AnnotationClass value)
         {
             string name = Prompt(Strings.AnnotationClassNamePrompt);
@@ -1145,6 +1278,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>變更指定標註類別顏色。</summary>
         private void ChangeAnnotationClassColor(AnnotationClass value)
         {
             using (var dialog = new ColorDialog { Color = AnnotationColorFormat.ToColor(value.Color) })
@@ -1155,6 +1289,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>刪除指定標註類別及其相關標註。</summary>
         private void DeleteAnnotationClass(AnnotationClass value)
         {
             if (MessageBox.Show(this, Strings.DeleteAnnotationClassPrompt, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
@@ -1162,6 +1297,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
+        /// <summary>對目前標註集執行復原或重做。</summary>
         private void UndoOrRedoSelectedAnnotationSet(bool redo)
         {
             AnnotationSet selected = SelectedAnnotationSet;
@@ -1174,14 +1310,23 @@ namespace Neurocle.WinForms
             });
         }
 
+        /// <summary>執行標註命令並處理失敗與畫面更新。</summary>
         private void RunAnnotationCommand(Action command)
         {
             try { command(); }
+            catch (SegGeometryPrototype.BridgeNetworkException) { ShowSegBridgeNetworkFailure(); }
             catch (ArgumentException) { MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             catch (InvalidOperationException) { MessageBox.Show(this, Strings.AnnotationValidationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             catch (Exception) { MessageBox.Show(this, Strings.ProjectOperationFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
+        /// <summary>提示 SEG 空洞連線網路無法建立時的處理結果。</summary>
+        private void ShowSegBridgeNetworkFailure()
+        {
+            MessageBox.Show(this, Strings.SegBridgeNetworkFailed, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        /// <summary>顯示簡短文字輸入對話框並回傳使用者輸入。</summary>
         private static string Prompt(string prompt)
         {
             using (var dialog = new Form { Text = prompt, Width = 320, Height = 125, StartPosition = FormStartPosition.CenterParent })
@@ -1194,6 +1339,7 @@ namespace Neurocle.WinForms
                 return dialog.ShowDialog() == DialogResult.OK ? input.Text : null;
             }
         }
+        /// <summary>開啟專案備份管理介面。</summary>
         private void ManageBackups()
         {
             if (project == null) return;
@@ -1203,6 +1349,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>處理專案開啟失敗並提供復原或修復選項。</summary>
         private void RestoreCorruptProject(ProjectOpenException exception)
         {
             if (exception.Backups.Count == 0)
@@ -1221,6 +1368,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>選取多個檔案並非同步匯入圖片。</summary>
         private async Task ImportFilesAsync()
         {
             if (project == null) return;
@@ -1233,6 +1381,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>選取資料夾並非同步匯入其中的圖片。</summary>
         private async Task ImportFolderAsync()
         {
             if (project == null) return;
@@ -1247,6 +1396,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>執行匯入工作並管理進度視窗與取消操作。</summary>
         private async Task ImportAsync(Func<ImportProgressForm, ImageImportReport> import)
         {
             using (var progress = new ImportProgressForm())
@@ -1275,11 +1425,13 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>建立設定專案儲存位置的資料夾選擇對話框。</summary>
         private static SaveFileDialog CreateProjectDialog()
         {
             return new SaveFileDialog { DefaultExt = "neurocle", AddExtension = true, Filter = Strings.ProjectFileFilter };
         }
 
+        /// <summary>替換目前專案工作階段並重建相關畫面。</summary>
         private void ReplaceProject(IProjectSession replacement)
         {
             IProjectSession previous = project;
@@ -1293,6 +1445,7 @@ namespace Neurocle.WinForms
             RefreshAnnotationSets();
         }
 
+        /// <summary>依目前專案狀態更新視窗標題與狀態列。</summary>
         private void UpdateProjectStatus()
         {
             string projectName = Path.GetFileName(project.ProjectPath);
@@ -1300,11 +1453,13 @@ namespace Neurocle.WinForms
             status.Text = missingCount == 0 ? projectName : projectName + " - " + string.Format(Strings.MissingImagesStatus, missingCount);
         }
 
+        /// <summary>取得專案圖片目錄的完整路徑。</summary>
         private static string GetImagesDirectory(string projectPath)
         {
             return Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".images");
         }
 
+        /// <summary>執行專案命令並顯示操作錯誤。</summary>
         private void RunProjectCommand(Action command)
         {
             try
@@ -1318,6 +1473,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>寫入診斷事件並處理記錄失敗。</summary>
         private void WriteDiagnostic(DiagnosticEvent diagnosticEvent)
         {
             try { diagnosticLog.Write(diagnosticEvent); }
@@ -1329,6 +1485,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>將例外轉換為適合顯示的錯誤訊息。</summary>
         private static string GetErrorMessage(Exception exception)
         {
             var imageImportException = exception as ImageImportException;
@@ -1347,6 +1504,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>格式化匯入摘要與各類結果數量。</summary>
         private static string FormatImportReport(ImageImportReport report)
         {
             string unprocessedCount = report.WasCancelledDuringScan ? Strings.ImportReportUnknownCount : report.UnprocessedCount.ToString();
@@ -1357,6 +1515,7 @@ namespace Neurocle.WinForms
             return summary + Environment.NewLine + failures;
         }
 
+        /// <summary>依匯入失敗類型產生使用者可讀訊息。</summary>
         private static string GetImportFailureMessage(ImageImportFailure failure)
         {
             switch (failure)

@@ -1,5 +1,4 @@
 using System;
-using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
@@ -7,42 +6,33 @@ using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
-    internal sealed class MissingImagesForm : Form
+    // 顯示缺失圖片並提供重新連結或永久移除圖片資料的操作。
+    internal sealed partial class MissingImagesForm : Form
     {
-        private readonly IProjectSession project;
-        private readonly ListBox images;
-        private readonly Button relink;
-        private readonly Button delete;
+        // 提供缺失圖片查詢、內容驗證及刪除功能。
+        private IProjectSession project;
 
-        public MissingImagesForm(IProjectSession project)
+        /// <summary>初始化缺失圖片表單的設計器元件。</summary>
+        internal MissingImagesForm()
+        {
+            InitializeComponent();
+        }
+
+        /// <summary>設定目前專案並載入缺失圖片清單。</summary>
+        public MissingImagesForm(IProjectSession project) : this()
         {
             this.project = project ?? throw new ArgumentNullException(nameof(project));
-            Text = Strings.MissingImagesTitle;
-            StartPosition = FormStartPosition.CenterParent;
-            MinimumSize = new Size(480, 320);
-            Size = new Size(560, 420);
-
-            images = new ListBox { Dock = DockStyle.Fill, DisplayMember = nameof(ProjectImage.OriginalFileName) };
-            images.SelectedIndexChanged += (sender, args) => UpdateButtons();
-            relink = new Button { AutoSize = true, Text = Strings.RelinkImage };
-            relink.Click += (sender, args) => RelinkSelectedImage();
-            delete = new Button { AutoSize = true, Text = Strings.DeleteMissingImage };
-            delete.Click += (sender, args) => DeleteSelectedImage();
-            var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-            buttons.Controls.Add(new Button { AutoSize = true, DialogResult = DialogResult.OK, Text = Strings.Close });
-            buttons.Controls.Add(delete);
-            buttons.Controls.Add(relink);
-            Controls.Add(images);
-            Controls.Add(buttons);
             RefreshImages();
         }
 
+        /// <summary>重新查詢缺失圖片並更新清單按鈕狀態。</summary>
         private void RefreshImages()
         {
             images.DataSource = project.GetMissingImages().ToList();
             UpdateButtons();
         }
 
+        /// <summary>依圖片選取狀態啟用或停用重新連結及刪除按鈕。</summary>
         private void UpdateButtons()
         {
             bool hasSelection = images.SelectedItem != null;
@@ -50,6 +40,7 @@ namespace Neurocle.WinForms
             delete.Enabled = hasSelection;
         }
 
+        /// <summary>選擇來源圖片並依專案驗證結果重新連結缺失檔案。</summary>
         private void RelinkSelectedImage()
         {
             ProjectImage image = images.SelectedItem as ProjectImage;
@@ -73,6 +64,7 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>確認操作後永久刪除所選缺失圖片及其專案資料。</summary>
         private void DeleteSelectedImage()
         {
             ProjectImage image = images.SelectedItem as ProjectImage;
@@ -90,6 +82,25 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>選取清單項目變更時同步更新按鈕狀態。</summary>
+        private void Images_SelectedIndexChanged(object sender, EventArgs args)
+        {
+            UpdateButtons();
+        }
+
+        /// <summary>處理重新連結按鈕事件。</summary>
+        private void Relink_Click(object sender, EventArgs args)
+        {
+            RelinkSelectedImage();
+        }
+
+        /// <summary>處理刪除按鈕事件。</summary>
+        private void Delete_Click(object sender, EventArgs args)
+        {
+            DeleteSelectedImage();
+        }
+
+        /// <summary>依重新連結失敗類型選取對應的使用者訊息。</summary>
         private static string GetErrorMessage(ImageRelinkException exception)
         {
             switch (exception.Failure)

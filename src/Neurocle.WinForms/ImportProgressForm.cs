@@ -1,5 +1,4 @@
 using System;
-using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
@@ -7,39 +6,22 @@ using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
-    internal sealed class ImportProgressForm : Form
+    // 顯示圖片匯入進度，並以執行緒安全旗標傳遞取消要求。
+    internal sealed partial class ImportProgressForm : Form
     {
+        // 使用原子讀寫保存使用者是否已要求取消匯入。
         private int cancellationRequested;
-        private readonly Label progressLabel;
-        private readonly ProgressBar progressBar;
 
+        /// <summary>初始化匯入進度與取消控制項。</summary>
         public ImportProgressForm()
         {
-            Text = Strings.ImportProgressTitle;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            ControlBox = false;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(360, 112);
-
-            var label = new Label { AutoSize = true, Location = new Point(18, 18), Text = Strings.ImportInProgress };
-            progressLabel = new Label { AutoSize = true, Location = new Point(18, 43), Text = string.Format(Strings.ImportProgressCounts, 0, 0, 0, 0) };
-            progressBar = new ProgressBar { Location = new Point(18, 66), Size = new Size(240, 18), Minimum = 0, Maximum = 1 };
-            var cancel = new Button { Location = new Point(267, 62), Size = new Size(75, 25), Text = Strings.Cancel };
-            cancel.Click += (sender, args) =>
-            {
-                Interlocked.Exchange(ref cancellationRequested, 1);
-                cancel.Enabled = false;
-            };
-            Controls.Add(label);
-            Controls.Add(progressLabel);
-            Controls.Add(progressBar);
-            Controls.Add(cancel);
+            InitializeComponent();
         }
 
+        // 以原子讀取取得目前的取消要求狀態。
         public bool IsCancellationRequested { get { return Interlocked.CompareExchange(ref cancellationRequested, 0, 0) != 0; } }
 
+        /// <summary>更新匯入計數與進度列；跨執行緒呼叫時切回 UI 執行緒。</summary>
         public void Report(ImageImportProgress progress)
         {
             if (progress == null || IsDisposed || Disposing) return;
@@ -52,6 +34,13 @@ namespace Neurocle.WinForms
             progressBar.Maximum = Math.Max(progress.TotalCount, 1);
             progressBar.Value = Math.Min(progress.ProcessedCount, progressBar.Maximum);
             progressLabel.Text = string.Format(Strings.ImportProgressCounts, progress.ProcessedCount, progress.TotalCount, progress.SuccessfulCount, progress.FailedCount);
+        }
+
+        /// <summary>記錄使用者取消要求並停用取消按鈕。</summary>
+        private void Cancel_Click(object sender, System.EventArgs args)
+        {
+            Interlocked.Exchange(ref cancellationRequested, 1);
+            ((Button)sender).Enabled = false;
         }
     }
 }

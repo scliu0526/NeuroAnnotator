@@ -2014,6 +2014,160 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Erasing_a_second_hole_rebuilds_the_network_and_undo_restores_the_previous_path()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("two holes", AnnotationSetType.Seg);
+                    AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                    store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 10, 10, 80, 80);
+
+                    store.EraseSegPath(set.Id, image.Id, annotationClass.Id, new[] { new SegPoint(30, 30) }, 12);
+                    SegPoint[] firstPath = store.GetSegRegions(set.Id, image.Id).Single().Points.ToArray();
+                    double firstArea = SegGeometryPrototype.Area(new Paths64 { new Path64(firstPath.Select(point => new Point64(point.X, point.Y)).ToList()) });
+                    store.EraseSegPath(set.Id, image.Id, annotationClass.Id, new[] { new SegPoint(50, 30) }, 12);
+
+                    SegPoint[] secondPath = store.GetSegRegions(set.Id, image.Id).Single().Points.ToArray();
+                    Paths64 contours = Clipper.Union(new Paths64 { new Path64(secondPath.Select(point => new Point64(point.X, point.Y)).ToList()) }, FillRule.NonZero);
+                    Assert.AreEqual(3, contours.Count, "The second erase must persist the outer contour and both holes.");
+                    Assert.IsTrue(SegGeometryPrototype.Area(new Paths64 { new Path64(secondPath.Select(point => new Point64(point.X, point.Y)).ToList()) }) < firstArea);
+                    CollectionAssert.AreEqual(secondPath.Select(PointSignature).ToArray(), SegGeometryPrototype.Rebridge(new Path64(secondPath.Select(point => new Point64(point.X, point.Y)).ToList())).Select(PointSignature).ToArray(), "The stored network must already be the stable minimum after the new hole is added.");
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(firstPath.Select(PointSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                    Assert.IsTrue(store.Redo(set.Id));
+                    CollectionAssert.AreEqual(secondPath.Select(PointSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Updating_a_SEG_polygon_rebuilds_the_shortest_hole_network_and_roundtrips_history_and_json()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string exportedJson = Path.Combine(Path.GetDirectoryName(path), "export.json");
+            SegPoint[] originalPoints = SeparateOuterBridgePath();
+            SegPoint[] movedPoints = originalPoints.Select(point => new SegPoint(point.X + 1, point.Y + 1)).ToArray();
+            string[] expected;
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 120, 120);
+                string setId;
+                string imageId;
+                string regionId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("bridges", AnnotationSetType.Seg);
+                    AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                    SegRegion region = store.AddSegPath(set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, originalPoints, 0);
+                    setId = set.Id;
+                    imageId = image.Id;
+                    regionId = region.Id;
+
+                    store.UpdateSegRegions(new[] { new SegRegion(region.Id, set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, movedPoints) });
+
+                    SegRegion updated = store.GetSegRegions(set.Id, image.Id).Single();
+                    expected = updated.Points.Select(PointSignature).ToArray();
+                    CollectionAssert.AreNotEqual(movedPoints.Select(PointSignature).ToArray(), expected, "The obsolete outer-to-second-hole bridge must be replaced.");
+                    Assert.AreEqual(2, CountSegment(updated.Points, 21, 1, 21, 21), "The existing shortest outer-to-first-hole bridge is retained.");
+                    Assert.AreEqual(2, CountSegment(updated.Points, 31, 21, 41, 21), "The shorter hole-to-hole bridge joins the network.");
+                    Assert.AreEqual(0, CountSegment(updated.Points, 41, 1, 41, 21), "The longer second outer bridge is removed.");
+                    Assert.AreEqual(9800d, SegGeometryPrototype.Area(new Paths64 { new Path64(updated.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(originalPoints.Select(PointSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                    Assert.IsTrue(store.Redo(set.Id));
+                    CollectionAssert.AreEqual(expected, store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                    store.ExportAnnotationJson(set.Id, exportedJson);
+                    store.Save();
+                }
+
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    CollectionAssert.AreEqual(expected, reopened.GetSegRegions(setId, imageId).Single(value => value.Id == regionId).Points.Select(PointSignature).ToArray());
+                    AnnotationSet roundtrip = reopened.ImportAnnotationJson(File.ReadAllText(exportedJson), "roundtrip", false);
+                    CollectionAssert.AreEqual(expected, reopened.GetSegRegions(roundtrip.Id, imageId).Single().Points.Select(PointSignature).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Unbridgeable_SEG_geometry_update_preserves_the_region_and_does_not_add_undo_history()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            SegPoint[] originalPoints =
+            {
+                new SegPoint(10, 10), new SegPoint(60, 10), new SegPoint(60, 20), new SegPoint(80, 20),
+                new SegPoint(80, 30), new SegPoint(90, 30), new SegPoint(90, 20), new SegPoint(80, 20),
+                new SegPoint(60, 20), new SegPoint(60, 60), new SegPoint(10, 60)
+            };
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("unbridgeable", AnnotationSetType.Seg);
+                    AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                    SegRegion region = store.AddSegPath(set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, originalPoints, 0);
+                    SegPoint[] invalidEdit = originalPoints.Select(point => new SegPoint(point.X + 1, point.Y + 1)).ToArray();
+
+                    Assert.ThrowsException<SegGeometryPrototype.BridgeNetworkException>(() => store.UpdateSegRegions(new[] { new SegRegion(region.Id, set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, invalidEdit) }));
+
+                    Assert.IsTrue(store.CanUndo(set.Id));
+                    Assert.IsFalse(store.CanRedo(set.Id));
+                    CollectionAssert.AreEqual(originalPoints.Select(PointSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                    Assert.IsTrue(store.Undo(set.Id), "A failed edit must not insert its own history record ahead of the original add.");
+                    Assert.AreEqual(0, store.GetSegRegions(set.Id, image.Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Unedited_imported_SEG_bridge_path_keeps_its_point_order_on_save_and_export()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string exportedJson = Path.Combine(Path.GetDirectoryName(path), "export.json");
+            SegPoint[] originalPoints = SeparateOuterBridgePath();
+            string pointsJson = String.Join(",", originalPoints.Select(point => "[" + point.X + "," + point.Y + "]"));
+            string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"source.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyGon\",\"points\":[" + pointsJson + "]}],\"retestset\":0,\"rotation_angle\":0,\"width\":120,\"height\":120}]}";
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 120, 120);
+                string setId;
+                string imageId;
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.ImportAnnotationJson(json, "imported", false);
+                    setId = set.Id;
+                    imageId = image.Id;
+                    CollectionAssert.AreEqual(originalPoints.Select(PointSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                    store.Save();
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    CollectionAssert.AreEqual(originalPoints.Select(PointSignature).ToArray(), reopened.GetSegRegions(setId, imageId).Single().Points.Select(PointSignature).ToArray());
+                    reopened.ExportAnnotationJson(setId, exportedJson);
+                    AnnotationSet roundtrip = reopened.ImportAnnotationJson(File.ReadAllText(exportedJson), "roundtrip", false);
+                    CollectionAssert.AreEqual(originalPoints.Select(PointSignature).ToArray(), reopened.GetSegRegions(roundtrip.Id, imageId).Single().Points.Select(PointSignature).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Dataset_assignments_are_isolated_batch_undoable_and_default_to_unassigned_retest_zero()
         {
             string path = TemporaryProjectPath();
@@ -2651,6 +2805,40 @@ namespace Neurocle.Tests
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
             return Path.Combine(directory, "project.neurocle");
+        }
+
+        private static SegPoint[] SeparateOuterBridgePath()
+        {
+            return new[]
+            {
+                new SegPoint(0, 0), new SegPoint(20, 0), new SegPoint(20, 20),
+                new SegPoint(20, 30), new SegPoint(30, 30), new SegPoint(30, 20), new SegPoint(20, 20), new SegPoint(20, 0),
+                new SegPoint(40, 0), new SegPoint(40, 20), new SegPoint(40, 30), new SegPoint(50, 30), new SegPoint(50, 20), new SegPoint(40, 20), new SegPoint(40, 0),
+                new SegPoint(100, 0), new SegPoint(100, 100), new SegPoint(0, 100)
+            };
+        }
+
+        private static string PointSignature(SegPoint point)
+        {
+            return point.X + "," + point.Y;
+        }
+
+        private static string PointSignature(Point64 point)
+        {
+            return point.X + "," + point.Y;
+        }
+
+        private static int CountSegment(IReadOnlyList<SegPoint> points, int firstX, int firstY, int secondX, int secondY)
+        {
+            int count = 0;
+            for (int index = 0; index < points.Count; index++)
+            {
+                SegPoint first = points[index];
+                SegPoint second = points[(index + 1) % points.Count];
+                if ((first.X == firstX && first.Y == firstY && second.X == secondX && second.Y == secondY) ||
+                    (first.X == secondX && first.Y == secondY && second.X == firstX && second.Y == firstY)) count++;
+            }
+            return count;
         }
 
         private static void DeleteTemporaryProject(string path)

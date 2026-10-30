@@ -4,41 +4,50 @@ using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
 {
-    internal sealed class DiagnosticsForm : Form
+    // 顯示診斷記錄用量，並提供開啟記錄資料夾的操作。
+    internal sealed partial class DiagnosticsForm : Form
     {
-        private readonly DiagnosticLog diagnosticLog;
-        private readonly Label usage;
+        // 提供記錄用量查詢及資料夾開啟功能。
+        private DiagnosticLog diagnosticLog;
 
-        public DiagnosticsForm(DiagnosticLog diagnosticLog)
+        /// <summary>初始化診斷資訊表單。</summary>
+        internal DiagnosticsForm()
         {
-            this.diagnosticLog = diagnosticLog ?? throw new ArgumentNullException(nameof(diagnosticLog));
-            Text = Strings.DiagnosticsTitle;
-            Width = 380;
-            Height = 150;
-            StartPosition = FormStartPosition.CenterParent;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            usage = new Label { AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(12) };
-            var openFolder = new Button { AutoSize = true, Dock = DockStyle.Bottom, Text = Strings.OpenLogsFolder };
-            openFolder.Click += (sender, args) => OpenFolder();
-            var close = new Button { AutoSize = true, Dock = DockStyle.Bottom, DialogResult = DialogResult.OK, Text = Strings.Close };
-            Controls.Add(usage);
-            Controls.Add(openFolder);
-            Controls.Add(close);
-            Shown += (sender, args) => RefreshUsage();
+            InitializeComponent();
         }
 
+        /// <summary>建立並設定此表單使用的診斷記錄器。</summary>
+        public DiagnosticsForm(DiagnosticLog diagnosticLog) : this()
+        {
+            this.diagnosticLog = diagnosticLog ?? throw new ArgumentNullException(nameof(diagnosticLog));
+        }
+
+        /// <summary>查詢記錄檔總用量並更新畫面文字。</summary>
         private void RefreshUsage()
         {
+            if (diagnosticLog == null) return;
             try { usage.Text = string.Format(Strings.DiagnosticLogUsage, diagnosticLog.GetUsageBytes()); }
             catch (DiagnosticLogException exception) { MessageBox.Show(this, DiagnosticLogMessages.GetFailureMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
+        /// <summary>開啟記錄檔目錄，並在成功後更新用量資訊。</summary>
         private void OpenFolder()
         {
+            if (diagnosticLog == null) return;
             try { diagnosticLog.OpenFolder(); RefreshUsage(); }
             catch (DiagnosticLogException exception) { MessageBox.Show(this, DiagnosticLogMessages.GetFailureMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        /// <summary>表單顯示時載入目前診斷記錄用量。</summary>
+        private void DiagnosticsForm_Shown(object sender, System.EventArgs args)
+        {
+            RefreshUsage();
+        }
+
+        /// <summary>將開啟資料夾按鈕事件委派給記錄資料夾操作。</summary>
+        private void OpenFolder_Click(object sender, System.EventArgs args)
+        {
+            OpenFolder();
         }
     }
 }

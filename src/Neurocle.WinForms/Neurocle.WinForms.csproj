@@ -29,6 +29,7 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Numerics" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
@@ -56,36 +57,99 @@
     <Compile Include="DiagnosticsForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="DiagnosticsForm.Designer.cs">
+      <DependentUpon>DiagnosticsForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="MainForm.Designer.cs">
+      <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
     <Compile Include="KeyboardShortcutsForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="KeyboardShortcutsForm.Designer.cs">
+      <DependentUpon>KeyboardShortcutsForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="AnnotationSetCreationDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="AnnotationSetCreationDialog.Designer.cs">
+      <DependentUpon>AnnotationSetCreationDialog.cs</DependentUpon>
+    </Compile>
+    <EmbeddedResource Include="AnnotationSetCreationDialog.resx">
+      <DependentUpon>AnnotationSetCreationDialog.cs</DependentUpon>
+    </EmbeddedResource>
     <Compile Include="ImportProgressForm.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ImportProgressForm.Designer.cs">
+      <DependentUpon>ImportProgressForm.cs</DependentUpon>
     </Compile>
     <Compile Include="MissingImagesForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="MissingImagesForm.Designer.cs">
+      <DependentUpon>MissingImagesForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="BackupManagementForm.cs">
       <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="BackupManagementForm.Designer.cs">
+      <DependentUpon>BackupManagementForm.cs</DependentUpon>
     </Compile>
     <Compile Include="ImageBrowserControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="ImageBrowserControl.Designer.cs">
+      <DependentUpon>ImageBrowserControl.cs</DependentUpon>
+    </Compile>
     <Compile Include="DatasetAssignmentControl.cs">
       <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DatasetAssignmentControl.Designer.cs">
+      <DependentUpon>DatasetAssignmentControl.cs</DependentUpon>
     </Compile>
     <Compile Include="CanvasScrollHost.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="CanvasScrollHost.Designer.cs">
+      <DependentUpon>CanvasScrollHost.cs</DependentUpon>
+    </Compile>
     <Compile Include="ImageCanvasControl.cs">
       <SubType>Component</SubType>
     </Compile>
+    <EmbeddedResource Include="..\..\icon\Label_tool\01_cursor.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.01_cursor.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\02_eraser.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.02_eraser.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\03_brush.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.03_brush.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\04_pencil.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.04_pencil.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\05_line.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.05_line.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\06_square.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.06_square.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\Label_tool\07_circle.png">
+      <LogicalName>Neurocle.WinForms.Label_tool.07_circle.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\model_type\CLA.png">
+      <LogicalName>Neurocle.WinForms.model_type.CLA.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\model_type\OBD.png">
+      <LogicalName>Neurocle.WinForms.model_type.OBD.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\icon\model_type\SEG.png">
+      <LogicalName>Neurocle.WinForms.model_type.SEG.png</LogicalName>
+    </EmbeddedResource>
     <Compile Include="Resources\Strings.Designer.cs" />
     <EmbeddedResource Include="Resources\Strings.resx">
       <Generator>ResXFileCodeGenerator</Generator>

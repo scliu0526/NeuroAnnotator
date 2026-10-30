@@ -1,31 +1,17 @@
-using System.Drawing;
 using System.Windows.Forms;
 
 namespace Neurocle.WinForms
 {
-    internal sealed class KeyboardShortcutsForm : Form
+    // 顯示應用程式支援的鍵盤與畫布操作快捷鍵。
+    internal sealed partial class KeyboardShortcutsForm : Form
     {
-        internal ListView Shortcuts { get; private set; }
+        // 取得顯示快捷鍵、動作及適用範圍的清單。
+        internal ListView Shortcuts { get { return shortcutsList; } }
 
+        /// <summary>初始化快捷鍵清單並填入各操作的適用範圍。</summary>
         internal KeyboardShortcutsForm()
         {
-            Text = "快捷鍵";
-            StartPosition = FormStartPosition.CenterParent;
-            MinimumSize = new Size(680, 360);
-            Size = new Size(820, 460);
-            ShowInTaskbar = false;
-
-            Shortcuts = new ListView
-            {
-                Dock = DockStyle.Fill,
-                View = View.Details,
-                FullRowSelect = true,
-                GridLines = true,
-                HideSelection = false
-            };
-            Shortcuts.Columns.Add("按鍵", 180);
-            Shortcuts.Columns.Add("功能", 250);
-            Shortcuts.Columns.Add("適用範圍與條件", 350);
+            InitializeComponent();
             Add("Ctrl+Z", "復原", "目前標註集；文字輸入時由文字欄位處理");
             Add("Ctrl+Shift+Z", "重做", "目前標註集；文字輸入時由文字欄位處理");
             Add("Ctrl+Y", "重做", "目前標註集；文字輸入時由文字欄位處理");
@@ -47,6 +33,7 @@ namespace Neurocle.WinForms
             Controls.Add(Shortcuts);
         }
 
+        /// <summary>新增一列快捷鍵、動作及適用範圍到清單。</summary>
         private void Add(string key, string action, string scope)
         {
             var row = new ListViewItem(key);
