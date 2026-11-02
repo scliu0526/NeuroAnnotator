@@ -330,7 +330,7 @@ namespace Neurocle.Tests
                         Assert.IsTrue(releaseImport.Wait(TimeSpan.FromSeconds(5)));
                     })))
                     {
-                    queue.Enqueue(new ImageFilesImportJobRequest(new[] { firstPath, secondPath }));
+                        queue.Enqueue(new ImageFilesImportJobRequest(new[] { firstPath, secondPath }));
                         Assert.IsTrue(firstImported.Wait(TimeSpan.FromSeconds(5)));
 
                         store.SetClaClass(set.Id, existing.Id, classId);
@@ -369,7 +369,7 @@ namespace Neurocle.Tests
             else throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
             return new ImportJobResult(
                 report.UnprocessedCount > 0 || report.WasCancelledDuringScan,
-                report.Imported.Select(image => image.Id).ToArray(), report.Failures.Count, report.UnprocessedCount);
+                report.Imported.Select(image => image.Id).ToArray(), report.Failures.Count, report.UnprocessedCount, report.WasCancelledDuringScan);
         }
     }
 }
