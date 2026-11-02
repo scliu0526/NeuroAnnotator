@@ -76,18 +76,20 @@ namespace Neurocle.WinForms
 
     internal sealed class ImportJobResult
     {
-        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0)
+        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false)
         {
             WasCanceled = wasCanceled;
             ImportedImageIds = Array.AsReadOnly((importedImageIds ?? new string[0]).ToArray());
             FailedCount = failedCount;
             UnprocessedCount = unprocessedCount;
+            WasCanceledDuringScan = wasCanceledDuringScan;
         }
 
         public bool WasCanceled { get; }
         public IReadOnlyList<string> ImportedImageIds { get; }
         public int FailedCount { get; }
         public int UnprocessedCount { get; }
+        public bool WasCanceledDuringScan { get; }
     }
 
     internal sealed class ImportJobSnapshot

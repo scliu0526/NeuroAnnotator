@@ -37,7 +37,7 @@ namespace Neurocle.WinForms
                 string source = SourceText(job.Request);
                 string progress = job.Result == null
                     ? job.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, job.Progress.ProcessedCount, job.Progress.TotalCount)
-                    : string.Format(Strings.ImportQueueResultSummary, job.Result.ImportedImageIds.Count, job.Result.FailedCount, job.Result.UnprocessedCount);
+                    : job.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, job.Result.ImportedImageIds.Count, job.Result.FailedCount, job.Result.UnprocessedCount);
                 var item = new ListViewItem(source) { Tag = job.Id };
                 item.SubItems.Add(StatusText(job.Status));
                 item.SubItems.Add(progress);
@@ -53,7 +53,7 @@ namespace Neurocle.WinForms
             var imageRequest = request as ImageFilesImportJobRequest;
             if (imageRequest != null) return imageRequest.FilePaths.Count == 1 ? Path.GetFileName(imageRequest.FilePaths[0]) : string.Format(Strings.ImportQueueFileCount, imageRequest.FilePaths.Count);
             var folderRequest = request as FolderImportJobRequest;
-            if (folderRequest != null) return folderRequest.DirectoryPath + (folderRequest.IncludeSubdirectories ? " (含子資料夾)" : string.Empty);
+            if (folderRequest != null) return folderRequest.DirectoryPath + (folderRequest.IncludeSubdirectories ? Strings.ImportQueueFolderRecursive : string.Empty);
             return request.Kind.ToString();
         }
 

@@ -1425,6 +1425,7 @@ namespace Neurocle.WinForms
             importImagesButton.Enabled = true;
             importFolderButton.Enabled = true;
             importImagesMenuItem.Enabled = true;
+            importFolderMenuItem.Enabled = true;
         }
 
         /// <summary>依匯入工作種類執行對應專案操作並轉換成共用結果。</summary>
@@ -1446,7 +1447,7 @@ namespace Neurocle.WinForms
             }
             return new ImportJobResult(
                 report.UnprocessedCount > 0 || report.WasCancelledDuringScan,
-                report.Imported.Select(image => image.Id).ToArray(), report.Failures.Count, report.UnprocessedCount);
+                report.Imported.Select(image => image.Id).ToArray(), report.Failures.Count, report.UnprocessedCount, report.WasCancelledDuringScan);
         }
 
         /// <summary>在 UI 執行緒顯示最新匯入狀態並於工作結束後刷新圖片清單。</summary>

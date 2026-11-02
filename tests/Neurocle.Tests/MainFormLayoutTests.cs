@@ -334,6 +334,7 @@ namespace Neurocle.Tests
                 Assert.IsFalse(importImages.Enabled);
                 Assert.IsFalse(importFolder.Enabled);
                 Assert.IsFalse(Field<ToolStripMenuItem>(form, "importImagesMenuItem").Enabled);
+                Assert.IsFalse(Field<ToolStripMenuItem>(form, "importFolderMenuItem").Enabled);
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importImages));
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importFolder));
             }
@@ -356,9 +357,23 @@ namespace Neurocle.Tests
                 CollectionAssert.AreEqual(new[] { "等待中", "執行中", "已完成", "已完成" }, jobs.Items.Cast<ListViewItem>().Select(item => item.SubItems[1].Text).ToArray());
                 Assert.AreEqual("成功 1，失敗 1，未完成 0", jobs.Items[3].SubItems[2].Text);
                 Assert.AreEqual("1 / 2", jobs.Items[1].SubItems[2].Text);
-                Assert.AreEqual("成功 1，失敗 1，未完成 0", jobs.Items[3].SubItems[2].Text);
                 jobs.Items[2].Selected = true;
                 Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
+            }
+        }
+
+        [STATestMethod]
+        public void Import_queue_window_explains_unknown_remaining_folder_scan_after_cancel()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(Guid.NewGuid(), new FolderImportJobRequest("folder", false), ImportJobStatus.Canceled, new ImportJobProgress(1, 0, 1, 0), new ImportJobResult(true, new[] { "image-id" }, 0, 0, true), null)
+                });
+
+                ListView jobs = Field<ListView>(form, "jobsList");
+                Assert.AreEqual("資料夾掃描已取消；尚未掃描的項目數無法確定。", jobs.Items[0].SubItems[2].Text);
             }
         }
 

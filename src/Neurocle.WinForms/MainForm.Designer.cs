@@ -33,6 +33,7 @@ namespace Neurocle.WinForms
             this.importImagesMenuItem = new ToolStripMenuItem(Strings.ImportImages);
             this.importImagesMenuItem.Enabled = false;
             this.importFolderMenuItem = new ToolStripMenuItem(Strings.ImportFolder);
+            this.importFolderMenuItem.Enabled = false;
             this.importAnnotationMenuItem = new ToolStripMenuItem(Strings.ImportAnnotationJson);
             this.missingImagesMenuItem = new ToolStripMenuItem(Strings.ManageMissingImages);
             this.backupsMenuItem = new ToolStripMenuItem(Strings.ManageBackups);

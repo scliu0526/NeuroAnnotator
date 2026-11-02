@@ -197,6 +197,36 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Missing_folder_reports_failure_and_does_not_block_following_job()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "neurocle-folder-missing-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string valid = Path.Combine(directory, "valid.png");
+                using (var bitmap = new Bitmap(4, 4)) bitmap.Save(valid, ImageFormat.Png);
+                string missing = Path.Combine(directory, "missing");
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(directory, "queue.neurocle")))
+                using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => ImportImportJob(store, request, cancellationRequested, progress)))
+                {
+                    queue.Enqueue(new FolderImportJobRequest(missing, false));
+                    queue.Enqueue(new ImageFilesImportJobRequest(new[] { valid }));
+
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                    Assert.AreEqual(ImportJobStatus.Completed, queue.Jobs[0].Status);
+                    Assert.AreEqual(1, queue.Jobs[0].Result.FailedCount);
+                    Assert.AreEqual(ImportJobStatus.Completed, queue.Jobs[1].Status);
+                    Assert.AreEqual(1, queue.Jobs[1].Result.ImportedImageIds.Count);
+                    Assert.AreEqual(1, store.GetImages().Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
         public void Waiting_job_changes_to_canceled_immediately()
         {
             var firstStarted = new ManualResetEventSlim();
