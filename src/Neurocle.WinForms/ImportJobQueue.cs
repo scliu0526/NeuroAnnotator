@@ -116,7 +116,7 @@ namespace Neurocle.WinForms
 
     internal sealed class ImportJobSnapshot
     {
-        public ImportJobSnapshot(Guid id, ImportJobRequest request, ImportJobStatus status, ImportJobProgress progress, ImportJobResult result, string errorMessage)
+        public ImportJobSnapshot(Guid id, ImportJobRequest request, ImportJobStatus status, ImportJobProgress progress, ImportJobResult result, string errorMessage, bool requiresConfirmation = false)
         {
             Id = id;
             Request = request;
@@ -124,6 +124,7 @@ namespace Neurocle.WinForms
             Progress = progress;
             Result = result;
             ErrorMessage = errorMessage;
+            RequiresConfirmation = requiresConfirmation;
         }
 
         public Guid Id { get; }
@@ -132,6 +133,7 @@ namespace Neurocle.WinForms
         public ImportJobProgress Progress { get; }
         public ImportJobResult Result { get; }
         public string ErrorMessage { get; }
+        public bool RequiresConfirmation { get; }
     }
 
     internal sealed class ImportJobQueue : IDisposable
@@ -154,10 +156,11 @@ namespace Neurocle.WinForms
             public ImportJobResult Result { get; set; }
             public string ErrorMessage { get; set; }
             public bool CancellationRequested { get; set; }
+            public bool RequiresConfirmation { get; set; }
 
             public ImportJobSnapshot Snapshot()
             {
-                return new ImportJobSnapshot(Id, Request, Status, Progress, Result, ErrorMessage);
+                return new ImportJobSnapshot(Id, Request, Status, Progress, Result, ErrorMessage, RequiresConfirmation);
             }
         }
 
@@ -225,6 +228,7 @@ namespace Neurocle.WinForms
                 if (job == null || job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled) return;
                 job.CancellationRequested = true;
                 if (job.Status == ImportJobStatus.Waiting) job.Status = ImportJobStatus.Canceled;
+                if (confirmationJob != null && confirmationJob.Id == jobId) confirmationSignal.Set();
             }
             Publish();
         }
@@ -280,7 +284,8 @@ namespace Neurocle.WinForms
                         lock (gate)
                         {
                             job.ErrorMessage = result.ConfirmationMessage;
-                            job.Status = ImportJobStatus.Failed;
+                            job.Status = ImportJobStatus.Waiting;
+                            job.RequiresConfirmation = true;
                             confirmationJob = job;
                             confirmationRetry = null;
                             confirmationSignal.Reset();
@@ -289,16 +294,18 @@ namespace Neurocle.WinForms
                         confirmationSignal.Wait();
                         lock (gate)
                         {
-                            if (disposed)
+                            if (disposed || job.CancellationRequested)
                             {
                                 job.Status = ImportJobStatus.Canceled;
                                 job.Result = new ImportJobResult(true, new string[0]);
+                                job.RequiresConfirmation = false;
                             }
                             else if (confirmationRetry != null)
                             {
                                 job.Request = confirmationRetry;
                                 job.ErrorMessage = null;
                                 job.Result = null;
+                                job.RequiresConfirmation = false;
                                 job.Status = ImportJobStatus.Waiting;
                                 Job[] laterJobs = waiting.ToArray();
                                 waiting.Clear();

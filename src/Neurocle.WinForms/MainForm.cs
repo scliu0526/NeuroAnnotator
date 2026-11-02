@@ -125,6 +125,7 @@ namespace Neurocle.WinForms
         private ImportQueueForm importQueueForm;
         // 記錄已完成畫面更新的匯入工作。
         private readonly HashSet<Guid> handledImageImportJobs = new HashSet<Guid>();
+        private readonly HashSet<Guid> handledImportConfirmations = new HashSet<Guid>();
         // 避免同時啟動多個匯出工作。
         private bool exportInProgress;
         // 避免重疊執行需要背景處理的標註操作。
@@ -1413,6 +1414,7 @@ namespace Neurocle.WinForms
                 importJobQueue.Dispose();
             }
             handledImageImportJobs.Clear();
+            handledImportConfirmations.Clear();
             importJobQueue = new ImportJobQueue((request, cancellationRequested, progress) => ExecuteImportJob(session, request, cancellationRequested, progress));
             importJobQueue.JobsChanged += ImageImportJobsChanged;
             if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(new ImportJobSnapshot[0]);
@@ -1474,6 +1476,14 @@ namespace Neurocle.WinForms
             if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(jobs);
             importInProgress = importJobQueue != null && importJobQueue.IsBusy;
             UpdateProjectMenuAvailability();
+            foreach (ImportJobSnapshot job in jobs.Where(value => value.RequiresConfirmation))
+            {
+                if (!handledImportConfirmations.Add(job.Id)) continue;
+                var jsonRequest = job.Request as AnnotationJsonImportJobRequest;
+                if (jsonRequest == null) continue;
+                DialogResult choice = MessageBox.Show(this, Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+                importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, true) : null);
+            }
             foreach (ImportJobSnapshot job in jobs.Where(IsEndedImageImportJob))
             {
                 if (!handledImageImportJobs.Add(job.Id)) continue;
@@ -1483,11 +1493,6 @@ namespace Neurocle.WinForms
                     if (job.Status == ImportJobStatus.Completed) WriteDiagnostic(DiagnosticEvent.AnnotationJsonImported);
                     else WriteDiagnostic(DiagnosticEvent.OperationFailed);
                     if (job.Status == ImportJobStatus.Completed) RefreshAnnotationSets();
-                    else if (job.Status == ImportJobStatus.Failed && !jsonRequest.AllowUnknownFields && job.ErrorMessage == "JSON contains unknown fields.")
-                    {
-                        DialogResult choice = MessageBox.Show(this, Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
-                        importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, true) : null);
-                    }
                 }
                 else
                 {

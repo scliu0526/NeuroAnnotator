@@ -166,7 +166,8 @@ namespace Neurocle.Tests
 
                 Assert.IsTrue(confirmationReady.Wait(TimeSpan.FromSeconds(5)));
                 Assert.AreEqual(1, executionOrder.Count);
-                Assert.AreEqual(ImportJobStatus.Failed, queue.Jobs[0].Status);
+                Assert.AreEqual(ImportJobStatus.Waiting, queue.Jobs[0].Status);
+                Assert.IsTrue(queue.Jobs[0].RequiresConfirmation);
                 Assert.AreEqual(ImportJobStatus.Waiting, queue.Jobs[1].Status);
 
                 queue.ResolveConfirmation(jsonId, new AnnotationJsonImportJobRequest("labels.json", "labels", true));
