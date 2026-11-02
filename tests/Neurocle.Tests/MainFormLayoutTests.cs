@@ -2842,6 +2842,47 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Ctrl_brush_and_line_completion_submit_one_geometry_erase_with_locked_width()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                Keys modifiers = Keys.None;
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegStrokeWidth = 14 })
+                {
+                    canvas.ModifierKeysProvider = () => modifiers;
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    var erases = new List<Tuple<SegRegionType, int>>();
+                    canvas.SegGeometryEraseRequested += (type, rectangle, points, width) => erases.Add(Tuple.Create(type, width));
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 50, 20, 0));
+                    canvas.SegStrokeWidth = 30;
+                    modifiers = Keys.Control;
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 50, 20, 0));
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Line;
+                    modifiers = Keys.None;
+                    canvas.SegStrokeWidth = 14;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 40, 0));
+                    canvas.SegStrokeWidth = 30;
+                    modifiers = Keys.Control;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 50, 40, 0));
+                    CollectionAssert.AreEqual(new[] { SegRegionType.PolyLine, SegRegionType.PolyLine }, erases.Select(value => value.Item1).ToArray());
+                    CollectionAssert.AreEqual(new[] { 14, 14 }, erases.Select(value => value.Item2).ToArray());
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Brush_returning_to_start_keeps_enclosed_area_empty_through_main_form()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
