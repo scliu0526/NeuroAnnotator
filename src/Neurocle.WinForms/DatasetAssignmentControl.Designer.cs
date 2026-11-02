@@ -24,7 +24,8 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.Button unassignedButton;
         private System.Windows.Forms.Button notUsedButton;
         private System.Windows.Forms.Button retestButton;
-        private System.Windows.Forms.Button autoSplitButton;
+        private System.Windows.Forms.Button splitSelectedButton;
+        private System.Windows.Forms.Button splitAllButton;
         private System.Windows.Forms.ToolStripMenuItem clearRetestItem;
         private System.Windows.Forms.ToolStripMenuItem clearClassItem;
         private System.Windows.Forms.ToolStripMenuItem clearSetItem;
@@ -75,7 +76,8 @@ namespace Neurocle.WinForms
             this.unassignedButton = new System.Windows.Forms.Button();
             this.notUsedButton = new System.Windows.Forms.Button();
             this.retestButton = new System.Windows.Forms.Button();
-            this.autoSplitButton = new System.Windows.Forms.Button();
+            this.splitSelectedButton = new System.Windows.Forms.Button();
+            this.splitAllButton = new System.Windows.Forms.Button();
             this.actions = new System.Windows.Forms.FlowLayoutPanel();
             this.filters = new System.Windows.Forms.FlowLayoutPanel();
             this.trainLabel = new System.Windows.Forms.Label();
@@ -183,13 +185,20 @@ namespace Neurocle.WinForms
             this.testPercent.Name = "testPercent";
             this.testPercent.TabIndex = 8;
             //
-            // autoSplitButton
+            // splitSelectedButton
             //
-            this.autoSplitButton.AutoSize = true;
-            this.autoSplitButton.Name = "autoSplitButton";
-            this.autoSplitButton.TabIndex = 9;
-            this.autoSplitButton.Text = Strings.DatasetAutoSplit;
-            this.autoSplitButton.UseVisualStyleBackColor = true;
+            this.splitSelectedButton.AutoSize = true;
+            this.splitSelectedButton.Name = "splitSelectedButton";
+            this.splitSelectedButton.TabIndex = 9;
+            this.splitSelectedButton.Text = Strings.DatasetSplitSelected;
+            this.splitSelectedButton.Enabled = false;
+            this.splitSelectedButton.UseVisualStyleBackColor = true;
+            // splitAllButton
+            this.splitAllButton.AutoSize = true;
+            this.splitAllButton.Name = "splitAllButton";
+            this.splitAllButton.TabIndex = 10;
+            this.splitAllButton.Text = Strings.DatasetSplitAll;
+            this.splitAllButton.UseVisualStyleBackColor = true;
             this.randomSplitLabel.AutoSize = true;
             this.randomSplitLabel.Text = Strings.DatasetRandomSplitTitle;
             this.randomSplitLabel.Margin = new System.Windows.Forms.Padding(4, 8, 4, 2);
@@ -226,7 +235,8 @@ namespace Neurocle.WinForms
             this.actions.Controls.Add(this.trainPercent);
             this.actions.Controls.Add(this.testLabel);
             this.actions.Controls.Add(this.testPercent);
-            this.actions.Controls.Add(this.autoSplitButton);
+            this.actions.Controls.Add(this.splitSelectedButton);
+            this.actions.Controls.Add(this.splitAllButton);
             this.actions.Controls.Add(this.manualSplitLabel);
             this.actions.Controls.Add(this.manualSplitDescription);
             this.actions.Controls.Add(this.manualActions);

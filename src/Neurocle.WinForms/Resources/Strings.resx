@@ -146,6 +146,10 @@
   <data name="DatasetManualSplitDescription" xml:space="preserve"><value>將選取圖片指定至資料集</value></data>
   <data name="DatasetRetestTitle" xml:space="preserve"><value>資料集 Retest</value></data>
   <data name="DatasetRetestDescription" xml:space="preserve"><value>將選取圖片設為 Retest</value></data>
+  <data name="DatasetSplitSelected" xml:space="preserve"><value>切分所選</value></data>
+  <data name="DatasetSplitAll" xml:space="preserve"><value>切分全部</value></data>
+  <data name="DatasetSplitSelectedConfirm" xml:space="preserve"><value>這會重新分配目前選取的 {0} 張圖片，其他圖片不變。是否繼續？</value></data>
+  <data name="DatasetSplitAllConfirm" xml:space="preserve"><value>這會重新分配全部 {0} 張可用圖片。是否繼續？</value></data>
   <data name="ExportPage" xml:space="preserve"><value>完成與匯出</value></data>
   <data name="ExportSelectedImages" xml:space="preserve"><value>匯出選取圖片 ZIP</value></data>
   <data name="ExportAllImages" xml:space="preserve"><value>匯出全部圖片 ZIP</value></data>

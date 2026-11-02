@@ -34,15 +34,23 @@ namespace Neurocle.WinForms
             annotationFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
             retestFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
             list.RetrieveVirtualItem += (sender, args) => args.Item = CreateItem(visibleRows[args.ItemIndex]);
+            list.SelectedIndexChanged += (sender, args) => UpdateSplitButtons();
             trainButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Train);
             testButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Test);
             unassignedButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned);
             notUsedButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed);
             retestButton.Click += (sender, args) => RetestRequested?.Invoke(SelectedImageIds, true);
-            autoSplitButton.Click += (sender, args) =>
+            splitSelectedButton.Click += (sender, args) =>
             {
-                if (MessageBox.Show(Strings.DatasetAutoSplitConfirm, Strings.DatasetAutoSplit, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
-                    AutoSplitRequested?.Invoke((int)trainPercent.Value);
+                int count = SelectedImageIds.Count(id => rows.Any(row => row.Image.Id == id && !row.Image.IsMissing));
+                if (count > 0 && MessageBox.Show(string.Format(Strings.DatasetSplitSelectedConfirm, count), Strings.DatasetSplitSelected, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                    AutoSplitSelectedRequested?.Invoke(SelectedImageIds, (int)trainPercent.Value);
+            };
+            splitAllButton.Click += (sender, args) =>
+            {
+                int count = rows.Count(row => !row.Image.IsMissing);
+                if (MessageBox.Show(string.Format(Strings.DatasetSplitAllConfirm, count), Strings.DatasetSplitAll, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                    AutoSplitAllRequested?.Invoke((int)trainPercent.Value);
             };
             clearRetestItem.Click += (sender, args) => RetestRequested?.Invoke(SelectedImageIds, false);
             clearClassItem.Click += (sender, args) => ClearClassRequested?.Invoke(SelectedImageIds);
@@ -56,7 +64,9 @@ namespace Neurocle.WinForms
         // 通知主視窗清除所選圖片的 CLA 類別。
         public event Action<IReadOnlyList<string>> ClearClassRequested;
         // 通知主視窗以目前比例自動切分資料集。
-        public event Action<int> AutoSplitRequested;
+        public event Action<IReadOnlyList<string>, int> AutoSplitSelectedRequested;
+        // 通知主視窗依目前比例切分所有可用圖片。
+        public event Action<int> AutoSplitAllRequested;
 
         // 取得目前已載入的全部資料集列。
         internal IReadOnlyList<DatasetRow> Rows { get { return rows; } }
@@ -92,6 +102,7 @@ namespace Neurocle.WinForms
         private void RefreshRows()
         {
             if (list == null) return;
+            var selectedIds = new HashSet<string>(list.SelectedIndices.Cast<int>().Where(index => index >= 0 && index < visibleRows.Count).Select(index => visibleRows[index].Image.Id), StringComparer.Ordinal);
             string set = setFilter.SelectedItem as string;
             string className = classFilter.SelectedItem as string;
             string annotation = annotationFilter.SelectedItem as string;
@@ -104,7 +115,17 @@ namespace Neurocle.WinForms
             visibleRows.Clear();
             visibleRows.AddRange(filtered);
             list.VirtualListSize = visibleRows.Count;
+            list.SelectedIndices.Clear();
+            foreach (int index in visibleRows.Select((row, index) => new { row, index }).Where(item => selectedIds.Contains(item.row.Image.Id)).Select(item => item.index))
+                list.SelectedIndices.Add(index);
             list.Invalidate();
+            UpdateSplitButtons();
+        }
+
+        /// <summary>依目前清單選取狀態更新切分所選按鈕。</summary>
+        private void UpdateSplitButtons()
+        {
+            if (splitSelectedButton != null) splitSelectedButton.Enabled = list.SelectedIndices.Count > 0;
         }
 
         /// <summary>將資料集列轉換為虛擬清單使用的顯示項目。</summary>

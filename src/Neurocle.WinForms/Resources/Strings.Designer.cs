@@ -132,6 +132,10 @@ namespace Neurocle.WinForms.Resources
         internal static string DatasetManualSplitDescription { get { return ResourceManager.GetString("DatasetManualSplitDescription", CultureInfo.CurrentUICulture); } }
         internal static string DatasetRetestTitle { get { return ResourceManager.GetString("DatasetRetestTitle", CultureInfo.CurrentUICulture); } }
         internal static string DatasetRetestDescription { get { return ResourceManager.GetString("DatasetRetestDescription", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitSelected { get { return ResourceManager.GetString("DatasetSplitSelected", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitAll { get { return ResourceManager.GetString("DatasetSplitAll", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitSelectedConfirm { get { return ResourceManager.GetString("DatasetSplitSelectedConfirm", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitAllConfirm { get { return ResourceManager.GetString("DatasetSplitAllConfirm", CultureInfo.CurrentUICulture); } }
         internal static string ExportPage { get { return ResourceManager.GetString("ExportPage", CultureInfo.CurrentUICulture); } }
         internal static string ExportSelectedImages { get { return ResourceManager.GetString("ExportSelectedImages", CultureInfo.CurrentUICulture); } }
         internal static string ExportAllImages { get { return ResourceManager.GetString("ExportAllImages", CultureInfo.CurrentUICulture); } }

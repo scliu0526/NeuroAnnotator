@@ -594,13 +594,20 @@ namespace Neurocle.Infrastructure.Persistence
         /// <inheritdoc />
         public DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent)
         {
+            return AutoSplitDataset(annotationSetId, trainPercent, null);
+        }
+
+        /// <inheritdoc />
+        public DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent, IReadOnlyCollection<string> imageIds)
+        {
             IReadOnlyList<ImageAnnotationSummary> summaries = GetImageAnnotationSummaries(annotationSetId);
             var classes = summaries.ToDictionary(value => value.ImageId, value => value.ClassIds, StringComparer.Ordinal);
             ProjectImage[] images = GetImages().ToArray();
-            DatasetSplitPlan plan = DatasetSplitPlanner.Create(images.Select(image => new DatasetSplitCandidate(image.Id, classes.ContainsKey(image.Id) ? classes[image.Id] : new string[0], !image.IsMissing)), trainPercent, NextRandom);
+            HashSet<string> selected = imageIds == null ? null : new HashSet<string>(imageIds, StringComparer.Ordinal);
+            DatasetSplitPlan plan = DatasetSplitPlanner.Create(images.Where(image => selected == null || selected.Contains(image.Id)).Select(image => new DatasetSplitCandidate(image.Id, classes.ContainsKey(image.Id) ? classes[image.Id] : new string[0], !image.IsMissing)), trainPercent, NextRandom);
             var train = new HashSet<string>(plan.TrainImageIds, StringComparer.Ordinal);
             var test = new HashSet<string>(plan.TestImageIds, StringComparer.Ordinal);
-            var availableImageIds = new HashSet<string>(images.Where(image => !image.IsMissing).Select(image => image.Id), StringComparer.Ordinal);
+            var availableImageIds = new HashSet<string>(images.Where(image => !image.IsMissing && (selected == null || selected.Contains(image.Id))).Select(image => image.Id), StringComparer.Ordinal);
             DatasetAssignment[] previous = GetDatasetAssignments(annotationSetId).Where(value => availableImageIds.Contains(value.ImageId)).ToArray();
             DatasetAssignment[] next = previous.Select(value => new DatasetAssignment(annotationSetId, value.ImageId, train.Contains(value.ImageId) ? DatasetAssignmentStatus.Train : test.Contains(value.ImageId) ? DatasetAssignmentStatus.Test : DatasetAssignmentStatus.Unassigned, value.Retest)).ToArray();
             if (previous.Where((value, index) => value.Status != next[index].Status).Any())

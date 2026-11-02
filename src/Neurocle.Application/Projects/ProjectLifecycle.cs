@@ -631,6 +631,8 @@ namespace Neurocle.Application.Projects
         /// <param name="trainPercent">目標訓練集百分比。</param>
         /// <returns>實際產生的切分結果及警告。</returns>
         DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent);
+        /// <summary>依指定圖片範圍自動分配資料集。</summary>
+        DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent, IReadOnlyCollection<string> imageIds);
         /// <summary>復原標註集最近一次可復原的已完成操作。</summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>成功復原時回傳 true。</returns>

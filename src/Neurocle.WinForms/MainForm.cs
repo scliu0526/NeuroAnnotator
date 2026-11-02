@@ -313,7 +313,8 @@ namespace Neurocle.WinForms
             datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
             datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
             datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ClearDatasetClasses(ids));
-            datasetAssignments.AutoSplitRequested += value => RunAnnotationCommand(() => AutoSplitDataset(value));
+            datasetAssignments.AutoSplitSelectedRequested += (ids, value) => RunAnnotationCommand(() => AutoSplitDataset(ids, value));
+            datasetAssignments.AutoSplitAllRequested += value => RunAnnotationCommand(() => AutoSplitDataset(null, value));
             canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
             canvas.ObdRectanglesChanged += rectangles => RunAnnotationCommand(() => UpdateObdRectangles(rectangles));
             canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
@@ -1008,11 +1009,11 @@ namespace Neurocle.WinForms
         }
 
         /// <summary>依指定訓練比例自動分配資料集。</summary>
-        private void AutoSplitDataset(int trainPercent)
+        private void AutoSplitDataset(IReadOnlyCollection<string> imageIds, int trainPercent)
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null) return;
-            DatasetSplitPlan plan = project.AutoSplitDataset(selected.Id, trainPercent);
+            DatasetSplitPlan plan = project.AutoSplitDataset(selected.Id, trainPercent, imageIds);
             RefreshDatasetAssignments();
             if (plan.Warnings.Count > 0) MessageBox.Show(Strings.DatasetSplitCannotMeet, Strings.DatasetSplitWarning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }

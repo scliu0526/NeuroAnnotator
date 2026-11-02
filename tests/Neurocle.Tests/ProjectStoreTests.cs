@@ -2651,6 +2651,36 @@ namespace Neurocle.Tests
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
         }
 
+        [TestMethod]
+        public void Auto_split_selected_only_updates_selected_images_and_keeps_outside_state()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(Enumerable.Range(1, 4).Select(index => source)).ToArray();
+                    AnnotationSet set = store.CreateAnnotationSet("selected split", AnnotationSetType.Cla);
+                    store.SetDatasetAssignments(set.Id, new[] { images[2].Id }, DatasetAssignmentStatus.NotUsed);
+                    store.SetRetest(set.Id, new[] { images[0].Id }, true);
+                    DatasetAssignment[] before = store.GetDatasetAssignments(set.Id).ToArray();
+                    Func<int, int> original = ProjectStore.NextRandom;
+                    try { ProjectStore.NextRandom = maximum => 0; store.AutoSplitDataset(set.Id, 80, new[] { images[0].Id, images[1].Id }); }
+                    finally { ProjectStore.NextRandom = original; }
+                    DatasetAssignment[] after = store.GetDatasetAssignments(set.Id).ToArray();
+                    Assert.IsTrue(after.Single(value => value.ImageId == images[0].Id).Retest);
+                    Assert.AreEqual(DatasetAssignmentStatus.NotUsed, after.Single(value => value.ImageId == images[2].Id).Status);
+                    Assert.AreEqual(DatasetAssignmentStatus.Unassigned, after.Single(value => value.ImageId == images[3].Id).Status);
+                    Assert.IsTrue(after.Where(value => value.ImageId == images[0].Id || value.ImageId == images[1].Id).All(value => value.Status == DatasetAssignmentStatus.Train || value.Status == DatasetAssignmentStatus.Test));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    AssertDatasetAssignments(before, store.GetDatasetAssignments(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
         private static void AssertDatasetAssignments(IEnumerable<DatasetAssignment> expected, IEnumerable<DatasetAssignment> actual)
         {
             DatasetAssignment[] values = actual.ToArray();
