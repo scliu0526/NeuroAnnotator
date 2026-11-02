@@ -1445,7 +1445,14 @@ namespace Neurocle.WinForms
                 if (jsonRequest == null) throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
                 if (cancellationRequested()) return new ImportJobResult(true, new string[0]);
                 string json = File.ReadAllText(jsonRequest.FilePath);
-                session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, jsonRequest.AllowUnknownFields);
+                try
+                {
+                    session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, jsonRequest.AllowUnknownFields);
+                }
+                catch (JsonAnnotationImportException exception) when (exception.Message == "JSON contains unknown fields." && !jsonRequest.AllowUnknownFields)
+                {
+                    return new ImportJobResult(false, new string[0], 0, 0, false, true, exception.Message);
+                }
                 return new ImportJobResult(false, new string[0]);
             }
             return new ImportJobResult(
@@ -1470,18 +1477,24 @@ namespace Neurocle.WinForms
             foreach (ImportJobSnapshot job in jobs.Where(IsEndedImageImportJob))
             {
                 if (!handledImageImportJobs.Add(job.Id)) continue;
-                if (job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Canceled) WriteDiagnostic(DiagnosticEvent.ImageImportCompleted);
-                else WriteDiagnostic(DiagnosticEvent.OperationFailed);
                 var jsonRequest = job.Request as AnnotationJsonImportJobRequest;
                 if (jsonRequest != null)
                 {
+                    if (job.Status == ImportJobStatus.Completed) WriteDiagnostic(DiagnosticEvent.AnnotationJsonImported);
+                    else WriteDiagnostic(DiagnosticEvent.OperationFailed);
                     if (job.Status == ImportJobStatus.Completed) RefreshAnnotationSets();
-                    else if (job.Status == ImportJobStatus.Failed && !jsonRequest.AllowUnknownFields && job.ErrorMessage == "JSON contains unknown fields." && MessageBox.Show(this, Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                    else if (job.Status == ImportJobStatus.Failed && !jsonRequest.AllowUnknownFields && job.ErrorMessage == "JSON contains unknown fields.")
                     {
-                        importJobQueue.Enqueue(new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, true));
+                        DialogResult choice = MessageBox.Show(this, Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+                        importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, true) : null);
                     }
                 }
-                else RefreshImageBrowser();
+                else
+                {
+                    if (job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Canceled) WriteDiagnostic(DiagnosticEvent.ImageImportCompleted);
+                    else WriteDiagnostic(DiagnosticEvent.OperationFailed);
+                    RefreshImageBrowser();
+                }
             }
         }
 

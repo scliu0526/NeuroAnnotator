@@ -94,13 +94,15 @@ namespace Neurocle.WinForms
 
     internal sealed class ImportJobResult
     {
-        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false)
+        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false, bool requiresConfirmation = false, string confirmationMessage = null)
         {
             WasCanceled = wasCanceled;
             ImportedImageIds = Array.AsReadOnly((importedImageIds ?? new string[0]).ToArray());
             FailedCount = failedCount;
             UnprocessedCount = unprocessedCount;
             WasCanceledDuringScan = wasCanceledDuringScan;
+            RequiresConfirmation = requiresConfirmation;
+            ConfirmationMessage = confirmationMessage;
         }
 
         public bool WasCanceled { get; }
@@ -108,6 +110,8 @@ namespace Neurocle.WinForms
         public int FailedCount { get; }
         public int UnprocessedCount { get; }
         public bool WasCanceledDuringScan { get; }
+        public bool RequiresConfirmation { get; }
+        public string ConfirmationMessage { get; }
     }
 
     internal sealed class ImportJobSnapshot
@@ -144,7 +148,7 @@ namespace Neurocle.WinForms
             }
 
             public Guid Id { get; }
-            public ImportJobRequest Request { get; }
+            public ImportJobRequest Request { get; set; }
             public ImportJobStatus Status { get; set; }
             public ImportJobProgress Progress { get; set; }
             public ImportJobResult Result { get; set; }
@@ -162,6 +166,9 @@ namespace Neurocle.WinForms
         private readonly List<Job> jobs = new List<Job>();
         private readonly ImportExecutor executor;
         private readonly ManualResetEventSlim idle = new ManualResetEventSlim(true);
+        private readonly ManualResetEventSlim confirmationSignal = new ManualResetEventSlim(false);
+        private Job confirmationJob;
+        private ImportJobRequest confirmationRetry;
         private bool workerRunning;
         private bool disposed;
 
@@ -222,6 +229,16 @@ namespace Neurocle.WinForms
             Publish();
         }
 
+        public void ResolveConfirmation(Guid jobId, ImportJobRequest retryRequest)
+        {
+            lock (gate)
+            {
+                if (confirmationJob == null || confirmationJob.Id != jobId) return;
+                confirmationRetry = retryRequest;
+                confirmationSignal.Set();
+            }
+        }
+
         public bool WaitUntilIdle(TimeSpan timeout)
         {
             return idle.Wait(timeout);
@@ -258,6 +275,42 @@ namespace Neurocle.WinForms
                 try
                 {
                     ImportJobResult result = executor(job.Request, () => IsCancellationRequested(job), progress => Report(job, progress));
+                    if (result.RequiresConfirmation)
+                    {
+                        lock (gate)
+                        {
+                            job.ErrorMessage = result.ConfirmationMessage;
+                            job.Status = ImportJobStatus.Failed;
+                            confirmationJob = job;
+                            confirmationRetry = null;
+                            confirmationSignal.Reset();
+                        }
+                        Publish();
+                        confirmationSignal.Wait();
+                        lock (gate)
+                        {
+                            if (disposed)
+                            {
+                                job.Status = ImportJobStatus.Canceled;
+                                job.Result = new ImportJobResult(true, new string[0]);
+                            }
+                            else if (confirmationRetry != null)
+                            {
+                                job.Request = confirmationRetry;
+                                job.ErrorMessage = null;
+                                job.Result = null;
+                                job.Status = ImportJobStatus.Waiting;
+                                Job[] laterJobs = waiting.ToArray();
+                                waiting.Clear();
+                                waiting.Enqueue(job);
+                                foreach (Job laterJob in laterJobs) waiting.Enqueue(laterJob);
+                            }
+                            confirmationJob = null;
+                            confirmationRetry = null;
+                        }
+                        Publish();
+                        continue;
+                    }
                     lock (gate)
                     {
                         job.Result = result;
@@ -311,8 +364,10 @@ namespace Neurocle.WinForms
                 if (disposed) return;
                 disposed = true;
                 foreach (Job job in jobs) job.CancellationRequested = true;
+                confirmationSignal.Set();
             }
             idle.Wait();
+            confirmationSignal.Dispose();
             idle.Dispose();
         }
     }

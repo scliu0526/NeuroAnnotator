@@ -145,6 +145,38 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Json_confirmation_pauses_fifo_until_the_user_decides()
+        {
+            var confirmationReady = new ManualResetEventSlim();
+            var executionOrder = new List<ImportJobKind>();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                executionOrder.Add(request.Kind);
+                var jsonRequest = request as AnnotationJsonImportJobRequest;
+                if (jsonRequest != null && !jsonRequest.AllowUnknownFields)
+                {
+                    confirmationReady.Set();
+                    return new ImportJobResult(false, new string[0], 0, 0, false, true, "JSON contains unknown fields.");
+                }
+                return new ImportJobResult(false, new string[0]);
+            }))
+            {
+                Guid jsonId = queue.Enqueue(new AnnotationJsonImportJobRequest("labels.json", "labels", false));
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "after.png" }));
+
+                Assert.IsTrue(confirmationReady.Wait(TimeSpan.FromSeconds(5)));
+                Assert.AreEqual(1, executionOrder.Count);
+                Assert.AreEqual(ImportJobStatus.Failed, queue.Jobs[0].Status);
+                Assert.AreEqual(ImportJobStatus.Waiting, queue.Jobs[1].Status);
+
+                queue.ResolveConfirmation(jsonId, new AnnotationJsonImportJobRequest("labels.json", "labels", true));
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                CollectionAssert.AreEqual(new[] { ImportJobKind.AnnotationJson, ImportJobKind.AnnotationJson, ImportJobKind.ImageFiles }, executionOrder.ToArray());
+            }
+            confirmationReady.Dispose();
+        }
+
+        [TestMethod]
         public void Completed_image_jobs_add_images_to_the_project()
         {
             string directory = Path.Combine(Path.GetTempPath(), "neurocle-image-queue-" + Guid.NewGuid().ToString("N"));
