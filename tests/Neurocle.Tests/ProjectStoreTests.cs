@@ -1660,6 +1660,33 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Seg_geometry_erase_is_class_scoped_and_undoable()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("geometry erase", AnnotationSetType.Seg);
+                    AnnotationClass target = store.GetClasses(set.Id).Single();
+                    AnnotationClass other = store.AddClass(set.Id, "other", "#00ff00");
+                    store.AddSegRegion(set.Id, image.Id, target.Id, SegRegionType.Rect, 10, 10, 40, 40);
+                    store.AddSegRegion(set.Id, image.Id, other.Id, SegRegionType.Rect, 10, 10, 40, 40);
+                    store.EraseSegGeometry(set.Id, image.Id, target.Id, SegRegionType.Rect, 20, 20, 10, 10, null, 0);
+                    SegRegion remaining = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == target.Id);
+                    Assert.IsTrue(SegGeometryPrototype.Area(new Paths64 { new Path64(remaining.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }) < 1600d);
+                    Assert.AreEqual(SegRegionType.Rect, store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == other.Id).Type);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(2, store.GetSegRegions(set.Id, image.Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Single_point_brush_and_eraser_use_round_strokes_and_roundtrip_through_json()
         {
             string path = TemporaryProjectPath();

@@ -596,6 +596,8 @@ namespace Neurocle.Application.Projects
         /// <param name="points">橡皮擦路徑點。</param>
         /// <param name="strokeWidth">橡皮擦筆畫寬度。</param>
         void EraseSegPath(string annotationSetId, string imageId, string classId, IReadOnlyList<SegPoint> points, int strokeWidth);
+        /// <summary>依指定 SEG 幾何從目前類別區域中擦除覆蓋範圍。</summary>
+        void EraseSegGeometry(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height, IReadOnlyList<SegPoint> points, int strokeWidth);
         /// <summary>批次更新 SEG 區域的幾何及類別資料。</summary>
         /// <param name="regions">包含更新值的區域集合。</param>
         void UpdateSegRegions(IEnumerable<SegRegion> regions);

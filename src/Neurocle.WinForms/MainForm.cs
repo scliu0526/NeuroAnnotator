@@ -319,6 +319,7 @@ namespace Neurocle.WinForms
             canvas.ObdAnnotationsDeleteRequested += ids => RunAnnotationCommand(() => DeleteObdRectangles(ids));
             canvas.SegRegionCreated += async (type, rectangle) => await CreateSegRegionAsync(type, rectangle);
             canvas.SegPathCreated += async (type, points, width) => await CreateSegPathAsync(type, points, width);
+            canvas.SegGeometryEraseRequested += async (type, rectangle, points, width) => await EraseSegGeometryAsync(type, rectangle, points, width);
             canvas.SegEraseRequested += async (points, width) => await EraseSegPathAsync(points, width);
             canvas.SegRegionsChanged += regions => RunAnnotationCommand(() => UpdateSegRegions(regions));
             canvas.SegRegionsDeleteRequested += ids => RunAnnotationCommand(() => DeleteSegRegions(ids));
@@ -1142,6 +1143,18 @@ namespace Neurocle.WinForms
             if (annotationOperationInProgress || session == null || selected == null || selected.Type != AnnotationSetType.Seg || imageId == null || classId == null) return;
             string annotationSetId = selected.Id;
             await RunSegOperationAsync(session, annotationSetId, imageId, () => session.EraseSegPath(annotationSetId, imageId, classId, points, width));
+        }
+
+        /// <summary>非同步以完成當下的 SEG 幾何從目前類別中擦除。</summary>
+        private async Task EraseSegGeometryAsync(SegRegionType type, Rectangle rectangle, IReadOnlyList<SegPoint> points, int width)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            IProjectSession session = project;
+            string imageId = selectedImageId;
+            string classId = selectedSegClassId;
+            if (annotationOperationInProgress || session == null || selected == null || selected.Type != AnnotationSetType.Seg || imageId == null || classId == null) return;
+            string annotationSetId = selected.Id;
+            await RunSegOperationAsync(session, annotationSetId, imageId, () => session.EraseSegGeometry(annotationSetId, imageId, classId, type, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height, points, width));
         }
 
         /// <summary>執行 SEG 修改命令並處理進度、狀態與失敗復原。</summary>

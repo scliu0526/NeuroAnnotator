@@ -1138,8 +1138,8 @@ namespace Neurocle.Tests
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, end.X, end.Y, 0));
                     RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, end.X, end.Y, 0));
-                    Assert.AreEqual(0, erases, "The eraser must not edit hidden existing annotations.");
-                    Assert.IsTrue(canvas.SegRegions.Any(region => region.Id == existingSeg.Id), "Hiding annotations and using the eraser must preserve stored regions.");
+                    Assert.AreEqual(1, erases, "The eraser must still submit a hidden-annotation erase gesture.");
+                    Assert.IsTrue(canvas.SegRegions.Any(region => region.Id == existingSeg.Id), "The canvas keeps stored regions until the persistence command completes.");
                 }
             }
             finally
@@ -2403,7 +2403,7 @@ namespace Neurocle.Tests
                         Assert.AreNotEqual(Cursors.Arrow, canvas.Cursor, "{0} mode should hide the system cursor so the ring and symbol remain clear.", tool);
                         RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
                         Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 44, 50).ToArgb(), "{0} should show a ring with the selected width.", tool);
-                        symbolPixelCounts.Add(CountNonBlackPixels(canvas, new Rectangle(57, 30, 16, 16)));
+                        symbolPixelCounts.Add(CountNonBlackPixels(canvas, new Rectangle(57, 57, 16, 16)));
                     }
                     Assert.AreEqual(symbolPixelCounts[0], symbolPixelCounts[1], "Brush and line should use the same + cursor symbol.");
                     Assert.AreNotEqual(symbolPixelCounts[0], symbolPixelCounts[2], "Eraser should use the − cursor symbol.");
@@ -2799,6 +2799,40 @@ namespace Neurocle.Tests
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 40, 40, 0));
                     CollectionAssert.AreEqual(new[] { "dot" }, canvas.SelectedSegIds.ToArray(), "A clicked brush dot should remain selectable by its round stroke area.");
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_is_evaluated_only_when_a_SEG_shape_is_completed()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Red, 100);
+                Keys modifiers = Keys.None;
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Rect })
+                {
+                    canvas.ModifierKeysProvider = () => modifiers;
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    int created = 0;
+                    int erased = 0;
+                    canvas.SegRegionCreated += (type, rectangle) => created++;
+                    canvas.SegGeometryEraseRequested += (type, rectangle, points, width) => erased++;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 60, 60, 0));
+                    modifiers = Keys.Control;
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 60, 60, 0));
+                    Assert.AreEqual(0, created);
+                    Assert.AreEqual(1, erased);
                 }
             }
             finally

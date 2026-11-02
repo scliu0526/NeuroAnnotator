@@ -1213,18 +1213,20 @@ namespace Neurocle.Infrastructure.Persistence
         /// <inheritdoc />
         public void EraseSegPath(string annotationSetId, string imageId, string classId, IReadOnlyList<SegPoint> points, int strokeWidth)
         {
-            if (points == null) throw new ArgumentNullException(nameof(points));
+            EraseSegGeometry(annotationSetId, imageId, classId, SegRegionType.PolyLine, 0, 0, 0, 0, points, strokeWidth);
+        }
+
+        /// <inheritdoc />
+        public void EraseSegGeometry(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height, IReadOnlyList<SegPoint> points, int strokeWidth)
+        {
+            if (points == null) points = new SegPoint[0];
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
             if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Seg) throw new ArgumentException("The annotation set is not SEG.", nameof(annotationSetId));
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
-            SegPoint[] values = points.ToArray();
-            if (values.Length < 1 || values.Any(point => point == null)) throw new ArgumentException("The eraser path is invalid.", nameof(points));
-            if (strokeWidth < 1 || strokeWidth > 100) throw new ArgumentOutOfRangeException(nameof(strokeWidth));
             Size imageSize = GetImageSize(imageId);
-            if (values.Any(point => point.X < 0 || point.Y < 0 || point.X >= imageSize.Width || point.Y >= imageSize.Height)) throw new ArgumentOutOfRangeException(nameof(points));
-            int inset = (strokeWidth + 1) / 2;
-            if (values.Any(point => point.X < inset || point.Y < inset || point.X > imageSize.Width - inset || point.Y > imageSize.Height - inset)) throw new ArgumentOutOfRangeException(nameof(points));
-            var eraser = SegGeometryPrototype.Stroke(ToPath(values), strokeWidth);
+            SegRegion geometry = new SegRegion("erase", annotationSetId, imageId, classId, type, x, y, width, height, 0, points, strokeWidth);
+            ValidateSegGeometry(imageSize, geometry);
+            Paths64 eraser = ToPaths(geometry);
             SegRegion[] affected = GetSegRegions(annotationSetId, imageId).Where(value => value.ClassId == classId && HasAreaOverlap(ToPaths(value), eraser)).ToArray();
             if (affected.Length == 0) return;
             var next = new List<SegRegion>();

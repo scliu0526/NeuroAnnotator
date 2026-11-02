@@ -344,6 +344,7 @@ namespace Neurocle.WinForms
         public event Action<SegRegionType, Rectangle> SegRegionCreated;
         // 通知外層多邊形或線形 SEG 路徑已完成繪製。
         public event Action<SegRegionType, IReadOnlyList<SegPoint>, int> SegPathCreated;
+        public event Action<SegRegionType, Rectangle, IReadOnlyList<SegPoint>, int> SegGeometryEraseRequested;
         // 通知外層以指定筆畫擦除 SEG 區域。
         public event Action<IReadOnlyList<SegPoint>, int> SegEraseRequested;
         // 通知外層一組 SEG 區域幾何已變更。
@@ -783,12 +784,12 @@ namespace Neurocle.WinForms
                     RectangleF bounds = new RectangleF(center.X - diameter / 2f, center.Y - diameter / 2f, diameter, diameter);
                     graphics.DrawEllipse(outline, bounds.X - 1f, bounds.Y - 1f, bounds.Width + 2f, bounds.Height + 2f);
                     graphics.DrawEllipse(pen, bounds);
-                    string symbol = SegTool == SegToolKind.Eraser ? "−" : "+";
+                    string symbol = (CurrentModifierKeys & Keys.Control) == Keys.Control || SegTool == SegToolKind.Eraser ? "−" : "+";
                     using (var font = new Font(Font.FontFamily, 9f, FontStyle.Bold))
                     using (var brush = new SolidBrush(Color.White))
                     using (var shadow = new SolidBrush(Color.Black))
                     {
-                        float x = center.X + diameter / 2f + 2f, y = center.Y - diameter / 2f - 10f;
+                        float x = center.X + diameter / 2f + 2f, y = center.Y + diameter / 2f + 2f;
                         graphics.DrawString(symbol, font, shadow, x + 1f, y + 1f);
                         graphics.DrawString(symbol, font, brush, x, y);
                     }
@@ -803,6 +804,17 @@ namespace Neurocle.WinForms
                     graphics.DrawLine(pen, center.X + 2f, center.Y, center.X + 6f, center.Y);
                     graphics.DrawLine(pen, center.X, center.Y - 6f, center.X, center.Y - 2f);
                     graphics.DrawLine(pen, center.X, center.Y + 2f, center.X, center.Y + 6f);
+                    if ((CurrentModifierKeys & Keys.Control) == Keys.Control)
+                    {
+                        using (var font = new Font(Font.FontFamily, 9f, FontStyle.Bold))
+                        using (var brush = new SolidBrush(Color.White))
+                        using (var shadow = new SolidBrush(Color.Black))
+                        {
+                            float x = center.X + 8f, y = center.Y + 5f;
+                            graphics.DrawString("−", font, shadow, x + 1f, y + 1f);
+                            graphics.DrawString("−", font, brush, x, y);
+                        }
+                    }
                 }
             }
         }
@@ -1080,7 +1092,11 @@ namespace Neurocle.WinForms
                     {
                         SegPoint first = ToSegPoint(segLineStart.Value);
                         SegPoint second = ToSegPoint(point);
-                        if (first.X != second.X || first.Y != second.Y) SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, segPathStrokeWidth);
+                        if (first.X != second.X || first.Y != second.Y)
+                        {
+                            if ((CurrentModifierKeys & Keys.Control) == Keys.Control) SegGeometryEraseRequested?.Invoke(SegRegionType.PolyLine, Rectangle.Empty, new[] { first, second }, segPathStrokeWidth);
+                            else SegPathCreated?.Invoke(SegRegionType.PolyLine, new[] { first, second }, segPathStrokeWidth);
+                        }
                         segLineStart = null;
                         segPathStrokeWidth = 0;
                     }
@@ -1089,7 +1105,9 @@ namespace Neurocle.WinForms
                 {
                     if (SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
                     {
-                        SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
+                        SegPoint[] polygon = segPath.Select(ToSegPoint).ToArray();
+                        if ((CurrentModifierKeys & Keys.Control) == Keys.Control) SegGeometryEraseRequested?.Invoke(SegRegionType.PolyGon, Rectangle.Empty, polygon, 0);
+                        else SegPathCreated?.Invoke(SegRegionType.PolyGon, polygon, 0);
                         segPath.Clear();
                         Invalidate();
                         base.OnMouseDown(args);
@@ -1334,12 +1352,22 @@ namespace Neurocle.WinForms
                 SegToolKind? tool = SegTool;
                 segPreview = null;
                 Capture = false;
-                if (tool == SegToolKind.Rect && preview.Width >= 1 && preview.Height >= 1) SegRegionCreated?.Invoke(SegRegionType.Rect, preview);
+                bool erase = (CurrentModifierKeys & Keys.Control) == Keys.Control;
+                if (tool == SegToolKind.Rect && preview.Width >= 1 && preview.Height >= 1)
+                {
+                    if (erase) SegGeometryEraseRequested?.Invoke(SegRegionType.Rect, preview, new SegPoint[0], 0);
+                    else SegRegionCreated?.Invoke(SegRegionType.Rect, preview);
+                }
                 else if (tool == SegToolKind.Ellipse)
                 {
                     int radiusX = preview.Width / 2;
                     int radiusY = preview.Height / 2;
-                    if (radiusX >= 1 && radiusY >= 1) SegRegionCreated?.Invoke(SegRegionType.Ellipse, preview);
+                    if (radiusX >= 1 && radiusY >= 1)
+                    {
+                        Rectangle ellipse = new Rectangle(preview.X + radiusX, preview.Y + radiusY, radiusX, radiusY);
+                        if (erase) SegGeometryEraseRequested?.Invoke(SegRegionType.Ellipse, ellipse, new SegPoint[0], 0);
+                        else SegRegionCreated?.Invoke(SegRegionType.Ellipse, preview);
+                    }
                 }
                 Invalidate();
             }
@@ -1355,18 +1383,25 @@ namespace Neurocle.WinForms
                 }
                 if (segPathDragging && SegTool == SegToolKind.Polygon && segPath.Count >= 3 && DistanceInScreenPixels(segPath[0], point) <= 8f)
                 {
-                    SegPathCreated?.Invoke(SegRegionType.PolyGon, segPath.Select(ToSegPoint).ToArray(), 0);
+                    SegPoint[] polygon = segPath.Select(ToSegPoint).ToArray();
+                    if ((CurrentModifierKeys & Keys.Control) == Keys.Control) SegGeometryEraseRequested?.Invoke(SegRegionType.PolyGon, Rectangle.Empty, polygon, 0);
+                    else SegPathCreated?.Invoke(SegRegionType.PolyGon, polygon, 0);
                     segPath.Clear();
                 }
                 else if (SegTool == SegToolKind.Brush)
                 {
-                    if (segPath.Count >= 1) SegPathCreated?.Invoke(SegRegionType.PolyLine, segPath.Select(ToSegPoint).ToArray(), segPathStrokeWidth);
+                    if (segPath.Count >= 1)
+                    {
+                        SegPoint[] path = segPath.Select(ToSegPoint).ToArray();
+                        if ((CurrentModifierKeys & Keys.Control) == Keys.Control) SegGeometryEraseRequested?.Invoke(SegRegionType.PolyLine, Rectangle.Empty, path, segPathStrokeWidth);
+                        else SegPathCreated?.Invoke(SegRegionType.PolyLine, path, segPathStrokeWidth);
+                    }
                     segPath.Clear();
                     segPathStrokeWidth = 0;
                 }
                 else if (SegTool == SegToolKind.Eraser)
                 {
-                    if (AnnotationsVisible && segPath.Count >= 1) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), segPathStrokeWidth);
+                    if (segPath.Count >= 1) SegEraseRequested?.Invoke(segPath.Select(ToSegPoint).ToArray(), segPathStrokeWidth);
                     segPath.Clear();
                     segPathStrokeWidth = 0;
                 }
@@ -1394,7 +1429,17 @@ namespace Neurocle.WinForms
                 args.Handled = true;
                 args.SuppressKeyPress = true;
             }
+            RefreshToolCursor();
+            Invalidate();
             base.OnKeyDown(args);
+        }
+
+        /// <summary>Ctrl 狀態變化時即時更新擦除游標符號。</summary>
+        protected override void OnKeyUp(KeyEventArgs args)
+        {
+            RefreshToolCursor();
+            Invalidate();
+            base.OnKeyUp(args);
         }
 
         /// <summary>依指標偏移計算選取 OBD 標註的預覽矩形。</summary>
