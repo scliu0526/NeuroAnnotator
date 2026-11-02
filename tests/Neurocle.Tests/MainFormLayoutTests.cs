@@ -563,7 +563,7 @@ namespace Neurocle.Tests
         {
             using (var control = new DatasetAssignmentControl())
             {
-                ListView list = control.Controls.OfType<ListView>().Single();
+                ListView list = GetDescendants(control).OfType<ListView>().Single();
                 control.LoadRows(Enumerable.Empty<DatasetRow>(), false);
                 Assert.IsFalse(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
                 control.LoadRows(Enumerable.Empty<DatasetRow>(), true);
@@ -604,11 +604,26 @@ namespace Neurocle.Tests
                 ListView datasetList = Field<ListView>(datasetAssignments, "list");
                 FlowLayoutPanel actions = Field<FlowLayoutPanel>(datasetAssignments, "actions");
                 FlowLayoutPanel filters = Field<FlowLayoutPanel>(datasetAssignments, "filters");
+                TableLayoutPanel workspace = Field<TableLayoutPanel>(datasetAssignments, "workspace");
+                Panel listPanel = Field<Panel>(datasetAssignments, "listPanel");
                 datasetAssignments.PerformLayout();
                 Assert.AreEqual(6, datasetList.Columns.Count);
                 Assert.AreEqual(0, datasetList.VirtualListSize);
                 Assert.IsTrue(datasetList.Height >= 200, "The Designer surface must leave enough room to inspect the image list.");
-                Assert.IsTrue(datasetList.Top >= Math.Max(actions.Bottom, filters.Bottom), "The image list must remain below both top rows.");
+                Assert.IsTrue(listPanel.Controls.Contains(datasetList));
+                Assert.AreEqual(2, workspace.ColumnCount);
+                Assert.AreEqual(DockStyle.Fill, actions.Dock);
+                Assert.IsTrue(actions.AutoScroll, "The right operation column must remain usable at small viewports.");
+                TableLayoutPanel manualActions = Field<TableLayoutPanel>(datasetAssignments, "manualActions");
+                Assert.AreEqual(2, manualActions.ColumnCount);
+                Assert.AreEqual(2, manualActions.RowCount);
+                Assert.AreEqual(4, manualActions.Controls.Count);
+                Assert.AreEqual("隨機切分", Field<Label>(datasetAssignments, "randomSplitLabel").Text);
+                Assert.AreEqual("手動分配", Field<Label>(datasetAssignments, "manualSplitLabel").Text);
+                Assert.AreEqual("資料集 Retest", Field<Label>(datasetAssignments, "retestSectionLabel").Text);
+                datasetAssignments.Size = new Size(420, 180);
+                datasetAssignments.PerformLayout();
+                Assert.IsTrue(actions.VerticalScroll.Visible || actions.DisplayRectangle.Height > actions.ClientSize.Height, "The right operation column must scroll at a short viewport.");
                 Assert.IsTrue(datasetList.Bottom <= datasetAssignments.ClientSize.Height, "The image list must remain inside the Designer surface.");
                 Assert.AreEqual(4, GetDescendants(datasetAssignments).OfType<ComboBox>().Count());
                 Assert.AreEqual(6, GetDescendants(datasetAssignments).OfType<Button>().Count());

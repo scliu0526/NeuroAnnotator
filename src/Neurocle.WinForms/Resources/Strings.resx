@@ -140,6 +140,12 @@
   <data name="DatasetSplitWarning" xml:space="preserve"><value>資料集切分警告</value></data>
   <data name="DatasetSplitCannotMeet" xml:space="preserve"><value>無法同時滿足訓練每類至少 10 張或測試集至少 3 張的條件；已依可行結果切分。</value></data>
   <data name="DatasetAutoSplitConfirm" xml:space="preserve"><value>這會覆寫所有可用圖片的資料集分配。是否繼續？</value></data>
+  <data name="DatasetRandomSplitTitle" xml:space="preserve"><value>隨機切分</value></data>
+  <data name="DatasetRandomSplitDescription" xml:space="preserve"><value>依比例分配圖片至各資料集</value></data>
+  <data name="DatasetManualSplitTitle" xml:space="preserve"><value>手動分配</value></data>
+  <data name="DatasetManualSplitDescription" xml:space="preserve"><value>將選取圖片指定至資料集</value></data>
+  <data name="DatasetRetestTitle" xml:space="preserve"><value>資料集 Retest</value></data>
+  <data name="DatasetRetestDescription" xml:space="preserve"><value>將選取圖片設為 Retest</value></data>
   <data name="ExportPage" xml:space="preserve"><value>完成與匯出</value></data>
   <data name="ExportSelectedImages" xml:space="preserve"><value>匯出選取圖片 ZIP</value></data>
   <data name="ExportAllImages" xml:space="preserve"><value>匯出全部圖片 ZIP</value></data>

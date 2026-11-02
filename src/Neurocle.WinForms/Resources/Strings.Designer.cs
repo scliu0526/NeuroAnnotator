@@ -126,6 +126,12 @@ namespace Neurocle.WinForms.Resources
         internal static string DatasetSplitWarning { get { return ResourceManager.GetString("DatasetSplitWarning", CultureInfo.CurrentUICulture); } }
         internal static string DatasetSplitCannotMeet { get { return ResourceManager.GetString("DatasetSplitCannotMeet", CultureInfo.CurrentUICulture); } }
         internal static string DatasetAutoSplitConfirm { get { return ResourceManager.GetString("DatasetAutoSplitConfirm", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRandomSplitTitle { get { return ResourceManager.GetString("DatasetRandomSplitTitle", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRandomSplitDescription { get { return ResourceManager.GetString("DatasetRandomSplitDescription", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetManualSplitTitle { get { return ResourceManager.GetString("DatasetManualSplitTitle", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetManualSplitDescription { get { return ResourceManager.GetString("DatasetManualSplitDescription", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRetestTitle { get { return ResourceManager.GetString("DatasetRetestTitle", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRetestDescription { get { return ResourceManager.GetString("DatasetRetestDescription", CultureInfo.CurrentUICulture); } }
         internal static string ExportPage { get { return ResourceManager.GetString("ExportPage", CultureInfo.CurrentUICulture); } }
         internal static string ExportSelectedImages { get { return ResourceManager.GetString("ExportSelectedImages", CultureInfo.CurrentUICulture); } }
         internal static string ExportAllImages { get { return ResourceManager.GetString("ExportAllImages", CultureInfo.CurrentUICulture); } }

@@ -37,6 +37,15 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.Label annotationFilterLabel;
         private System.Windows.Forms.Label retestFilterLabel;
         private System.Windows.Forms.ContextMenuStrip datasetMenu;
+        private System.Windows.Forms.TableLayoutPanel workspace;
+        private System.Windows.Forms.Panel listPanel;
+        private System.Windows.Forms.Label randomSplitLabel;
+        private System.Windows.Forms.Label manualSplitLabel;
+        private System.Windows.Forms.Label retestSectionLabel;
+        private System.Windows.Forms.Label randomSplitDescription;
+        private System.Windows.Forms.Label manualSplitDescription;
+        private System.Windows.Forms.Label retestDescription;
+        private System.Windows.Forms.TableLayoutPanel manualActions;
 
         protected override void Dispose(bool disposing)
         {
@@ -76,6 +85,15 @@ namespace Neurocle.WinForms
             this.annotationFilterLabel = new System.Windows.Forms.Label();
             this.retestFilterLabel = new System.Windows.Forms.Label();
             this.datasetMenu = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.workspace = new System.Windows.Forms.TableLayoutPanel();
+            this.listPanel = new System.Windows.Forms.Panel();
+            this.randomSplitLabel = new System.Windows.Forms.Label();
+            this.manualSplitLabel = new System.Windows.Forms.Label();
+            this.retestSectionLabel = new System.Windows.Forms.Label();
+            this.randomSplitDescription = new System.Windows.Forms.Label();
+            this.manualSplitDescription = new System.Windows.Forms.Label();
+            this.retestDescription = new System.Windows.Forms.Label();
+            this.manualActions = new System.Windows.Forms.TableLayoutPanel();
             this.clearRetestItem = new System.Windows.Forms.ToolStripMenuItem();
             this.clearClassItem = new System.Windows.Forms.ToolStripMenuItem();
             this.clearSetItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -86,7 +104,10 @@ namespace Neurocle.WinForms
             // actions
             //
             this.actions.AutoSize = true;
-            this.actions.Dock = System.Windows.Forms.DockStyle.Top;
+            this.actions.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.actions.FlowDirection = System.Windows.Forms.FlowDirection.TopDown;
+            this.actions.WrapContents = false;
+            this.actions.AutoScroll = true;
             this.actions.Name = "actions";
             this.actions.TabIndex = 1;
             //
@@ -169,19 +190,49 @@ namespace Neurocle.WinForms
             this.autoSplitButton.TabIndex = 9;
             this.autoSplitButton.Text = Strings.DatasetAutoSplit;
             this.autoSplitButton.UseVisualStyleBackColor = true;
+            this.randomSplitLabel.AutoSize = true;
+            this.randomSplitLabel.Text = Strings.DatasetRandomSplitTitle;
+            this.randomSplitLabel.Margin = new System.Windows.Forms.Padding(4, 8, 4, 2);
+            this.randomSplitDescription.AutoSize = true;
+            this.randomSplitDescription.Text = Strings.DatasetRandomSplitDescription;
+            this.randomSplitDescription.Margin = new System.Windows.Forms.Padding(4, 0, 4, 4);
+            this.manualSplitLabel.AutoSize = true;
+            this.manualSplitLabel.Text = Strings.DatasetManualSplitTitle;
+            this.manualSplitLabel.Margin = new System.Windows.Forms.Padding(4, 16, 4, 2);
+            this.manualSplitDescription.AutoSize = true;
+            this.manualSplitDescription.Text = Strings.DatasetManualSplitDescription;
+            this.manualSplitDescription.Margin = new System.Windows.Forms.Padding(4, 0, 4, 4);
+            this.retestSectionLabel.AutoSize = true;
+            this.retestSectionLabel.Text = Strings.DatasetRetestTitle;
+            this.retestSectionLabel.Margin = new System.Windows.Forms.Padding(4, 16, 4, 2);
+            this.retestDescription.AutoSize = true;
+            this.retestDescription.Text = Strings.DatasetRetestDescription;
+            this.retestDescription.Margin = new System.Windows.Forms.Padding(4, 0, 4, 4);
+            this.manualActions.AutoSize = true;
+            this.manualActions.ColumnCount = 2;
+            this.manualActions.RowCount = 2;
+            this.manualActions.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.manualActions.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.manualActions.Controls.Add(this.trainButton, 0, 0);
+            this.manualActions.Controls.Add(this.testButton, 1, 0);
+            this.manualActions.Controls.Add(this.unassignedButton, 0, 1);
+            this.manualActions.Controls.Add(this.notUsedButton, 1, 1);
             //
             // actions controls
             //
-            this.actions.Controls.Add(this.trainButton);
-            this.actions.Controls.Add(this.testButton);
-            this.actions.Controls.Add(this.unassignedButton);
-            this.actions.Controls.Add(this.notUsedButton);
-            this.actions.Controls.Add(this.retestButton);
+            this.actions.Controls.Add(this.randomSplitLabel);
+            this.actions.Controls.Add(this.randomSplitDescription);
             this.actions.Controls.Add(this.trainLabel);
             this.actions.Controls.Add(this.trainPercent);
             this.actions.Controls.Add(this.testLabel);
             this.actions.Controls.Add(this.testPercent);
             this.actions.Controls.Add(this.autoSplitButton);
+            this.actions.Controls.Add(this.manualSplitLabel);
+            this.actions.Controls.Add(this.manualSplitDescription);
+            this.actions.Controls.Add(this.manualActions);
+            this.actions.Controls.Add(this.retestSectionLabel);
+            this.actions.Controls.Add(this.retestDescription);
+            this.actions.Controls.Add(this.retestButton);
             //
             // filters
             //
@@ -322,9 +373,18 @@ namespace Neurocle.WinForms
             //
             // DatasetAssignmentControl
             //
-            this.Controls.Add(this.list);
-            this.Controls.Add(this.actions);
-            this.Controls.Add(this.filters);
+            this.listPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.listPanel.Controls.Add(this.list);
+            this.listPanel.Controls.Add(this.filters);
+            this.workspace.ColumnCount = 2;
+            this.workspace.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.workspace.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 220F));
+            this.workspace.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.workspace.RowCount = 1;
+            this.workspace.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.workspace.Controls.Add(this.listPanel, 0, 0);
+            this.workspace.Controls.Add(this.actions, 1, 0);
+            this.Controls.Add(this.workspace);
             this.Name = "DatasetAssignmentControl";
             this.Size = new System.Drawing.Size(1024, 640);
             ((System.ComponentModel.ISupportInitialize)(this.trainPercent)).EndInit();
