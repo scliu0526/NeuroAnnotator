@@ -54,6 +54,13 @@
     <Compile Include="WinFormsAssembly.cs" />
     <Compile Include="DiagnosticLog.cs" />
     <Compile Include="DiagnosticLogMessages.cs" />
+    <Compile Include="ImportJobQueue.cs" />
+    <Compile Include="ImportQueueForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ImportQueueForm.Designer.cs">
+      <DependentUpon>ImportQueueForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="DiagnosticsForm.cs">
       <SubType>Form</SubType>
     </Compile>

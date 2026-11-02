@@ -94,6 +94,7 @@ namespace Neurocle.WinForms
         private Button fit;
         private ComboBox zoom;
         private Button imageFit;
+        private Button importImagesButton;
         private ComboBox imageZoom;
         private Label annotationZoomText;
         private Label imageZoomText;
@@ -116,6 +117,12 @@ namespace Neurocle.WinForms
         private string selectedObdClassId;
         // 避免同時啟動多個圖片匯入工作。
         private bool importInProgress;
+        // 依加入順序執行目前專案的圖片匯入工作。
+        private ImportJobQueue importJobQueue;
+        // 顯示目前專案的圖片匯入工作狀態。
+        private ImportQueueForm importQueueForm;
+        // 記錄已完成畫面更新的匯入工作。
+        private readonly HashSet<Guid> handledImageImportJobs = new HashSet<Guid>();
         // 避免同時啟動多個匯出工作。
         private bool exportInProgress;
         // 避免重疊執行需要背景處理的標註操作。
@@ -170,7 +177,13 @@ namespace Neurocle.WinForms
             {
                 if (importInProgress || exportInProgress || annotationOperationInProgress) args.Cancel = true;
             };
-            FormClosed += (sender, args) => { DisposeToastMessage(); project?.Dispose(); };
+            FormClosed += (sender, args) =>
+            {
+                DisposeToastMessage();
+                importJobQueue?.Dispose();
+                importQueueForm?.Dispose();
+                project?.Dispose();
+            };
             KeyDown += (sender, args) =>
             {
                 if (!args.Control) return;
@@ -262,7 +275,8 @@ namespace Neurocle.WinForms
             openProjectMenuItem.Click += (sender, args) => RunProjectCommand(OpenProject);
             saveProjectMenuItem.Click += (sender, args) => RunProjectCommand(SaveProject);
             saveProjectAsMenuItem.Click += (sender, args) => RunProjectCommand(SaveProjectAs);
-            importImagesMenuItem.Click += async (sender, args) => await ImportFilesAsync();
+            importImagesMenuItem.Click += (sender, args) => QueueImageFiles();
+            importImagesButton.Click += (sender, args) => QueueImageFiles();
             importFolderMenuItem.Click += async (sender, args) => await ImportFolderAsync();
             importAnnotationMenuItem.Click += (sender, args) => RunProjectCommand(ImportAnnotationJson);
             missingImagesMenuItem.Click += (sender, args) => ManageMissingImages();
@@ -1120,7 +1134,7 @@ namespace Neurocle.WinForms
         {
             Exception failure = null;
             annotationOperationInProgress = true;
-            projectMenu.Enabled = false;
+            UpdateProjectMenuAvailability();
             UseWaitCursor = true;
             try
             {
@@ -1130,8 +1144,8 @@ namespace Neurocle.WinForms
             finally
             {
                 UseWaitCursor = false;
-                projectMenu.Enabled = true;
                 annotationOperationInProgress = false;
+                UpdateProjectMenuAvailability();
             }
             if (failure is SegGeometryPrototype.BridgeNetworkException)
                 ShowSegBridgeNetworkFailure();
@@ -1368,17 +1382,94 @@ namespace Neurocle.WinForms
             }
         }
 
-        /// <summary>選取多個檔案並非同步匯入圖片。</summary>
-        private async Task ImportFilesAsync()
+        /// <summary>選取多個圖片檔案並將其加入目前專案的匯入佇列。</summary>
+        private void QueueImageFiles()
         {
-            if (project == null) return;
+            if (project == null || importJobQueue == null) return;
             using (var dialog = new OpenFileDialog { Filter = Strings.ImageFileFilter, Multiselect = true })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                IProjectSession session = project;
-                string[] selectedFiles = dialog.FileNames.ToArray();
-                await ImportAsync(progress => session.ImportFilesWithReport(selectedFiles, () => progress.IsCancellationRequested, progress.Report));
+                importJobQueue.Enqueue(new ImageFilesImportJobRequest(dialog.FileNames));
+                ShowImportQueue();
             }
+        }
+
+        /// <summary>建立目前專案專用的圖片匯入佇列並接收狀態更新。</summary>
+        private void InitializeImageImportQueue(IProjectSession session)
+        {
+            if (importJobQueue != null)
+            {
+                importJobQueue.JobsChanged -= ImageImportJobsChanged;
+                importJobQueue.Dispose();
+            }
+            handledImageImportJobs.Clear();
+            importJobQueue = new ImportJobQueue((request, cancellationRequested, progress) => ExecuteImportJob(session, request, cancellationRequested, progress));
+            importJobQueue.JobsChanged += ImageImportJobsChanged;
+            if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(new ImportJobSnapshot[0]);
+            importImagesButton.Enabled = true;
+            importImagesMenuItem.Enabled = true;
+        }
+
+        /// <summary>依匯入工作種類執行對應專案操作並轉換成共用結果。</summary>
+        private static ImportJobResult ExecuteImportJob(IProjectSession session, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress)
+        {
+            var imageRequest = request as ImageFilesImportJobRequest;
+            if (imageRequest == null) throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
+            ImageImportReport report = session.ImportFilesWithReport(
+                imageRequest.FilePaths,
+                cancellationRequested,
+                value => progress(new ImportJobProgress(value.ProcessedCount, value.TotalCount, value.SuccessfulCount, value.FailedCount)));
+            return new ImportJobResult(
+                report.UnprocessedCount > 0 || report.WasCancelledDuringScan,
+                report.Imported.Select(image => image.Id).ToArray());
+        }
+
+        /// <summary>在 UI 執行緒顯示最新匯入狀態並於工作結束後刷新圖片清單。</summary>
+        private void ImageImportJobsChanged(IReadOnlyList<ImportJobSnapshot> jobs)
+        {
+            if (IsDisposed || Disposing) return;
+            if (InvokeRequired)
+            {
+                try { BeginInvoke((Action<IReadOnlyList<ImportJobSnapshot>>)ImageImportJobsChanged, jobs); }
+                catch (InvalidOperationException) { }
+                return;
+            }
+
+            if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(jobs);
+            importInProgress = importJobQueue != null && importJobQueue.IsBusy;
+            UpdateProjectMenuAvailability();
+            foreach (ImportJobSnapshot job in jobs.Where(IsEndedImageImportJob))
+            {
+                if (!handledImageImportJobs.Add(job.Id)) continue;
+                if (job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Canceled) WriteDiagnostic(DiagnosticEvent.ImageImportCompleted);
+                else WriteDiagnostic(DiagnosticEvent.OperationFailed);
+                RefreshImageBrowser();
+            }
+        }
+
+        /// <summary>判斷匯入工作是否已離開等待或執行狀態。</summary>
+        private static bool IsEndedImageImportJob(ImportJobSnapshot job)
+        {
+            return job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled;
+        }
+
+        /// <summary>僅在沒有匯入或背景標註操作時允許更換目前專案。</summary>
+        private void UpdateProjectMenuAvailability()
+        {
+            projectMenu.Enabled = !importInProgress && !annotationOperationInProgress;
+        }
+
+        /// <summary>顯示單一非強制回應匯入佇列視窗。</summary>
+        private void ShowImportQueue()
+        {
+            if (importQueueForm == null || importQueueForm.IsDisposed)
+            {
+                importQueueForm = new ImportQueueForm();
+                importQueueForm.CancelRequested += id => importJobQueue?.Cancel(id);
+            }
+            importQueueForm.UpdateJobs(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
+            if (!importQueueForm.Visible) importQueueForm.Show(this);
+            else importQueueForm.Activate();
         }
 
         /// <summary>選取資料夾並非同步匯入其中的圖片。</summary>
@@ -1437,6 +1528,7 @@ namespace Neurocle.WinForms
             IProjectSession previous = project;
             project = replacement;
             previous?.Dispose();
+            InitializeImageImportQueue(replacement);
             ResetAnnotationOpacity();
             showAnnotations.Checked = true;
             canvas.DiscardUnfinishedShape();

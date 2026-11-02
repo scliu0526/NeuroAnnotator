@@ -6,6 +6,8 @@ using System.IO.Compression;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Clipper2Lib;
@@ -588,6 +590,64 @@ namespace Neurocle.Tests
                     Assert.AreEqual(2, progress.Last().SuccessfulCount);
                     Assert.AreEqual(1, progress.Last().FailedCount);
                 }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Report_import_waits_for_an_active_edit_transaction_and_then_succeeds()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "concurrent.bmp");
+            var editStarted = new ManualResetEventSlim();
+            var releaseEdit = new ManualResetEventSlim();
+            try
+            {
+                CreateBitmap(source, Color.Red);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    Task edit = Task.Run(() => store.CompleteOperation((connection, transaction) =>
+                    {
+                        using (SqliteCommand command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "UPDATE ProjectInfo SET CreatedUtc = CreatedUtc;";
+                            command.ExecuteNonQuery();
+                        }
+                        editStarted.Set();
+                        Assert.IsTrue(releaseEdit.Wait(TimeSpan.FromSeconds(5)));
+                    }));
+                    Assert.IsTrue(editStarted.Wait(TimeSpan.FromSeconds(5)));
+
+                    Task<ImageImportReport> import = Task.Run(() => store.ImportFilesWithReport(new[] { source }, null));
+
+                    Assert.IsFalse(import.Wait(TimeSpan.FromMilliseconds(100)));
+                    releaseEdit.Set();
+                    Assert.IsTrue(Task.WaitAll(new Task[] { edit, import }, TimeSpan.FromSeconds(5)));
+                    Assert.AreEqual(1, import.Result.Imported.Count);
+                    Assert.AreEqual(0, import.Result.Failures.Count);
+                    Assert.AreEqual(1, store.GetImages().Count);
+                }
+            }
+            finally
+            {
+                releaseEdit.Set();
+                editStarted.Dispose();
+                releaseEdit.Dispose();
+                DeleteTemporaryProject(path);
+            }
+        }
+
+        [TestMethod]
+        public void Report_import_rejects_a_disposed_project_session()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                ProjectStore store = ProjectStore.Create(path);
+                store.Dispose();
+
+                Assert.ThrowsException<ObjectDisposedException>(() => store.ImportFilesWithReport(new[] { "unused.png" }, null));
             }
             finally { DeleteTemporaryProject(path); }
         }

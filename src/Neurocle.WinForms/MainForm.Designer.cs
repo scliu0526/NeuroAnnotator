@@ -31,6 +31,7 @@ namespace Neurocle.WinForms
             this.saveProjectMenuItem = new ToolStripMenuItem(Strings.SaveProject);
             this.saveProjectAsMenuItem = new ToolStripMenuItem(Strings.SaveProjectAs);
             this.importImagesMenuItem = new ToolStripMenuItem(Strings.ImportImages);
+            this.importImagesMenuItem.Enabled = false;
             this.importFolderMenuItem = new ToolStripMenuItem(Strings.ImportFolder);
             this.importAnnotationMenuItem = new ToolStripMenuItem(Strings.ImportAnnotationJson);
             this.missingImagesMenuItem = new ToolStripMenuItem(Strings.ManageMissingImages);
@@ -80,6 +81,7 @@ namespace Neurocle.WinForms
             this.fit = new Button();
             this.zoom = new ComboBox();
             this.imageFit = new Button();
+            this.importImagesButton = new Button();
             this.imageZoom = new ComboBox();
             this.annotationZoomText = new Label();
             this.imageZoomText = new Label();
@@ -156,6 +158,11 @@ namespace Neurocle.WinForms
             this.imageFit.AutoSize = true;
             this.imageFit.Name = "imageFit";
             this.imageFit.Text = Strings.FitToWindow;
+            this.importImagesButton.AutoSize = true;
+            this.importImagesButton.Enabled = false;
+            this.importImagesButton.Name = "importImagesButton";
+            this.importImagesButton.Text = Strings.ImportImages;
+            this.importImagesButton.UseVisualStyleBackColor = true;
             this.imageZoom.DropDownStyle = ComboBoxStyle.DropDownList;
             this.imageZoom.Name = "imageZoom";
             this.imageZoom.Width = 100;
@@ -168,7 +175,7 @@ namespace Neurocle.WinForms
             this.deleteAllImagesButton.AutoSize = true;
             this.deleteAllImagesButton.Name = "deleteAllImages";
             this.deleteAllImagesButton.Text = Strings.DeleteAllImages;
-            this.imageControls.Controls.AddRange(new Control[] { this.imageFit, this.imageZoom, this.imageZoomText, this.deleteSelectedImagesButton, this.deleteAllImagesButton });
+            this.imageControls.Controls.AddRange(new Control[] { this.importImagesButton, this.imageFit, this.imageZoom, this.imageZoomText, this.deleteSelectedImagesButton, this.deleteAllImagesButton });
             this.imageHeader.Controls.Add(this.imageControls);
             this.imagesPage.Controls.Add(this.imageCanvasHost);
             this.imagesPage.Controls.Add(this.imageHeader);

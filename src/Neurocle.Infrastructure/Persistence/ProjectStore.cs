@@ -30,6 +30,8 @@ namespace Neurocle.Infrastructure.Persistence
         private bool replayingHistory;
         // 暫存 Undo/Redo 正在使用的交易，供歷程委派共用。
         private SqliteTransaction historyTransaction;
+        // 防止工作階段處置後再建立背景匯入連線。
+        private bool disposed;
 
         // 提供可替換的時間來源，供備份流程測試使用。
         internal static Func<DateTime> UtcNow = () => DateTime.UtcNow;
@@ -215,7 +217,11 @@ namespace Neurocle.Infrastructure.Persistence
         public ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
-            return ImportSourcesWithReport(OrderSources(filePaths), cancellationRequested, null, progress);
+            if (disposed) throw new ObjectDisposedException(nameof(ProjectStore));
+            using (var importSession = new ProjectStore(ProjectPath, null, OpenConnection(ProjectPath)))
+            {
+                return importSession.ImportSourcesWithReport(OrderSources(filePaths), cancellationRequested, null, progress);
+            }
         }
 
         /// <inheritdoc />
@@ -1657,8 +1663,10 @@ namespace Neurocle.Infrastructure.Persistence
         /// <inheritdoc />
         public void Dispose()
         {
+            if (disposed) return;
+            disposed = true;
             connection.Dispose();
-            lockStream.Dispose();
+            lockStream?.Dispose();
         }
 
         /// <summary>驗證並正規化專案路徑，同時復原未完成的檔案替換。</summary>
@@ -1736,6 +1744,7 @@ namespace Neurocle.Infrastructure.Persistence
             var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString());
             connection.Open();
             Execute(connection, null, "PRAGMA foreign_keys = ON;");
+            Execute(connection, null, "PRAGMA busy_timeout = 5000;");
             return connection;
         }
 

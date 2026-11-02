@@ -329,6 +329,30 @@ namespace Neurocle.Tests
                 Assert.AreEqual("橡皮擦 E", tools.Controls[8].Text);
                 Assert.AreEqual(300, Field<ImageBrowserControl>(form, "imageBrowser").Width);
                 Assert.IsTrue(GetDescendants(form).OfType<CanvasScrollHost>().Count() == 2);
+                Button importImages = Field<Button>(form, "importImagesButton");
+                Assert.IsFalse(importImages.Enabled);
+                Assert.IsFalse(Field<ToolStripMenuItem>(form, "importImagesMenuItem").Enabled);
+                Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importImages));
+            }
+        }
+
+        [STATestMethod]
+        public void Import_queue_window_displays_waiting_running_and_completed_jobs()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "one.png" }), ImportJobStatus.Waiting, null, null, null),
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "two.png" }), ImportJobStatus.Running, new ImportJobProgress(1, 2, 1, 0), null, null),
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "three.png" }), ImportJobStatus.Completed, new ImportJobProgress(1, 1, 1, 0), null, null)
+                });
+
+                ListView jobs = Field<ListView>(form, "jobsList");
+                CollectionAssert.AreEqual(new[] { "等待中", "執行中", "已完成" }, jobs.Items.Cast<ListViewItem>().Select(item => item.SubItems[1].Text).ToArray());
+                Assert.AreEqual("1 / 2", jobs.Items[1].SubItems[2].Text);
+                jobs.Items[2].Selected = true;
+                Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
             }
         }
 

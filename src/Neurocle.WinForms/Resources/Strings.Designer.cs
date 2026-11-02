@@ -38,6 +38,17 @@ namespace Neurocle.WinForms.Resources
         internal static string ImportProgressTitle { get { return ResourceManager.GetString("ImportProgressTitle", CultureInfo.CurrentUICulture); } }
         internal static string ImportInProgress { get { return ResourceManager.GetString("ImportInProgress", CultureInfo.CurrentUICulture); } }
         internal static string ImportProgressCounts { get { return ResourceManager.GetString("ImportProgressCounts", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueTitle { get { return ResourceManager.GetString("ImportQueueTitle", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueSource { get { return ResourceManager.GetString("ImportQueueSource", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueStatus { get { return ResourceManager.GetString("ImportQueueStatus", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueProgressColumn { get { return ResourceManager.GetString("ImportQueueProgressColumn", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueFileCount { get { return ResourceManager.GetString("ImportQueueFileCount", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueProgress { get { return ResourceManager.GetString("ImportQueueProgress", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueWaiting { get { return ResourceManager.GetString("ImportQueueWaiting", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueRunning { get { return ResourceManager.GetString("ImportQueueRunning", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueCompleted { get { return ResourceManager.GetString("ImportQueueCompleted", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueFailed { get { return ResourceManager.GetString("ImportQueueFailed", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueCanceled { get { return ResourceManager.GetString("ImportQueueCanceled", CultureInfo.CurrentUICulture); } }
         internal static string Cancel { get { return ResourceManager.GetString("Cancel", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportSummary { get { return ResourceManager.GetString("ImportReportSummary", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportUnknownCount { get { return ResourceManager.GetString("ImportReportUnknownCount", CultureInfo.CurrentUICulture); } }

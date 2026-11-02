@@ -61,6 +61,7 @@
     <Compile Include="MainFormLayoutTests.cs" />
     <Compile Include="MainFormDatasetTests.cs" />
     <Compile Include="DiagnosticLogTests.cs" />
+    <Compile Include="ImportJobQueueTests.cs" />
     <Compile Include="SegGeometryPrototypeTests.cs" />
     <Compile Include="SegCompletionPerformanceTests.cs" />
   </ItemGroup>
