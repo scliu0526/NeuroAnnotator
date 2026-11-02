@@ -1476,7 +1476,7 @@ namespace Neurocle.WinForms
             if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(jobs);
             importInProgress = importJobQueue != null && importJobQueue.IsBusy;
             UpdateProjectMenuAvailability();
-            foreach (ImportJobSnapshot job in jobs.Where(value => value.RequiresConfirmation))
+            foreach (ImportJobSnapshot job in jobs.Where(value => value.RequiresConfirmation && value.Status == ImportJobStatus.Waiting))
             {
                 if (!handledImportConfirmations.Add(job.Id)) continue;
                 var jsonRequest = job.Request as AnnotationJsonImportJobRequest;

@@ -178,6 +178,45 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Canceling_json_confirmation_releases_the_queue_without_retry()
+        {
+            var confirmationReady = new ManualResetEventSlim();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                confirmationReady.Set();
+                return new ImportJobResult(false, new string[0], 0, 0, false, true, "JSON contains unknown fields.");
+            }))
+            {
+                Guid id = queue.Enqueue(new AnnotationJsonImportJobRequest("labels.json", "labels", false));
+                Assert.IsTrue(confirmationReady.Wait(TimeSpan.FromSeconds(5)));
+                queue.Cancel(id);
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                Assert.AreEqual(ImportJobStatus.Canceled, queue.Jobs.Single().Status);
+            }
+            confirmationReady.Dispose();
+        }
+
+        [TestMethod]
+        public void Rejecting_json_confirmation_marks_job_canceled_and_releases_fifo()
+        {
+            var confirmationReady = new ManualResetEventSlim();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                confirmationReady.Set();
+                return new ImportJobResult(false, new string[0], 0, 0, false, true, "JSON contains unknown fields.");
+            }))
+            {
+                Guid id = queue.Enqueue(new AnnotationJsonImportJobRequest("labels.json", "labels", false));
+                Assert.IsTrue(confirmationReady.Wait(TimeSpan.FromSeconds(5)));
+                queue.ResolveConfirmation(id, null);
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                Assert.AreEqual(ImportJobStatus.Canceled, queue.Jobs.Single().Status);
+                Assert.IsFalse(queue.Jobs.Single().RequiresConfirmation);
+            }
+            confirmationReady.Dispose();
+        }
+
+        [TestMethod]
         public void Completed_image_jobs_add_images_to_the_project()
         {
             string directory = Path.Combine(Path.GetTempPath(), "neurocle-image-queue-" + Guid.NewGuid().ToString("N"));

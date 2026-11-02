@@ -312,6 +312,12 @@ namespace Neurocle.WinForms
                                 waiting.Enqueue(job);
                                 foreach (Job laterJob in laterJobs) waiting.Enqueue(laterJob);
                             }
+                            else
+                            {
+                                job.Status = ImportJobStatus.Canceled;
+                                job.Result = new ImportJobResult(true, new string[0]);
+                                job.RequiresConfirmation = false;
+                            }
                             confirmationJob = null;
                             confirmationRetry = null;
                         }
