@@ -35,6 +35,8 @@ namespace Neurocle.WinForms
             this.importFolderMenuItem = new ToolStripMenuItem(Strings.ImportFolder);
             this.importFolderMenuItem.Enabled = false;
             this.importAnnotationMenuItem = new ToolStripMenuItem(Strings.ImportAnnotationJson);
+            this.importQueueMenuItem = new ToolStripMenuItem(Strings.OpenImportQueue);
+            this.importQueueMenuItem.Enabled = false;
             this.missingImagesMenuItem = new ToolStripMenuItem(Strings.ManageMissingImages);
             this.backupsMenuItem = new ToolStripMenuItem(Strings.ManageBackups);
             this.diagnosticsMenuItem = new ToolStripMenuItem(Strings.Diagnostics);
@@ -113,9 +115,7 @@ namespace Neurocle.WinForms
                 this.openProjectMenuItem,
                 this.saveProjectMenuItem,
                 this.saveProjectAsMenuItem,
-                this.importImagesMenuItem,
-                this.importFolderMenuItem,
-                this.importAnnotationMenuItem,
+                this.importQueueMenuItem,
                 this.missingImagesMenuItem,
                 this.backupsMenuItem,
                 this.diagnosticsMenuItem

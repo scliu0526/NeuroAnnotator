@@ -72,6 +72,120 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Queue_rejects_the_eleventh_waiting_or_running_job()
+        {
+            var firstStarted = new ManualResetEventSlim();
+            var release = new ManualResetEventSlim();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                firstStarted.Set();
+                Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(5)));
+                return new ImportJobResult(false, new string[0]);
+            }))
+            {
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "0.png" }));
+                Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)));
+                for (int index = 1; index < 10; index++) queue.Enqueue(new ImageFilesImportJobRequest(new[] { index + ".png" }));
+
+                Assert.ThrowsException<ImportQueueCapacityException>(() => queue.Enqueue(new ImageFilesImportJobRequest(new[] { "10.png" })));
+                release.Set();
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+            }
+            firstStarted.Dispose();
+            release.Dispose();
+        }
+
+        [TestMethod]
+        public void Queue_retains_only_the_twenty_most_recent_terminal_jobs()
+        {
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => new ImportJobResult(false, new string[0])))
+            {
+                for (int index = 0; index < 25; index++)
+                {
+                    queue.Enqueue(new ImageFilesImportJobRequest(new[] { index + ".png" }));
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                }
+
+                Assert.AreEqual(20, queue.Jobs.Count);
+                Assert.AreEqual("5.png", ((ImageFilesImportJobRequest)queue.Jobs[0].Request).FilePaths[0]);
+            }
+        }
+
+        [TestMethod]
+        public void Clear_completed_jobs_keeps_active_jobs_and_removes_terminal_history()
+        {
+            var started = new ManualResetEventSlim();
+            var release = new ManualResetEventSlim();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                if (((ImageFilesImportJobRequest)request).FilePaths[0] == "running.png")
+                {
+                    started.Set();
+                    Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(5)));
+                }
+                return new ImportJobResult(false, new string[0]);
+            }))
+            {
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "completed.png" }));
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "running.png" }));
+                Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+                queue.ClearCompleted();
+
+                Assert.AreEqual(1, queue.Jobs.Count);
+                Assert.AreEqual(ImportJobStatus.Running, queue.Jobs[0].Status);
+                release.Set();
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+            }
+            started.Dispose();
+            release.Dispose();
+        }
+
+        [TestMethod]
+        public void Fatal_executor_error_marks_waiting_jobs_failed_without_running_them()
+        {
+            int executions = 0;
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                executions++;
+                throw new ObjectDisposedException("project");
+            }))
+            {
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "fatal.png" }));
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "not-run.png" }));
+
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                Assert.AreEqual(1, executions);
+                Assert.IsTrue(queue.Jobs.All(job => job.Status == ImportJobStatus.Failed));
+            }
+        }
+
+        [TestMethod]
+        public void CancelAll_cancels_waiting_and_running_jobs_for_safe_close()
+        {
+            var started = new ManualResetEventSlim();
+            var release = new ManualResetEventSlim();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                started.Set();
+                Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(5)));
+                return new ImportJobResult(cancellationRequested(), new string[0]);
+            }))
+            {
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "running.png" }));
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "waiting.png" }));
+                Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+
+                queue.CancelAll();
+                release.Set();
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                Assert.IsTrue(queue.Jobs.All(job => job.Status == ImportJobStatus.Canceled));
+            }
+            started.Dispose();
+            release.Dispose();
+        }
+
+        [TestMethod]
         public void Image_and_folder_jobs_execute_in_one_fifo()
         {
             var executionOrder = new List<ImportJobKind>();

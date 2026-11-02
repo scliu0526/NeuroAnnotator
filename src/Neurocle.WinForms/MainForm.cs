@@ -78,6 +78,7 @@ namespace Neurocle.WinForms
         private ToolStripMenuItem importImagesMenuItem;
         private ToolStripMenuItem importFolderMenuItem;
         private ToolStripMenuItem importAnnotationMenuItem;
+        private ToolStripMenuItem importQueueMenuItem;
         private ToolStripMenuItem missingImagesMenuItem;
         private ToolStripMenuItem backupsMenuItem;
         private ToolStripMenuItem diagnosticsMenuItem;
@@ -178,7 +179,25 @@ namespace Neurocle.WinForms
             InitializeRuntimeBehavior();
             FormClosing += (sender, args) =>
             {
-                if (importInProgress || exportInProgress || annotationOperationInProgress) args.Cancel = true;
+                if (importJobQueue != null && importJobQueue.IsBusy)
+                {
+                    IReadOnlyList<ImportJobSnapshot> jobs = importJobQueue.Jobs;
+                    int running = jobs.Count(job => job.Status == ImportJobStatus.Running);
+                    int waiting = jobs.Count(job => job.Status == ImportJobStatus.Waiting);
+                    DialogResult choice = MessageBox.Show(this, string.Format(Strings.ImportQueueClosePrompt, running, waiting), Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    if (choice != DialogResult.Yes)
+                    {
+                        args.Cancel = true;
+                        return;
+                    }
+                    importJobQueue.CancelAll();
+                    if (!importJobQueue.WaitUntilIdle(TimeSpan.FromSeconds(30)))
+                    {
+                        args.Cancel = true;
+                        return;
+                    }
+                }
+                if (exportInProgress || annotationOperationInProgress) args.Cancel = true;
             };
             FormClosed += (sender, args) =>
             {
@@ -278,12 +297,10 @@ namespace Neurocle.WinForms
             openProjectMenuItem.Click += (sender, args) => RunProjectCommand(OpenProject);
             saveProjectMenuItem.Click += (sender, args) => RunProjectCommand(SaveProject);
             saveProjectAsMenuItem.Click += (sender, args) => RunProjectCommand(SaveProjectAs);
-            importImagesMenuItem.Click += (sender, args) => QueueImageFiles();
+            importQueueMenuItem.Click += (sender, args) => ShowImportQueue();
             importImagesButton.Click += (sender, args) => QueueImageFiles();
             importFolderButton.Click += (sender, args) => QueueFolder();
-            importFolderMenuItem.Click += (sender, args) => QueueFolder();
             importAnnotationButton.Click += (sender, args) => QueueAnnotationJson();
-            importAnnotationMenuItem.Click += (sender, args) => QueueAnnotationJson();
             missingImagesMenuItem.Click += (sender, args) => ManageMissingImages();
             backupsMenuItem.Click += (sender, args) => ManageBackups();
             diagnosticsMenuItem.Click += (sender, args) => ManageDiagnostics();
@@ -1004,8 +1021,7 @@ namespace Neurocle.WinForms
             using (var dialog = new OpenFileDialog { Filter = "JSON (*.json)|*.json", Multiselect = false })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                importJobQueue.Enqueue(new AnnotationJsonImportJobRequest(dialog.FileName, Path.GetFileNameWithoutExtension(dialog.FileName), false));
-                ShowImportQueue();
+                TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, Path.GetFileNameWithoutExtension(dialog.FileName), false));
             }
         }
 
@@ -1386,8 +1402,7 @@ namespace Neurocle.WinForms
             using (var dialog = new OpenFileDialog { Filter = Strings.ImageFileFilter, Multiselect = true })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                importJobQueue.Enqueue(new ImageFilesImportJobRequest(dialog.FileNames));
-                ShowImportQueue();
+                TryEnqueueImportJob(new ImageFilesImportJobRequest(dialog.FileNames));
             }
         }
 
@@ -1400,8 +1415,21 @@ namespace Neurocle.WinForms
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 DialogResult choice = MessageBox.Show(this, Strings.IncludeSubdirectoriesPrompt, Text, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
                 if (choice == DialogResult.Cancel) return;
-                importJobQueue.Enqueue(new FolderImportJobRequest(dialog.SelectedPath, choice == DialogResult.Yes));
+                TryEnqueueImportJob(new FolderImportJobRequest(dialog.SelectedPath, choice == DialogResult.Yes));
+            }
+        }
+
+        /// <summary>將匯入工作加入佇列，並將容量拒絕轉成使用者可理解的提示。</summary>
+        private void TryEnqueueImportJob(ImportJobRequest request)
+        {
+            try
+            {
+                importJobQueue.Enqueue(request);
                 ShowImportQueue();
+            }
+            catch (ImportQueueCapacityException)
+            {
+                MessageBox.Show(this, Strings.ImportQueueCapacityReached, Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -1421,8 +1449,7 @@ namespace Neurocle.WinForms
             importImagesButton.Enabled = true;
             importFolderButton.Enabled = true;
             importAnnotationButton.Enabled = true;
-            importImagesMenuItem.Enabled = true;
-            importFolderMenuItem.Enabled = true;
+            importQueueMenuItem.Enabled = true;
         }
 
         /// <summary>依匯入工作種類執行對應專案操作並轉換成共用結果。</summary>
@@ -1513,6 +1540,11 @@ namespace Neurocle.WinForms
         private void UpdateProjectMenuAvailability()
         {
             projectMenu.Enabled = !importInProgress && !annotationOperationInProgress;
+            deleteSelectedImagesButton.Enabled = !importInProgress;
+            deleteAllImagesButton.Enabled = !importInProgress;
+            exportSelected.Enabled = !importInProgress;
+            exportAll.Enabled = !importInProgress;
+            datasetAssignments.Enabled = !importInProgress;
         }
 
         /// <summary>顯示單一非強制回應匯入佇列視窗。</summary>
@@ -1522,6 +1554,7 @@ namespace Neurocle.WinForms
             {
                 importQueueForm = new ImportQueueForm();
                 importQueueForm.CancelRequested += id => importJobQueue?.Cancel(id);
+                importQueueForm.ClearCompletedRequested += () => importJobQueue?.ClearCompleted();
             }
             importQueueForm.UpdateJobs(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
             if (!importQueueForm.Visible) importQueueForm.Show(this);

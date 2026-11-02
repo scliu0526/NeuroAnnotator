@@ -51,7 +51,13 @@ namespace Neurocle.WinForms.Resources
         internal static string ImportQueueCompleted { get { return ResourceManager.GetString("ImportQueueCompleted", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueFailed { get { return ResourceManager.GetString("ImportQueueFailed", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueCanceled { get { return ResourceManager.GetString("ImportQueueCanceled", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueCapacityReached { get { return ResourceManager.GetString("ImportQueueCapacityReached", CultureInfo.CurrentUICulture); } }
+        internal static string OpenImportQueue { get { return ResourceManager.GetString("OpenImportQueue", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueClosePrompt { get { return ResourceManager.GetString("ImportQueueClosePrompt", CultureInfo.CurrentUICulture); } }
         internal static string Cancel { get { return ResourceManager.GetString("Cancel", CultureInfo.CurrentUICulture); } }
+        internal static string ClearCompleted { get { return ResourceManager.GetString("ClearCompleted", CultureInfo.CurrentUICulture); } }
+        internal static string ShowDetails { get { return ResourceManager.GetString("ShowDetails", CultureInfo.CurrentUICulture); } }
+        internal static string HideDetails { get { return ResourceManager.GetString("HideDetails", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportSummary { get { return ResourceManager.GetString("ImportReportSummary", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportUnknownCount { get { return ResourceManager.GetString("ImportReportUnknownCount", CultureInfo.CurrentUICulture); } }
         internal static string ImportScanCancelled { get { return ResourceManager.GetString("ImportScanCancelled", CultureInfo.CurrentUICulture); } }

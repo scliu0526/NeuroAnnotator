@@ -10,6 +10,8 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.ColumnHeader statusColumn;
         private System.Windows.Forms.ColumnHeader progressColumn;
         private System.Windows.Forms.Button cancelButton;
+        private System.Windows.Forms.Button clearCompletedButton;
+        private System.Windows.Forms.FlowLayoutPanel cardsPanel;
 
         protected override void Dispose(bool disposing)
         {
@@ -25,6 +27,8 @@ namespace Neurocle.WinForms
             this.statusColumn = new System.Windows.Forms.ColumnHeader();
             this.progressColumn = new System.Windows.Forms.ColumnHeader();
             this.cancelButton = new System.Windows.Forms.Button();
+            this.clearCompletedButton = new System.Windows.Forms.Button();
+            this.cardsPanel = new System.Windows.Forms.FlowLayoutPanel();
             this.SuspendLayout();
             this.jobsList.Columns.AddRange(new[] { this.sourceColumn, this.statusColumn, this.progressColumn });
             this.jobsList.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -33,6 +37,7 @@ namespace Neurocle.WinForms
             this.jobsList.MultiSelect = false;
             this.jobsList.Name = "jobsList";
             this.jobsList.View = System.Windows.Forms.View.Details;
+            this.jobsList.Visible = false;
             this.jobsList.SelectedIndexChanged += new System.EventHandler(this.JobsList_SelectedIndexChanged);
             this.sourceColumn.Text = Strings.ImportQueueSource;
             this.sourceColumn.Width = 240;
@@ -47,8 +52,22 @@ namespace Neurocle.WinForms
             this.cancelButton.Text = Strings.Cancel;
             this.cancelButton.UseVisualStyleBackColor = true;
             this.cancelButton.Click += new System.EventHandler(this.CancelButton_Click);
+            this.clearCompletedButton.Dock = System.Windows.Forms.DockStyle.Bottom;
+            this.clearCompletedButton.Enabled = false;
+            this.clearCompletedButton.Height = 32;
+            this.clearCompletedButton.Name = "clearCompletedButton";
+            this.clearCompletedButton.Text = Strings.ClearCompleted;
+            this.clearCompletedButton.UseVisualStyleBackColor = true;
+            this.clearCompletedButton.Click += new System.EventHandler(this.ClearCompletedButton_Click);
+            this.cardsPanel.AutoScroll = true;
+            this.cardsPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.cardsPanel.FlowDirection = System.Windows.Forms.FlowDirection.TopDown;
+            this.cardsPanel.Name = "cardsPanel";
+            this.cardsPanel.WrapContents = false;
             this.ClientSize = new System.Drawing.Size(440, 260);
+            this.Controls.Add(this.cardsPanel);
             this.Controls.Add(this.jobsList);
+            this.Controls.Add(this.clearCompletedButton);
             this.Controls.Add(this.cancelButton);
             this.MinimumSize = new System.Drawing.Size(360, 220);
             this.Name = "ImportQueueForm";

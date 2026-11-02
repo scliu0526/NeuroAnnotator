@@ -337,9 +337,15 @@ namespace Neurocle.Tests
                 Assert.IsFalse(importAnnotation.Enabled);
                 Assert.IsFalse(Field<ToolStripMenuItem>(form, "importImagesMenuItem").Enabled);
                 Assert.IsFalse(Field<ToolStripMenuItem>(form, "importFolderMenuItem").Enabled);
+                Assert.IsFalse(Field<ToolStripMenuItem>(form, "importQueueMenuItem").Enabled);
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importImages));
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importFolder));
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "annotationHeader").Controls.Contains(importAnnotation));
+                ToolStripMenuItem projectMenu = Field<ToolStripMenuItem>(form, "projectMenu");
+                Assert.IsTrue(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importQueueMenuItem")));
+                Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importImagesMenuItem")));
+                Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importFolderMenuItem")));
+                Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importAnnotationMenuItem")));
             }
         }
 
@@ -357,8 +363,10 @@ namespace Neurocle.Tests
                 });
 
                 ListView jobs = Field<ListView>(form, "jobsList");
+                FlowLayoutPanel cards = Field<FlowLayoutPanel>(form, "cardsPanel");
                 CollectionAssert.AreEqual(new[] { "等待中", "執行中", "已完成", "已完成" }, jobs.Items.Cast<ListViewItem>().Select(item => item.SubItems[1].Text).ToArray());
                 Assert.AreEqual("成功 1，失敗 1，未完成 0", jobs.Items[3].SubItems[2].Text);
+                Assert.AreEqual(4, cards.Controls.Count);
                 Assert.AreEqual("1 / 2", jobs.Items[1].SubItems[2].Text);
                 jobs.Items[2].Selected = true;
                 Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
@@ -391,6 +399,24 @@ namespace Neurocle.Tests
                 });
 
                 Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
+            }
+        }
+
+        [STATestMethod]
+        public void Import_queue_window_exposes_clear_completed_operation()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                bool called = false;
+                form.ClearCompletedRequested += () => called = true;
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "done.png" }), ImportJobStatus.Completed, null, new ImportJobResult(false, new string[0]), null)
+                });
+
+                Assert.IsTrue(Field<Button>(form, "clearCompletedButton").Enabled);
+                typeof(ImportQueueForm).GetMethod("ClearCompletedButton_Click", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, new object[] { form, EventArgs.Empty });
+                Assert.IsTrue(called);
             }
         }
 

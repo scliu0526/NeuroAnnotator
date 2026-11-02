@@ -22,6 +22,14 @@ namespace Neurocle.WinForms
         Canceled
     }
 
+    internal sealed class ImportQueueCapacityException : InvalidOperationException
+    {
+        public ImportQueueCapacityException()
+            : base("The import queue already contains ten waiting or running jobs.")
+        {
+        }
+    }
+
     internal abstract class ImportJobRequest
     {
         protected ImportJobRequest(ImportJobKind kind)
@@ -175,6 +183,9 @@ namespace Neurocle.WinForms
         private bool workerRunning;
         private bool disposed;
 
+        private const int MaxActiveJobs = 10;
+        private const int MaxCompletedJobs = 20;
+
         public ImportJobQueue(ImportExecutor executor)
         {
             this.executor = executor ?? throw new ArgumentNullException(nameof(executor));
@@ -206,6 +217,8 @@ namespace Neurocle.WinForms
             lock (gate)
             {
                 ThrowIfDisposed();
+                if (jobs.Count(job => job.Status == ImportJobStatus.Waiting || job.Status == ImportJobStatus.Running) >= MaxActiveJobs) throw new ImportQueueCapacityException();
+                TrimHistoryLocked();
                 jobs.Add(job);
                 waiting.Enqueue(job);
                 idle.Reset();
@@ -229,6 +242,7 @@ namespace Neurocle.WinForms
                 job.CancellationRequested = true;
                 if (job.Status == ImportJobStatus.Waiting) job.Status = ImportJobStatus.Canceled;
                 if (confirmationJob != null && confirmationJob.Id == jobId) confirmationSignal.Set();
+                TrimHistoryLocked();
             }
             Publish();
         }
@@ -241,6 +255,25 @@ namespace Neurocle.WinForms
                 confirmationRetry = retryRequest;
                 confirmationSignal.Set();
             }
+        }
+
+        public void ClearCompleted()
+        {
+            lock (gate) jobs.RemoveAll(job => job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled);
+            Publish();
+        }
+
+        public void CancelAll()
+        {
+            lock (gate)
+            {
+                foreach (Job job in jobs)
+                {
+                    if (job.Status == ImportJobStatus.Waiting || job.Status == ImportJobStatus.Running) job.CancellationRequested = true;
+                }
+                if (confirmationJob != null) confirmationSignal.Set();
+            }
+            Publish();
         }
 
         public bool WaitUntilIdle(TimeSpan timeout)
@@ -328,6 +361,7 @@ namespace Neurocle.WinForms
                     {
                         job.Result = result;
                         job.Status = result.WasCanceled ? ImportJobStatus.Canceled : ImportJobStatus.Completed;
+                        TrimHistoryLocked();
                     }
                 }
                 catch (Exception exception)
@@ -336,6 +370,16 @@ namespace Neurocle.WinForms
                     {
                         job.ErrorMessage = exception.Message;
                         job.Status = ImportJobStatus.Failed;
+                        if (IsFatal(exception))
+                        {
+                            while (waiting.Count > 0)
+                            {
+                                Job waitingJob = waiting.Dequeue();
+                                waitingJob.Status = ImportJobStatus.Failed;
+                                waitingJob.ErrorMessage = "Import queue stopped after a fatal project error.";
+                            }
+                        }
+                        TrimHistoryLocked();
                     }
                 }
                 Publish();
@@ -368,6 +412,21 @@ namespace Neurocle.WinForms
         private void ThrowIfDisposed()
         {
             if (disposed) throw new ObjectDisposedException(nameof(ImportJobQueue));
+        }
+
+        private void TrimHistoryLocked()
+        {
+            while (jobs.Count(job => job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled) > MaxCompletedJobs)
+            {
+                Job oldest = jobs.FirstOrDefault(job => job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled);
+                if (oldest == null) return;
+                jobs.Remove(oldest);
+            }
+        }
+
+        private static bool IsFatal(Exception exception)
+        {
+            return exception is ObjectDisposedException || exception.GetType().Name == "SqliteException";
         }
 
         public void Dispose()

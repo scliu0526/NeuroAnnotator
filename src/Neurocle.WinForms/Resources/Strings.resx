@@ -65,7 +65,13 @@
   <data name="ImportQueueCompleted" xml:space="preserve"><value>已完成</value></data>
   <data name="ImportQueueFailed" xml:space="preserve"><value>失敗</value></data>
   <data name="ImportQueueCanceled" xml:space="preserve"><value>已取消</value></data>
+  <data name="ImportQueueCapacityReached" xml:space="preserve"><value>匯入佇列已達十筆等待中或執行中的上限。</value></data>
+  <data name="OpenImportQueue" xml:space="preserve"><value>開啟匯入佇列</value></data>
+  <data name="ImportQueueClosePrompt" xml:space="preserve"><value>目前有 {0} 筆執行中、{1} 筆等待中的匯入工作。要取消可取消工作並等待安全完成後關閉嗎？</value></data>
   <data name="Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="ClearCompleted" xml:space="preserve"><value>清除已結束</value></data>
+  <data name="ShowDetails" xml:space="preserve"><value>展開詳細</value></data>
+  <data name="HideDetails" xml:space="preserve"><value>收合詳細</value></data>
   <data name="ImportReportSummary" xml:space="preserve"><value>已匯入：{0}&#13;&#10;失敗：{1}&#13;&#10;未完成：{2}</value></data>
   <data name="ImportReportUnknownCount" xml:space="preserve"><value>無法確定</value></data>
   <data name="ImportScanCancelled" xml:space="preserve"><value>資料夾掃描已取消；尚未掃描的項目數無法確定。</value></data>

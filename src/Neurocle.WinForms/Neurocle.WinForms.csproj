@@ -61,6 +61,12 @@
     <Compile Include="ImportQueueForm.Designer.cs">
       <DependentUpon>ImportQueueForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="ImportJobCardControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="ImportJobCardControl.Designer.cs">
+      <DependentUpon>ImportJobCardControl.cs</DependentUpon>
+    </Compile>
     <Compile Include="DiagnosticsForm.cs">
       <SubType>Form</SubType>
     </Compile>
