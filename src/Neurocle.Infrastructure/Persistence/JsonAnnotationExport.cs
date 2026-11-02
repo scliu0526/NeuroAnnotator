@@ -11,7 +11,14 @@ namespace Neurocle.Infrastructure.Persistence
     // 將單一標註集轉換為應用程式交換用的 JSON 格式。
     internal static class JsonAnnotationExport
     {
-        /// <summary>讀取標註集資料並以不覆寫既有檔案的方式寫出 JSON。</summary>
+        /// <summary>
+        /// 讀取標註集資料並以不覆寫既有檔案的方式寫出 JSON。
+        /// </summary>
+        /// <param name="store">要讀取或更新的專案儲存物件。</param>
+        /// <param name="set">要建立或更新的資料集分配狀態。</param>
+        /// <param name="outputPath">要寫入結果的輸出路徑。</param>
+        /// <returns>回傳實際寫入的 JSON 檔案路徑。</returns>
+        /// <exception cref="InvalidOperationException">目前物件或專案狀態不允許此操作。</exception>
         public static string Write(ProjectStore store, AnnotationSet set, string outputPath)
         {
             ProjectImage[] images = store.GetImages().Where(value => !value.IsMissing).ToArray();
@@ -48,7 +55,12 @@ namespace Neurocle.Infrastructure.Persistence
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
 
-        /// <summary>依 SEG 幾何種類輸出其矩形、橢圓或路徑欄位。</summary>
+        /// <summary>
+        /// 將 SEG 區域依幾何種類序列化為矩形、橢圓或路徑欄位。
+        /// </summary>
+        /// <param name="value">要序列化的 SEG 區域。</param>
+        /// <param name="name">要寫入輸出物件的類別名稱。</param>
+        /// <returns>包含類別名稱、幾何種類及相應幾何欄位的 JSON 物件。</returns>
         private static JObject Region(SegRegion value, string name)
         {
             var result = new JObject { ["className"] = name, ["type"] = value.Type == SegRegionType.Rect ? "Rect" : value.Type == SegRegionType.Ellipse ? "Ellipse" : value.Type == SegRegionType.PolyLine ? "PolyLine" : "PolyGon" };
@@ -58,9 +70,17 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
-        /// <summary>將資料集分配狀態轉成交換格式使用的名稱。</summary>
+        /// <summary>
+        /// 將資料集分配狀態轉成交換格式使用的名稱。
+        /// </summary>
+        /// <param name="value">要轉換的資料集分配狀態。</param>
+        /// <returns>對應的交換格式名稱；未知狀態回傳空字串。</returns>
         private static string SetName(DatasetAssignmentStatus value) { return value == DatasetAssignmentStatus.Train ? "train" : value == DatasetAssignmentStatus.Test ? "test" : value == DatasetAssignmentStatus.NotUsed ? "not_used" : ""; }
-        /// <summary>正規化 JSON 副檔名，必要時產生不覆寫既有檔案的路徑。</summary>
+        /// <summary>
+        /// 正規化 JSON 副檔名，必要時產生不覆寫既有檔案的路徑。
+        /// </summary>
+        /// <param name="value">預定輸出的檔案路徑。</param>
+        /// <returns>含 JSON 副檔名且不與既有檔案或目錄衝突的完整路徑。</returns>
         private static string UniquePath(string value) { string path = Path.GetFullPath(value); if (!String.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase)) path += ".json"; if (!File.Exists(path) && !Directory.Exists(path)) return path; string d = Path.GetDirectoryName(path), n = Path.GetFileNameWithoutExtension(path), e = Path.GetExtension(path); for (int i = 1; ; i++) { string candidate = Path.Combine(d, n + " (" + i + ")" + e); if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate; } }
     }
 }

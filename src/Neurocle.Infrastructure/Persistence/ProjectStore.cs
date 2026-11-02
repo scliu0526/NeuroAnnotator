@@ -44,7 +44,12 @@ namespace Neurocle.Infrastructure.Persistence
         // 提供可替換的隨機數來源，供資料集切分測試使用。
         internal static Func<int, int> NextRandom = maximum => random.Next(maximum);
 
-        /// <summary>建立專案工作階段並保存資料庫連線與獨佔鎖。</summary>
+        /// <summary>
+        /// 建立專案工作階段並保存資料庫連線與獨佔鎖。
+        /// </summary>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <param name="lockStream">持有專案獨佔鎖的檔案資料流。</param>
+        /// <param name="connection">供資料庫操作使用的 SQLite 連線。</param>
         private ProjectStore(string path, FileStream lockStream, SqliteConnection connection)
         {
             ProjectPath = path;
@@ -58,7 +63,11 @@ namespace Neurocle.Infrastructure.Persistence
         // 取得此專案受管理圖片的儲存目錄。
         public string ImagesDirectory { get; }
 
-        /// <summary>建立 SQLite 專案資料庫、受管理圖片目錄及初始備份。</summary>
+        /// <summary>
+        /// 建立 SQLite 專案資料庫、受管理圖片目錄及初始備份。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <returns>回傳已建立並完成初始化的專案工作階段。</returns>
         public static ProjectStore Create(string projectPath)
         {
             string fullPath = PreparePath(projectPath, false);
@@ -93,7 +102,12 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>開啟專案資料庫，完成結構檢查、必要遷移及暫存圖片復原。</summary>
+        /// <summary>
+        /// 開啟專案資料庫，完成結構檢查、必要遷移及暫存圖片復原。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <returns>回傳已開啟並完成結構檢查的專案工作階段。</returns>
+        /// <exception cref="ProjectOpenException">專案資料庫無法開啟或結構檢查失敗。</exception>
         public static ProjectStore Open(string projectPath)
         {
             string fullPath = PreparePath(projectPath, true);
@@ -128,7 +142,15 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>驗證指定備份後，以備份建立目標專案並開啟工作階段。</summary>
+        /// <summary>
+        /// 驗證指定備份後，以備份建立目標專案並開啟工作階段。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <param name="backupPath">屬於此專案的備份檔案路徑。</param>
+        /// <returns>回傳從指定備份還原並開啟的專案工作階段。</returns>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
+        /// <exception cref="FileNotFoundException">指定的檔案不存在。</exception>
         public static ProjectStore Restore(string projectPath, string backupPath)
         {
             string fullProjectPath = PreparePath(projectPath, true);
@@ -172,7 +194,11 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>以單一 SQLite 交易執行並提交一次專案資料變更。</summary>
+        /// <summary>
+        /// 以單一 SQLite 交易執行並提交一次專案資料變更。
+        /// </summary>
+        /// <param name="operation">要在資料庫交易內執行的操作委派。</param>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
         public void CompleteOperation(Action<SqliteConnection, SqliteTransaction> operation)
         {
             if (operation == null) throw new ArgumentNullException(nameof(operation));
@@ -241,6 +267,14 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
+        /// <summary>
+        /// 匯入指定目錄中的圖片，並回報逐項結果、進度與取消狀態。
+        /// </summary>
+        /// <param name="directoryPath">要掃描或匯入的目錄路徑。</param>
+        /// <param name="includeSubdirectories">是否遞迴掃描子目錄。</param>
+        /// <param name="cancellationRequested">查詢目前是否要求取消的委派。</param>
+        /// <param name="progress">回報匯入進度的委派。</param>
+        /// <returns>回傳資料夾匯入的成功、失敗、未處理及取消結果。</returns>
         private ImageImportReport ImportDirectoryCore(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
         {
             var sources = new List<string>();
@@ -322,7 +356,11 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>產生不會覆寫既有輸出檔案的匯出路徑。</summary>
+        /// <summary>
+        /// 產生不會覆寫既有輸出檔案的匯出路徑。
+        /// </summary>
+        /// <param name="requestedPath">使用者要求的輸出路徑。</param>
+        /// <returns>回傳不會覆寫既有檔案的唯一輸出路徑。</returns>
         private static string CreateUniqueExportPath(string requestedPath)
         {
             if (!File.Exists(requestedPath) && !Directory.Exists(requestedPath)) return requestedPath;
@@ -402,7 +440,16 @@ namespace Neurocle.Infrastructure.Persistence
             return JsonAnnotationExport.Write(this, set, outputPath);
         }
 
-        /// <summary>將已驗證的 SEG 區域及其點位寫入指定資料庫交易。</summary>
+        /// <summary>
+        /// 將已驗證的 SEG 區域及其點位寫入指定資料庫交易。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
+        /// <param name="setId">標註集識別碼。</param>
+        /// <param name="imageId">圖片識別碼。</param>
+        /// <param name="classId">類別識別碼。</param>
+        /// <param name="region">已驗證的標註區域資料。</param>
+        /// <param name="zOrder">標註在圖片中的繪製順序。</param>
         private static void InsertImportedSegRegion(SqliteConnection db, SqliteTransaction transaction, string setId, string imageId, string classId, ImportedRegion region, int zOrder)
         {
             string id = Guid.NewGuid().ToString("D");
@@ -618,7 +665,12 @@ namespace Neurocle.Infrastructure.Persistence
             return plan;
         }
 
-        /// <summary>計算並交易更新圖片的資料集狀態或 Retest 旗標，再記錄復原動作。</summary>
+        /// <summary>
+        /// 計算並交易更新圖片的資料集狀態或 Retest 旗標，再記錄復原動作。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <param name="imageIds">圖片識別碼集合。</param>
+        /// <param name="transform">用於產生更新後資料集分配的轉換委派。</param>
         private void UpdateDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, Func<DatasetAssignment, DatasetAssignment> transform)
         {
             string[] ids = ValidateDatasetImageIds(annotationSetId, imageIds);
@@ -632,7 +684,14 @@ namespace Neurocle.Infrastructure.Persistence
             Record(annotationSetId, () => { foreach (DatasetAssignment value in previous) SetDatasetAssignmentRaw(connection, historyTransaction, value); }, () => { foreach (DatasetAssignment value in next) SetDatasetAssignmentRaw(connection, historyTransaction, value); }, EstimateHistoryBytes(ids));
         }
 
-        /// <summary>確認圖片識別碼屬於指定標註集，並移除重複識別碼。</summary>
+        /// <summary>
+        /// 確認圖片識別碼屬於指定標註集，並移除重複識別碼。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <param name="imageIds">圖片識別碼集合。</param>
+        /// <returns>回傳屬於指定標註集且已去重的圖片識別碼。</returns>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private string[] ValidateDatasetImageIds(string annotationSetId, IEnumerable<string> imageIds)
         {
             if (imageIds == null) throw new ArgumentNullException(nameof(imageIds));
@@ -643,13 +702,22 @@ namespace Neurocle.Infrastructure.Persistence
             return ids;
         }
 
-        /// <summary>確認標註集識別碼仍對應專案中的標註集。</summary>
+        /// <summary>
+        /// 確認標註集識別碼仍對應專案中的標註集。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private void EnsureAnnotationSetExists(string annotationSetId)
         {
             if (ExecuteScalar(connection, "SELECT Id FROM AnnotationSet WHERE Id = $id;", new SqliteParameter("$id", annotationSetId)) == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
         }
 
-        /// <summary>在目前 SQLite 交易中新增或更新資料集分配資料。</summary>
+        /// <summary>
+        /// 在目前 SQLite 交易中新增或更新資料集分配資料。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private static void SetDatasetAssignmentRaw(SqliteConnection db, SqliteTransaction transaction, DatasetAssignment value)
         {
             Execute(db, transaction, "INSERT INTO DatasetAssignment (AnnotationSetId, ImageId, Status, Retest) VALUES ($set, $image, $status, $retest) ON CONFLICT(AnnotationSetId, ImageId) DO UPDATE SET Status = excluded.Status, Retest = excluded.Retest;", new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$status", (int)value.Status), new SqliteParameter("$retest", value.Retest ? 1 : 0));
@@ -664,14 +732,24 @@ namespace Neurocle.Infrastructure.Persistence
         /// <inheritdoc />
         public bool CanRedo(string annotationSetId) { return GetHistory(annotationSetId).CanRedo; }
 
-        /// <summary>將已提交操作的復原與重做動作加入對應標註集的歷程。</summary>
+        /// <summary>
+        /// 將已提交操作的復原與重做動作加入對應標註集的歷程。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <param name="undo">執行 Undo 時還原資料狀態的委派。</param>
+        /// <param name="redo">執行 Redo 時重做資料狀態的委派。</param>
+        /// <param name="sizeBytes">歷程項目估計占用的位元組數。</param>
         private void Record(string annotationSetId, Action undo, Action redo, long sizeBytes)
         {
             if (replayingHistory) return;
             GetHistory(annotationSetId).Push(new HistoryEntry(undo, redo, sizeBytes));
         }
 
-        /// <summary>估算歷程資料所佔用的記憶體容量。</summary>
+        /// <summary>
+        /// 估算歷程資料所佔用的記憶體容量。
+        /// </summary>
+        /// <param name="values">要估算、驗證或處理的值集合。</param>
+        /// <returns>回傳歷程資料的估計記憶體用量。</returns>
         private static long EstimateHistoryBytes(params string[] values)
         {
             long size = 256;
@@ -679,7 +757,11 @@ namespace Neurocle.Infrastructure.Persistence
             return size;
         }
 
-        /// <summary>估算歷程資料所佔用的記憶體容量。</summary>
+        /// <summary>
+        /// 估算歷程資料所佔用的記憶體容量。
+        /// </summary>
+        /// <param name="values">要估算、驗證或處理的值集合。</param>
+        /// <returns>回傳歷程資料的估計記憶體用量。</returns>
         private static long EstimateHistoryBytes(IReadOnlyList<string> values)
         {
             long size = 64 + (long)IntPtr.Size * values.Count;
@@ -687,7 +769,11 @@ namespace Neurocle.Infrastructure.Persistence
             return size;
         }
 
-        /// <summary>估算歷程資料所佔用的記憶體容量。</summary>
+        /// <summary>
+        /// 估算歷程資料所佔用的記憶體容量。
+        /// </summary>
+        /// <param name="values">要估算、驗證或處理的值集合。</param>
+        /// <returns>回傳歷程資料的估計記憶體用量。</returns>
         private static long EstimateHistoryBytes(IReadOnlyList<ObdAnnotation> values)
         {
             long size = 64 + (long)IntPtr.Size * values.Count;
@@ -695,7 +781,11 @@ namespace Neurocle.Infrastructure.Persistence
             return size;
         }
 
-        /// <summary>估算歷程資料所佔用的記憶體容量。</summary>
+        /// <summary>
+        /// 估算歷程資料所佔用的記憶體容量。
+        /// </summary>
+        /// <param name="values">要估算、驗證或處理的值集合。</param>
+        /// <returns>回傳歷程資料的估計記憶體用量。</returns>
         private static long EstimateHistoryBytes(IReadOnlyList<SegRegion> values)
         {
             long size = 64 + (long)IntPtr.Size * values.Count;
@@ -703,7 +793,12 @@ namespace Neurocle.Infrastructure.Persistence
             return size;
         }
 
-        /// <summary>取得標註集的歷程狀態；尚未建立時建立空白歷程。</summary>
+        /// <summary>
+        /// 取得標註集的歷程狀態；尚未建立時建立空白歷程。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <returns>回傳指定標註集的 Undo/Redo 歷程。</returns>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
         private AnnotationHistory GetHistory(string annotationSetId)
         {
             if (annotationSetId == null) throw new ArgumentNullException(nameof(annotationSetId));
@@ -716,7 +811,12 @@ namespace Neurocle.Infrastructure.Persistence
             return history;
         }
 
-        /// <summary>在 SQLite 交易中執行 Undo 或 Redo，提交成功後才移動歷程項目。</summary>
+        /// <summary>
+        /// 在 SQLite 交易中執行 Undo 或 Redo，提交成功後才移動歷程項目。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <param name="redo">執行 Redo 時重做資料狀態的委派。</param>
+        /// <returns>回傳是否成功完成指定的 Undo 或 Redo 操作。</returns>
         private bool RunHistory(string annotationSetId, bool redo)
         {
             AnnotationHistory history = GetHistory(annotationSetId);
@@ -754,7 +854,12 @@ namespace Neurocle.Infrastructure.Persistence
             return true;
         }
 
-        /// <summary>依類別識別碼讀取類別資料。</summary>
+        /// <summary>
+        /// 依類別識別碼讀取類別資料。
+        /// </summary>
+        /// <param name="classId">類別識別碼。</param>
+        /// <returns>回傳與類別識別碼相符的類別資料。</returns>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private AnnotationClass GetClass(string classId)
         {
             using (var command = connection.CreateCommand())
@@ -769,7 +874,11 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>取得指定類別目前使用的 CLA 圖片指派。</summary>
+        /// <summary>
+        /// 取得指定類別目前使用的 CLA 圖片指派。
+        /// </summary>
+        /// <param name="classId">類別識別碼。</param>
+        /// <returns>回傳指定 CLA 類別已指派的圖片識別碼。</returns>
         private IReadOnlyList<string> GetClaAssignments(string classId)
         {
             var imageIds = new List<string>();
@@ -782,7 +891,11 @@ namespace Neurocle.Infrastructure.Persistence
             return imageIds;
         }
 
-        /// <summary>取得指定類別目前使用的 OBD 標註。</summary>
+        /// <summary>
+        /// 取得指定類別目前使用的 OBD 標註。
+        /// </summary>
+        /// <param name="classId">類別識別碼。</param>
+        /// <returns>回傳指定類別的 OBD 標註。</returns>
         private IReadOnlyList<ObdAnnotation> GetObdAnnotationsForClass(string classId)
         {
             var result = new List<ObdAnnotation>();
@@ -795,7 +908,11 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
-        /// <summary>取得指定類別目前使用的 SEG 區域。</summary>
+        /// <summary>
+        /// 取得指定類別目前使用的 SEG 區域。
+        /// </summary>
+        /// <param name="classId">類別識別碼。</param>
+        /// <returns>回傳指定類別的 SEG 區域。</returns>
         private IReadOnlyList<SegRegion> GetSegRegionsForClass(string classId)
         {
             var result = new List<SegRegion>();
@@ -808,51 +925,83 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
-        /// <summary>在目前工作階段中新增類別資料列。</summary>
+        /// <summary>
+        /// 在目前工作階段中新增類別資料列。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private void InsertClassRaw(AnnotationClass value)
         {
             Execute(connection, historyTransaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
         }
 
-        /// <summary>在目前工作階段中刪除類別資料列。</summary>
+        /// <summary>
+        /// 在目前工作階段中刪除類別資料列。
+        /// </summary>
+        /// <param name="classId">類別識別碼。</param>
         private void DeleteClassRaw(string classId)
         {
             Execute(connection, historyTransaction, "DELETE FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
         }
 
-        /// <summary>在目前工作階段中更新類別名稱。</summary>
+        /// <summary>
+        /// 在目前工作階段中更新類別名稱。
+        /// </summary>
+        /// <param name="classId">類別識別碼。</param>
+        /// <param name="name">要建立、查詢或更新的名稱。</param>
         private void RenameClassRaw(string classId, string name)
         {
             Execute(connection, historyTransaction, "UPDATE AnnotationClass SET Name = $name WHERE Id = $id;", new SqliteParameter("$name", name), new SqliteParameter("$id", classId));
         }
 
-        /// <summary>在目前工作階段中更新類別色彩。</summary>
+        /// <summary>
+        /// 在目前工作階段中更新類別色彩。
+        /// </summary>
+        /// <param name="classId">類別識別碼。</param>
+        /// <param name="color">類別色彩字串。</param>
         private void ChangeClassColorRaw(string classId, string color)
         {
             Execute(connection, historyTransaction, "UPDATE AnnotationClass SET Color = $color WHERE Id = $id;", new SqliteParameter("$color", color), new SqliteParameter("$id", classId));
         }
 
-        /// <summary>在目前工作階段中設定圖片的 CLA 類別指派。</summary>
+        /// <summary>
+        /// 在目前工作階段中設定圖片的 CLA 類別指派。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <param name="imageId">圖片識別碼。</param>
+        /// <param name="classId">類別識別碼。</param>
         private void SetClaRaw(string annotationSetId, string imageId, string classId)
         {
             Execute(connection, historyTransaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
             if (classId != null) Execute(connection, historyTransaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
         }
 
-        /// <summary>將目前資料列轉換為 OBD 標註物件。</summary>
+        /// <summary>
+        /// 將目前資料列轉換為 OBD 標註物件。
+        /// </summary>
+        /// <param name="reader">目前資料列的 SQLite 資料讀取器。</param>
+        /// <returns>回傳資料列所表示的 OBD 標註。</returns>
         private static ObdAnnotation ReadObdAnnotation(SqliteDataReader reader)
         {
             return new ObdAnnotation(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8));
         }
 
-        /// <summary>將目前資料列與點位轉換為 SEG 區域物件。</summary>
+        /// <summary>
+        /// 將目前資料列與點位轉換為 SEG 區域物件。
+        /// </summary>
+        /// <param name="reader">目前資料列的 SQLite 資料讀取器。</param>
+        /// <returns>回傳資料列所表示的 SEG 區域。</returns>
         private SegRegion ReadSegRegion(SqliteDataReader reader)
         {
             string id = reader.GetString(0);
             return new SegRegion(id, reader.GetString(1), reader.GetString(2), reader.GetString(3), (SegRegionType)reader.GetInt32(4), reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8), reader.GetInt32(9), GetSegPoints(id), reader.IsDBNull(10) ? 0 : reader.GetInt32(10));
         }
 
-        /// <summary>依標註識別碼讀取 OBD 標註。</summary>
+        /// <summary>
+        /// 依標註識別碼讀取 OBD 標註。
+        /// </summary>
+        /// <param name="annotationId">標註識別碼。</param>
+        /// <returns>回傳與標註識別碼相符的 OBD 標註。</returns>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private ObdAnnotation GetObdAnnotation(string annotationId)
         {
             using (var command = connection.CreateCommand())
@@ -867,7 +1016,17 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>確認 OBD 標註所屬標註集、圖片、類別及矩形尺寸有效。</summary>
+        /// <summary>
+        /// 確認 OBD 標註所屬標註集、圖片、類別及矩形尺寸有效。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <param name="imageId">圖片識別碼。</param>
+        /// <param name="classId">類別識別碼。</param>
+        /// <param name="x">原圖或幾何的 X 座標。</param>
+        /// <param name="y">原圖或幾何的 Y 座標。</param>
+        /// <param name="width">圖片或形狀的寬度。</param>
+        /// <param name="height">圖片或形狀的高度。</param>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private void ValidateObd(string annotationSetId, string imageId, string classId, int x, int y, int width, int height)
         {
             object type = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
@@ -876,19 +1035,40 @@ namespace Neurocle.Infrastructure.Persistence
             ValidateObdGeometry(GetImageSize(imageId), x, y, width, height);
         }
 
-        /// <summary>確認 OBD 矩形尺寸為正值且位於圖片範圍內。</summary>
+        /// <summary>
+        /// 確認 OBD 矩形尺寸為正值且位於圖片範圍內。
+        /// </summary>
+        /// <param name="imageSize">原始圖片尺寸。</param>
+        /// <param name="x">原圖或幾何的 X 座標。</param>
+        /// <param name="y">原圖或幾何的 Y 座標。</param>
+        /// <param name="width">圖片或形狀的寬度。</param>
+        /// <param name="height">圖片或形狀的高度。</param>
+        /// <exception cref="ArgumentOutOfRangeException">參數值超出支援範圍。</exception>
         private static void ValidateObdGeometry(Size imageSize, int x, int y, int width, int height)
         {
             if (!IsObdGeometryWithinImage(imageSize, x, y, width, height)) throw new ArgumentOutOfRangeException(nameof(width));
         }
 
-        /// <summary>判斷 OBD 矩形是否完整位於圖片尺寸範圍內。</summary>
+        /// <summary>
+        /// 判斷 OBD 矩形是否完整位於圖片尺寸範圍內。
+        /// </summary>
+        /// <param name="imageSize">原始圖片尺寸。</param>
+        /// <param name="x">原圖或幾何的 X 座標。</param>
+        /// <param name="y">原圖或幾何的 Y 座標。</param>
+        /// <param name="width">圖片或形狀的寬度。</param>
+        /// <param name="height">圖片或形狀的高度。</param>
+        /// <returns>回傳矩形是否完全位於圖片邊界內。</returns>
         private static bool IsObdGeometryWithinImage(Size imageSize, int x, int y, int width, int height)
         {
             return width >= 1 && height >= 1 && x >= 0 && y >= 0 && (long)x + width <= imageSize.Width && (long)y + height <= imageSize.Height;
         }
 
-        /// <summary>讀取指定圖片的原始尺寸。</summary>
+        /// <summary>
+        /// 讀取指定圖片的原始尺寸。
+        /// </summary>
+        /// <param name="imageId">圖片識別碼。</param>
+        /// <returns>回傳指定圖片的原始寬度與高度。</returns>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private Size GetImageSize(string imageId)
         {
             using (var command = connection.CreateCommand())
@@ -903,57 +1083,94 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>將 OBD 標註資料列寫入目前資料庫或交易。</summary>
+        /// <summary>
+        /// 將 OBD 標註資料列寫入目前資料庫或交易。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private void InsertObdRaw(ObdAnnotation value)
         {
             InsertObdRaw(connection, historyTransaction, value);
         }
 
-        /// <summary>將 OBD 標註資料列寫入目前資料庫或交易。</summary>
+        /// <summary>
+        /// 將 OBD 標註資料列寫入目前資料庫或交易。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private static void InsertObdRaw(SqliteConnection db, SqliteTransaction transaction, ObdAnnotation value)
         {
             Execute(db, transaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder));
         }
 
-        /// <summary>將 OBD 標註資料列更新至目前資料庫或交易。</summary>
+        /// <summary>
+        /// 將 OBD 標註資料列更新至目前資料庫或交易。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private void UpdateObdRaw(ObdAnnotation value)
         {
             UpdateObdRaw(value, historyTransaction);
         }
 
-        /// <summary>將 OBD 標註資料列更新至目前資料庫或交易。</summary>
+        /// <summary>
+        /// 將 OBD 標註資料列更新至目前資料庫或交易。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private static void UpdateObdRaw(SqliteConnection db, SqliteTransaction transaction, ObdAnnotation value)
         {
             Execute(db, transaction, "UPDATE ObdAnnotation SET ClassId = $class, X = $x, Y = $y, Width = $width, Height = $height, ZOrder = $order WHERE Id = $id;", new SqliteParameter("$class", value.ClassId), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$id", value.Id));
         }
 
-        /// <summary>將 OBD 標註資料列更新至目前資料庫或交易。</summary>
+        /// <summary>
+        /// 將 OBD 標註資料列更新至目前資料庫或交易。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
         private void UpdateObdRaw(ObdAnnotation value, SqliteTransaction transaction)
         {
             UpdateObdRaw(connection, transaction, value);
         }
 
-        /// <summary>從資料庫移除指定 OBD 標註資料列。</summary>
+        /// <summary>
+        /// 從資料庫移除指定 OBD 標註資料列。
+        /// </summary>
+        /// <param name="annotationId">標註識別碼。</param>
         private void DeleteObdRaw(string annotationId)
         {
             Execute(connection, historyTransaction, "DELETE FROM ObdAnnotation WHERE Id = $id;", new SqliteParameter("$id", annotationId));
         }
 
-        /// <summary>將 SEG 區域資料列及其點位寫入目前資料庫或交易。</summary>
+        /// <summary>
+        /// 將 SEG 區域資料列及其點位寫入目前資料庫或交易。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private void InsertSegRegionRaw(SegRegion value)
         {
             if (historyTransaction != null) InsertSegRegionRaw(connection, historyTransaction, value);
             else CompleteOperation((db, transaction) => InsertSegRegionRaw(db, transaction, value));
         }
 
-        /// <summary>將 SEG 區域資料列及其點位寫入目前資料庫或交易。</summary>
+        /// <summary>
+        /// 將 SEG 區域資料列及其點位寫入目前資料庫或交易。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private static void InsertSegRegionRaw(SqliteConnection db, SqliteTransaction transaction, SegRegion value)
         {
             Execute(db, transaction, "INSERT INTO SegRegion (Id, AnnotationSetId, ImageId, ClassId, Type, X, Y, Width, Height, ZOrder, StrokeWidth) VALUES ($id, $set, $image, $class, $type, $x, $y, $width, $height, $order, $stroke);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$image", value.ImageId), new SqliteParameter("$class", value.ClassId), new SqliteParameter("$type", (int)value.Type), new SqliteParameter("$x", value.X), new SqliteParameter("$y", value.Y), new SqliteParameter("$width", value.Width), new SqliteParameter("$height", value.Height), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$stroke", value.StrokeWidth == 0 ? (object)DBNull.Value : value.StrokeWidth));
             InsertSegPointsRaw(db, transaction, value.Id, value.Points);
         }
 
-        /// <summary>在指定交易中依序寫入 SEG 區域點位。</summary>
+        /// <summary>
+        /// 在指定交易中依序寫入 SEG 區域點位。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
+        /// <param name="regionId">區域識別碼。</param>
+        /// <param name="points">要插入、檢查或轉換的幾何點集合。</param>
         private static void InsertSegPointsRaw(SqliteConnection db, SqliteTransaction transaction, string regionId, IReadOnlyList<SegPoint> points)
         {
             using (var command = db.CreateCommand())
@@ -976,7 +1193,11 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>依區域識別碼讀取排序後的 SEG 點位。</summary>
+        /// <summary>
+        /// 依區域識別碼讀取排序後的 SEG 點位。
+        /// </summary>
+        /// <param name="regionId">區域識別碼。</param>
+        /// <returns>回傳區域依序保存的幾何點。</returns>
         private IReadOnlyList<SegPoint> GetSegPoints(string regionId)
         {
             var result = new List<SegPoint>();
@@ -989,7 +1210,12 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
-        /// <summary>依區域識別碼讀取 SEG 區域及其點位。</summary>
+        /// <summary>
+        /// 依區域識別碼讀取 SEG 區域及其點位。
+        /// </summary>
+        /// <param name="regionId">區域識別碼。</param>
+        /// <returns>回傳與區域識別碼相符的 SEG 區域。</returns>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private SegRegion GetSegRegion(string regionId)
         {
             using (var command = connection.CreateCommand())
@@ -1004,13 +1230,21 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>在目前資料庫或交易中更新 SEG 區域及其點位。</summary>
+        /// <summary>
+        /// 在目前資料庫或交易中更新 SEG 區域及其點位。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private void UpdateSegRegionRaw(SegRegion value)
         {
             UpdateSegRegionRaw(connection, historyTransaction, value);
         }
 
-        /// <summary>在目前資料庫或交易中更新 SEG 區域及其點位。</summary>
+        /// <summary>
+        /// 在目前資料庫或交易中更新 SEG 區域及其點位。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
         private static void UpdateSegRegionRaw(SqliteConnection db, SqliteTransaction transaction, SegRegion value)
         {
             Execute(db, transaction, "DELETE FROM SegRegionPoint WHERE RegionId = $id;", new SqliteParameter("$id", value.Id));
@@ -1025,7 +1259,11 @@ namespace Neurocle.Infrastructure.Persistence
             return value == null || value == DBNull.Value ? null : Convert.ToString(value);
         }
 
-        /// <summary>取得指定標註集內各圖片所使用的 CLA 類別識別碼。</summary>
+        /// <summary>
+        /// 取得指定標註集內各圖片所使用的 CLA 類別識別碼。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <returns>以圖片識別碼為鍵、CLA 類別識別碼為值的對應集合。</returns>
         internal IReadOnlyDictionary<string, string> GetClaClassIds(string annotationSetId)
         {
             var result = new Dictionary<string, string>();
@@ -1052,7 +1290,11 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
-        /// <summary>讀取指定標註集所有圖片的 OBD 標註。</summary>
+        /// <summary>
+        /// 讀取指定標註集所有圖片的 OBD 標註。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <returns>回傳指定標註集或圖片的 OBD 標註集合。</returns>
         internal IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId)
         {
             var result = new List<ObdAnnotation>();
@@ -1119,7 +1361,11 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
-        /// <summary>讀取指定標註集所有圖片的 SEG 區域。</summary>
+        /// <summary>
+        /// 讀取指定標註集所有圖片的 SEG 區域。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <returns>回傳指定標註集或圖片的 SEG 區域集合。</returns>
         internal IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId)
         {
             var points = new Dictionary<string, List<SegPoint>>();
@@ -1254,7 +1500,12 @@ namespace Neurocle.Infrastructure.Persistence
                 EstimateHistoryBytes(affected) + EstimateHistoryBytes(next));
         }
 
-        /// <summary>驗證新 SEG 區域，並合併同類別中具有正面積重疊的區域。</summary>
+        /// <summary>
+        /// 驗證新 SEG 區域，並合併同類別中具有正面積重疊的區域。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
+        /// <param name="imageSize">原始圖片尺寸。</param>
+        /// <returns>回傳完成幾何驗證、聯集或差集後的 SEG 區域集合。</returns>
         private SegRegion AddNewSegRegion(SegRegion value, Size imageSize)
         {
             Paths64 merged = ToPaths(value);
@@ -1292,25 +1543,43 @@ namespace Neurocle.Infrastructure.Persistence
             return next[0];
         }
 
-        /// <summary>取得圖片內下一個 SEG 區域顯示順序值。</summary>
+        /// <summary>
+        /// 取得圖片內下一個 SEG 區域顯示順序值。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <param name="imageId">圖片識別碼。</param>
+        /// <returns>回傳指定圖片下一個可用的標註繪製順序。</returns>
         private int NextSegZOrder(string annotationSetId, string imageId)
         {
             return Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)));
         }
 
-        /// <summary>判斷兩個 Clipper2 路徑是否有正面積重疊。</summary>
+        /// <summary>
+        /// 判斷兩個 Clipper2 路徑是否有正面積重疊。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <returns>回傳兩組路徑是否有大於零的面積重疊。</returns>
         private static bool HasAreaOverlap(Paths64 first, Paths64 second)
         {
             return SegGeometryPrototype.Area(Clipper.Intersect(first, second, FillRule.NonZero)) > 0;
         }
 
-        /// <summary>將 SEG 點位轉換為 Clipper2 整數路徑。</summary>
+        /// <summary>
+        /// 將 SEG 點位轉換為 Clipper2 整數路徑。
+        /// </summary>
+        /// <param name="points">要插入、檢查或轉換的幾何點集合。</param>
+        /// <returns>回傳由標註點轉換而成的整數幾何路徑。</returns>
         private static Path64 ToPath(IEnumerable<SegPoint> points)
         {
             return new Path64(points.Select(point => new Point64(point.X, point.Y)).ToList());
         }
 
-        /// <summary>將 SEG 區域轉換為包含外框與洞的 Clipper2 路徑集合。</summary>
+        /// <summary>
+        /// 將 SEG 區域轉換為包含外框與洞的 Clipper2 路徑集合。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
+        /// <returns>回傳與 SEG 區域型別相符的幾何路徑集合。</returns>
         private static Paths64 ToPaths(SegRegion value)
         {
             if (value.Type == SegRegionType.Rect) return new Paths64 { SegGeometryPrototype.Rectangle(value.X, value.Y, value.X + value.Width, value.Y + value.Height) };
@@ -1321,7 +1590,17 @@ namespace Neurocle.Infrastructure.Persistence
             return new Paths64 { polygon };
         }
 
-        /// <summary>將布林運算路徑轉回有效的 SEG 多邊形區域。</summary>
+        /// <summary>
+        /// 將布林運算路徑轉回有效的 SEG 多邊形區域。
+        /// </summary>
+        /// <param name="annotationSetId">標註集識別碼。</param>
+        /// <param name="imageId">圖片識別碼。</param>
+        /// <param name="classId">類別識別碼。</param>
+        /// <param name="paths">要合併或運算的路徑集合。</param>
+        /// <param name="imageSize">原始圖片尺寸。</param>
+        /// <param name="zOrder">標註在圖片中的繪製順序。</param>
+        /// <param name="previousRegions">更新前已存在的區域集合。</param>
+        /// <returns>回傳布林運算結果轉換而成的多邊形區域。</returns>
         private static List<SegRegion> ToPolygonRegions(string annotationSetId, string imageId, string classId, Paths64 paths, Size imageSize, ref int zOrder, IEnumerable<SegRegion> previousRegions = null)
         {
             var remaining = paths.Where(path => path.Count >= 3 && Math.Abs(Clipper.Area(path)) > 0).OrderByDescending(path => Math.Abs(Clipper.Area(path))).Select(path => new Path64(path)).ToList();
@@ -1383,7 +1662,11 @@ namespace Neurocle.Infrastructure.Persistence
             Record(setId, () => { foreach (SegRegion value in previous) UpdateSegRegionRaw(value); }, () => { foreach (SegRegion value in next) UpdateSegRegionRaw(value); }, EstimateHistoryBytes(previous) + EstimateHistoryBytes(next));
         }
 
-        /// <summary>重新輸出帶洞多邊形的橋接點位與繞行方向。</summary>
+        /// <summary>
+        /// 重新輸出帶洞多邊形的橋接點位與繞行方向。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
+        /// <returns>回傳重新建立空洞橋接後的多邊形區域。</returns>
         private static SegRegion RebridgePolygon(SegRegion value)
         {
             if (value.Type != SegRegionType.PolyGon) return value;
@@ -1406,13 +1689,24 @@ namespace Neurocle.Infrastructure.Persistence
             Record(setId, () => { foreach (SegRegion value in previous) InsertSegRegionRaw(value); }, () => { foreach (string id in ids) Execute(connection, historyTransaction, "DELETE FROM SegRegion WHERE Id = $id;", new SqliteParameter("$id", id)); }, EstimateHistoryBytes(previous));
         }
 
-        /// <summary>建立套用指定顯示順序的 SEG 區域副本。</summary>
+        /// <summary>
+        /// 建立套用指定顯示順序的 SEG 區域副本。
+        /// </summary>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
+        /// <param name="zOrder">標註在圖片中的繪製順序。</param>
+        /// <returns>回傳繪製順序更新後的區域副本。</returns>
         private static SegRegion WithZOrder(SegRegion value, int zOrder)
         {
             return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, zOrder, value.Points, value.StrokeWidth);
         }
 
-        /// <summary>確認 SEG 區域座標、尺寸與點位符合圖片邊界及形狀要求。</summary>
+        /// <summary>
+        /// 確認 SEG 區域座標、尺寸與點位符合圖片邊界及形狀要求。
+        /// </summary>
+        /// <param name="imageSize">原始圖片尺寸。</param>
+        /// <param name="value">要建立、更新或保存的資料值。</param>
+        /// <exception cref="ArgumentOutOfRangeException">參數值超出支援範圍。</exception>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private static void ValidateSegGeometry(Size imageSize, SegRegion value)
         {
             if (value.Type == SegRegionType.Rect) { ValidateObdGeometry(imageSize, value.X, value.Y, value.Width, value.Height); return; }
@@ -1432,7 +1726,11 @@ namespace Neurocle.Infrastructure.Persistence
             if (value.Type != SegRegionType.PolyGon && value.Type != SegRegionType.PolyLine) throw new ArgumentOutOfRangeException(nameof(value));
         }
 
-        /// <summary>判斷點位是否全部共線。</summary>
+        /// <summary>
+        /// 判斷點位是否全部共線。
+        /// </summary>
+        /// <param name="points">要插入、檢查或轉換的幾何點集合。</param>
+        /// <returns>回傳指定點列是否共線。</returns>
         private static bool AreCollinear(IReadOnlyList<SegPoint> points)
         {
             SegPoint first = points[0];
@@ -1442,9 +1740,18 @@ namespace Neurocle.Infrastructure.Persistence
 
         private sealed class SegPointComparer : IEqualityComparer<SegPoint>
         {
-            /// <summary>依 X 與 Y 座標比較兩個 SEG 點位。</summary>
+            /// <summary>
+            /// 依 X 與 Y 座標比較兩個 SEG 點位。
+            /// </summary>
+            /// <param name="first">比較中的第一個 SEG 點位。</param>
+            /// <param name="second">比較中的第二個 SEG 點位。</param>
+            /// <returns>兩點座標相同時為 <see langword="true"/>，否則為 <see langword="false"/>。</returns>
             public bool Equals(SegPoint first, SegPoint second) { return first.X == second.X && first.Y == second.Y; }
-            /// <summary>依 X 與 Y 座標產生 SEG 點位雜湊碼。</summary>
+            /// <summary>
+            /// 依 X 與 Y 座標產生 SEG 點位雜湊碼。
+            /// </summary>
+            /// <param name="value">要計算雜湊碼的 SEG 點位。</param>
+            /// <returns>由 X、Y 座標組合而成的整數雜湊碼。</returns>
             public int GetHashCode(SegPoint value) { return value.X.GetHashCode() ^ value.Y.GetHashCode(); }
         }
 
@@ -1687,7 +1994,14 @@ namespace Neurocle.Infrastructure.Persistence
             lockStream?.Dispose();
         }
 
-        /// <summary>驗證並正規化專案路徑，同時復原未完成的檔案替換。</summary>
+        /// <summary>
+        /// 驗證並正規化專案路徑，同時復原未完成的檔案替換。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <param name="mustExist">指定專案路徑是否必須已存在。</param>
+        /// <returns>回傳正規化後的完整專案路徑。</returns>
+        /// <exception cref="FileNotFoundException">指定的檔案不存在。</exception>
+        /// <exception cref="IOException">檔案或目錄作業失敗。</exception>
         private static string PreparePath(string projectPath, bool mustExist)
         {
             ProjectLocationValidator.EnsureSupported(projectPath);
@@ -1701,7 +2015,12 @@ namespace Neurocle.Infrastructure.Persistence
             return fullPath;
         }
 
-        /// <summary>取得專案檔案獨佔鎖，避免多個工作階段同時操作。</summary>
+        /// <summary>
+        /// 取得專案檔案獨佔鎖，避免多個工作階段同時操作。
+        /// </summary>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <returns>回傳成功取得的專案獨佔檔案鎖。</returns>
+        /// <exception cref="InvalidOperationException">目前物件或專案狀態不允許此操作。</exception>
         private static FileStream AcquireLock(string path)
         {
             try
@@ -1714,7 +2033,12 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>以暫存檔與回復副本替換專案資料庫，支援中斷後復原。</summary>
+        /// <summary>
+        /// 以暫存檔與回復副本替換專案資料庫，支援中斷後復原。
+        /// </summary>
+        /// <param name="source">要讀取、匯入或複製的來源。</param>
+        /// <param name="destination">複製或移動作業的目的地路徑。</param>
+        /// <exception cref="IOException">檔案或目錄作業失敗。</exception>
         private static void ReplaceFileSafely(string source, string destination)
         {
             try { NativeReplaceFile(source, destination); }
@@ -1737,7 +2061,10 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>在開啟專案前，依原檔與暫存回復檔狀態完成替換復原。</summary>
+        /// <summary>
+        /// 在開啟專案前，依原檔與暫存回復檔狀態完成替換復原。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
         private static void RecoverPendingReplacement(string projectPath)
         {
             string original = PendingReplacementPath(projectPath);
@@ -1750,13 +2077,21 @@ namespace Neurocle.Infrastructure.Persistence
             File.Delete(original);
         }
 
-        /// <summary>取得安全替換流程使用的原資料庫暫存路徑。</summary>
+        /// <summary>
+        /// 取得安全替換流程使用的原資料庫暫存路徑。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <returns>回傳專案資料庫替換作業使用的暫存路徑。</returns>
         private static string PendingReplacementPath(string projectPath)
         {
             return projectPath + ".restore-original";
         }
 
-        /// <summary>開啟 SQLite 連線並啟用外鍵檢查。</summary>
+        /// <summary>
+        /// 開啟 SQLite 連線並啟用外鍵檢查。
+        /// </summary>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <returns>回傳已開啟並設定完成的 SQLite 連線。</returns>
         private static SqliteConnection OpenConnection(string path)
         {
             var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString());
@@ -1766,7 +2101,13 @@ namespace Neurocle.Infrastructure.Persistence
             return connection;
         }
 
-        /// <summary>在指定連線及交易中執行 SQL 非查詢命令。</summary>
+        /// <summary>
+        /// 在指定連線及交易中執行 SQL 非查詢命令。
+        /// </summary>
+        /// <param name="connection">供資料庫操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
+        /// <param name="commandText">要執行的 SQL 指令文字。</param>
+        /// <param name="parameters">要驗證或套用的參數集合。</param>
         private static void Execute(SqliteConnection connection, SqliteTransaction transaction, string commandText, params SqliteParameter[] parameters)
         {
             using (var command = connection.CreateCommand())
@@ -1778,7 +2119,12 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>執行 SQL 命令並回傳第一個資料列的第一個欄位。</summary>
+        /// <summary>
+        /// 執行 SQL 命令並回傳第一個資料列的第一個欄位。
+        /// </summary>
+        /// <param name="connection">供資料庫操作使用的 SQLite 連線。</param>
+        /// <param name="commandText">要執行的 SQL 指令文字。</param>
+        /// <returns>回傳 SQL 純量查詢結果；沒有資料時回傳 null。</returns>
         private static object ExecuteScalar(SqliteConnection connection, string commandText)
         {
             using (var command = connection.CreateCommand())
@@ -1788,7 +2134,13 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>執行 SQL 命令並回傳第一個資料列的第一個欄位。</summary>
+        /// <summary>
+        /// 執行 SQL 命令並回傳第一個資料列的第一個欄位。
+        /// </summary>
+        /// <param name="connection">供資料庫操作使用的 SQLite 連線。</param>
+        /// <param name="commandText">要執行的 SQL 指令文字。</param>
+        /// <param name="parameters">要驗證或套用的參數集合。</param>
+        /// <returns>回傳 SQL 純量查詢結果；沒有資料時回傳 null。</returns>
         private static object ExecuteScalar(SqliteConnection connection, string commandText, params SqliteParameter[] parameters)
         {
             using (var command = connection.CreateCommand())
@@ -1799,7 +2151,11 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>嘗試以唯讀方式開啟圖片，判斷受管理檔案是否可用。</summary>
+        /// <summary>
+        /// 嘗試以唯讀方式開啟圖片，判斷受管理檔案是否可用。
+        /// </summary>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <returns>回傳指定檔案是否為可讀取的圖片。</returns>
         private static bool CanReadImage(string path)
         {
             try
@@ -1810,7 +2166,15 @@ namespace Neurocle.Infrastructure.Persistence
             catch (UnauthorizedAccessException) { return false; }
         }
 
-        /// <summary>逐張驗證及匯入圖片，回報成功、失敗、取消與處理進度。</summary>
+        /// <summary>
+        /// 逐張驗證及匯入圖片，回報成功、失敗、取消與處理進度。
+        /// </summary>
+        /// <param name="sources">要匯入的來源路徑集合。</param>
+        /// <param name="cancellationRequested">查詢目前是否要求取消的委派。</param>
+        /// <param name="initialFailures">掃描前已收集的失敗項目。</param>
+        /// <param name="progress">回報匯入進度的委派。</param>
+        /// <returns>回傳來源圖片匯入的成功、失敗、未處理及取消結果。</returns>
+        /// <exception cref="ImageImportException">圖片格式、大小、尺寸或專案數量違反匯入限制。</exception>
         private ImageImportReport ImportSourcesWithReport(IReadOnlyList<string> sources, Func<bool> cancellationRequested, IReadOnlyList<ImageImportFailureDetail> initialFailures = null, Action<ImageImportProgress> progress = null)
         {
             var imported = new List<ProjectImage>();
@@ -1838,7 +2202,12 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImageImportReport(imported, failures, 0);
         }
 
-        /// <summary>將來源圖片複製至受管理目錄並新增資料列，失敗時移除新複製檔。</summary>
+        /// <summary>
+        /// 將來源圖片複製至受管理目錄並新增資料列，失敗時移除新複製檔。
+        /// </summary>
+        /// <param name="source">要讀取、匯入或複製的來源。</param>
+        /// <param name="sequence">圖片或標註的排序序號。</param>
+        /// <returns>回傳成功複製至專案目錄並建立資料記錄的圖片。</returns>
         private ProjectImage ImportFile(string source, int sequence)
         {
             string managedName = NextManagedName(ProjectImageImporter.RequiresPngConversion(source)
@@ -1862,13 +2231,22 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>依自然檔名排序來源路徑，讓匯入順序保持穩定。</summary>
+        /// <summary>
+        /// 依自然檔名排序來源路徑，讓匯入順序保持穩定。
+        /// </summary>
+        /// <param name="filePaths">待匯入的檔案路徑集合。</param>
+        /// <returns>依檔名自然排序後的來源檔案路徑清單。</returns>
         private static List<string> OrderSources(IEnumerable<string> filePaths)
         {
             return filePaths.OrderBy(Path.GetFileName, NaturalFileNameComparer.Instance).ToList();
         }
 
-        /// <summary>依目前類別色彩選擇下一個未使用的色彩。</summary>
+        /// <summary>
+        /// 依目前類別色彩選擇下一個未使用的色彩。
+        /// </summary>
+        /// <param name="existing">目前已存在且符合該操作條件的資料。</param>
+        /// <returns>下一個尚未由現有類別使用的色彩識別碼。</returns>
+        /// <exception cref="InvalidOperationException">目前物件或專案狀態不允許此操作。</exception>
         private static string NextClassColor(IEnumerable<string> existing)
         {
             var colors = new HashSet<string>(existing.Select(value => AnnotationColorFormat.Normalize(value).Replace("-custom", "")), StringComparer.Ordinal);
@@ -1885,7 +2263,12 @@ namespace Neurocle.Infrastructure.Persistence
             throw new InvalidOperationException("No available RGB colors remain.");
         }
 
-        /// <summary>檢查資料庫版本，必要時先備份再遷移至目前結構。</summary>
+        /// <summary>
+        /// 檢查資料庫版本，必要時先備份再遷移至目前結構。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <exception cref="NotSupportedException">操作遇到 NotSupportedException 所代表的錯誤狀態。</exception>
         private static void EnsureCurrentSchema(SqliteConnection db, string projectPath)
         {
             int version = Convert.ToInt32(ExecuteScalar(db, "SELECT Version FROM SchemaInfo LIMIT 1;"));
@@ -1903,7 +2286,12 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>在結構遷移前建立資料庫備份。</summary>
+        /// <summary>
+        /// 在結構遷移前建立資料庫備份。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <param name="version">目前資料庫結構版本。</param>
         private static void CreateMigrationBackup(SqliteConnection db, string projectPath, int version)
         {
             Execute(db, null, "PRAGMA wal_checkpoint(FULL);");
@@ -1924,7 +2312,9 @@ namespace Neurocle.Infrastructure.Persistence
             get { return GetBackupDirectory(ProjectPath); }
         }
 
-        /// <summary>建立當日備份，並維持專案備份數量上限。</summary>
+        /// <summary>
+        /// 建立當日備份，並維持專案備份數量上限。
+        /// </summary>
         private void CreateDailyBackup()
         {
             string name = "daily-" + UtcNow().ToString("yyyy-MM-dd") + ".neurocle";
@@ -1936,14 +2326,21 @@ namespace Neurocle.Infrastructure.Persistence
             TrimBackups(BackupDirectory);
         }
 
-        /// <summary>儲存目前資料庫後建立指定名稱的備份。</summary>
+        /// <summary>
+        /// 儲存目前資料庫後建立指定名稱的備份。
+        /// </summary>
+        /// <param name="name">要建立、查詢或更新的名稱。</param>
         private void CreateBackup(string name)
         {
             Save();
             CreateBackupFile(ProjectPath, name);
         }
 
-        /// <summary>建立具唯一檔名的資料庫備份並更新保留清單。</summary>
+        /// <summary>
+        /// 建立具唯一檔名的資料庫備份並更新保留清單。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <param name="name">要建立、查詢或更新的名稱。</param>
         private static void CreateBackupFile(string projectPath, string name)
         {
             string directory = GetBackupDirectory(projectPath);
@@ -1956,7 +2353,11 @@ namespace Neurocle.Infrastructure.Persistence
             TrimBackups(directory);
         }
 
-        /// <summary>列出指定專案備份目錄中的備份檔，並依建立時間由新到舊排序。</summary>
+        /// <summary>
+        /// 列出指定專案備份目錄中的備份檔，並依建立時間由新到舊排序。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <returns>依建立時間由新到舊排列的備份清單；時間相同時依路徑由後到前排列。</returns>
         private static IReadOnlyList<ProjectBackup> GetBackups(string projectPath)
         {
             string directory = GetBackupDirectory(projectPath);
@@ -1966,19 +2367,30 @@ namespace Neurocle.Infrastructure.Persistence
                 .OrderByDescending(backup => backup.CreatedUtc).ThenByDescending(backup => backup.Path, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        /// <summary>組合指定專案的備份目錄路徑。</summary>
+        /// <summary>
+        /// 組合指定專案的備份目錄路徑。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
+        /// <returns>專案備份目錄的完整路徑。</returns>
         private static string GetBackupDirectory(string projectPath)
         {
             return Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".backups");
         }
 
-        /// <summary>刪除超出保留數量上限的舊備份檔。</summary>
+        /// <summary>
+        /// 刪除超出保留數量上限的舊備份檔。
+        /// </summary>
+        /// <param name="directory">要掃描的目錄路徑。</param>
         private static void TrimBackups(string directory)
         {
             foreach (string oldBackup in Directory.GetFiles(directory, "*.neurocle").OrderByDescending(File.GetLastWriteTimeUtc).ThenByDescending(file => file, StringComparer.OrdinalIgnoreCase).Skip(MaximumBackupCount)) File.Delete(oldBackup);
         }
 
-        /// <summary>開啟並檢查資料庫必要資料表、欄位及索引結構。</summary>
+        /// <summary>
+        /// 開啟並檢查資料庫必要資料表、欄位及索引結構。
+        /// </summary>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <exception cref="NotSupportedException">操作遇到 NotSupportedException 所代表的錯誤狀態。</exception>
         private static void ValidateDatabase(string path)
         {
             using (SqliteConnection db = OpenConnection(path))
@@ -2001,7 +2413,15 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>確認資料表包含必要欄位、主鍵欄位與唯一欄位。</summary>
+        /// <summary>
+        /// 確認資料表包含必要欄位、主鍵欄位與唯一欄位。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="table">要驗證或操作的資料表名稱。</param>
+        /// <param name="requiredColumns">必須存在的資料表欄位名稱集合。</param>
+        /// <param name="primaryKeyColumn">資料表的主鍵欄位名稱。</param>
+        /// <param name="uniqueColumns">必須具有唯一性索引的欄位名稱集合。</param>
+        /// <exception cref="InvalidDataException">操作遇到 InvalidDataException 所代表的錯誤狀態。</exception>
         private static void ValidateTableColumns(SqliteConnection db, string table, IReadOnlyList<string> requiredColumns, string primaryKeyColumn, IReadOnlyList<string> uniqueColumns)
         {
             var columns = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -2018,7 +2438,13 @@ namespace Neurocle.Infrastructure.Persistence
             if (uniqueColumns != null && uniqueColumns.Any(column => !HasUniqueIndex(db, table, column))) throw new InvalidDataException("The backup database schema is incomplete.");
         }
 
-        /// <summary>檢查資料表是否有涵蓋指定欄位的唯一索引。</summary>
+        /// <summary>
+        /// 檢查資料表是否有涵蓋指定欄位的唯一索引。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="table">要驗證或操作的資料表名稱。</param>
+        /// <param name="requiredColumn">必須存在的資料表欄位名稱。</param>
+        /// <returns>存在涵蓋指定欄位的唯一索引時為 <see langword="true"/>，否則為 <see langword="false"/>。</returns>
         private static bool HasUniqueIndex(SqliteConnection db, string table, string requiredColumn)
         {
             using (var indexList = db.CreateCommand())
@@ -2044,7 +2470,11 @@ namespace Neurocle.Infrastructure.Persistence
             return false;
         }
 
-        /// <summary>遞迴複製來源目錄中的檔案與子目錄。</summary>
+        /// <summary>
+        /// 遞迴複製來源目錄中的檔案與子目錄。
+        /// </summary>
+        /// <param name="source">要讀取、匯入或複製的來源。</param>
+        /// <param name="target">要複製、替換或比較的目標資料。</param>
         private static void CopyDirectory(string source, string target)
         {
             Directory.CreateDirectory(target);
@@ -2052,7 +2482,11 @@ namespace Neurocle.Infrastructure.Persistence
             foreach (string directory in Directory.GetDirectories(source)) CopyDirectory(directory, Path.Combine(target, Path.GetFileName(directory)));
         }
 
-        /// <summary>產生不與現有受管理圖片檔名衝突的名稱。</summary>
+        /// <summary>
+        /// 產生不與現有受管理圖片檔名衝突的名稱。
+        /// </summary>
+        /// <param name="originalName">來源檔案的原始名稱。</param>
+        /// <returns>回傳不會與現有受管理檔名衝突的檔名。</returns>
         private string NextManagedName(string originalName)
         {
             string stem = Path.GetFileNameWithoutExtension(originalName);
@@ -2063,13 +2497,21 @@ namespace Neurocle.Infrastructure.Persistence
             return candidate;
         }
 
-        /// <summary>在指定交易中建立圖片資料表及相關索引。</summary>
+        /// <summary>
+        /// 在指定交易中建立圖片資料表及相關索引。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
         private static void CreateImageTable(SqliteConnection db, SqliteTransaction transaction)
         {
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS ImageRecord (Id TEXT PRIMARY KEY NOT NULL, OriginalFileName TEXT NOT NULL, ManagedFileName TEXT NOT NULL UNIQUE, Sha256 TEXT NOT NULL, Width INTEGER NOT NULL, Height INTEGER NOT NULL, Sequence INTEGER NOT NULL UNIQUE);");
         }
 
-        /// <summary>在指定交易中建立標註及資料集相關資料表。</summary>
+        /// <summary>
+        /// 在指定交易中建立標註及資料集相關資料表。
+        /// </summary>
+        /// <param name="db">供目前操作使用的 SQLite 連線。</param>
+        /// <param name="transaction">目前 SQLite 連線上的資料庫交易。</param>
         private static void CreateAnnotationTables(SqliteConnection db, SqliteTransaction transaction)
         {
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS AnnotationSet (Id TEXT PRIMARY KEY NOT NULL, Name TEXT NOT NULL, Type INTEGER NOT NULL);");
@@ -2081,7 +2523,13 @@ namespace Neurocle.Infrastructure.Persistence
             Execute(db, transaction, "CREATE TABLE IF NOT EXISTS DatasetAssignment (AnnotationSetId TEXT NOT NULL REFERENCES AnnotationSet(Id) ON DELETE CASCADE, ImageId TEXT NOT NULL REFERENCES ImageRecord(Id) ON DELETE CASCADE, Status INTEGER NOT NULL, Retest INTEGER NOT NULL, PRIMARY KEY (AnnotationSetId, ImageId));");
         }
 
-        /// <summary>修剪名稱前後空白並拒絕空白名稱。</summary>
+        /// <summary>
+        /// 修剪名稱前後空白並拒絕空白名稱。
+        /// </summary>
+        /// <param name="name">要建立、查詢或更新的名稱。</param>
+        /// <returns>移除前後空白後的名稱。</returns>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private static string NormalizeName(string name)
         {
             string normalized = (name ?? throw new ArgumentNullException(nameof(name))).Trim();
@@ -2095,7 +2543,9 @@ namespace Neurocle.Infrastructure.Persistence
             get { return ImagesDirectory + ".deleting"; }
         }
 
-        /// <summary>依資料庫記錄復原或清除刪除作業留下的暫存圖片。</summary>
+        /// <summary>
+        /// 依資料庫記錄復原或清除刪除作業留下的暫存圖片。
+        /// </summary>
         private void RecoverStagedImages()
         {
             if (!Directory.Exists(DeletingImagesDirectory)) return;
@@ -2122,7 +2572,11 @@ namespace Neurocle.Infrastructure.Persistence
             if (Directory.Exists(DeletingImagesDirectory) && !Directory.EnumerateFileSystemEntries(DeletingImagesDirectory).Any()) Directory.Delete(DeletingImagesDirectory);
         }
 
-        /// <summary>確認受管理圖片檔名是否仍有資料庫記錄。</summary>
+        /// <summary>
+        /// 確認受管理圖片檔名是否仍有資料庫記錄。
+        /// </summary>
+        /// <param name="managedFileName">專案內受管理的圖片檔名。</param>
+        /// <returns>資料庫中存在該受管理檔名的圖片記錄時為 <see langword="true"/>，否則為 <see langword="false"/>。</returns>
         private bool ImageRecordExists(string managedFileName)
         {
             using (var command = connection.CreateCommand())
@@ -2133,7 +2587,10 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>在檔案刪除流程失敗時將暫存圖片移回原位置。</summary>
+        /// <summary>
+        /// 在檔案刪除流程失敗時將暫存圖片移回原位置。
+        /// </summary>
+        /// <param name="stagedPaths">暫存檔案與其最終路徑的對應集合。</param>
         private static void RestoreStagedImages(IDictionary<string, string> stagedPaths)
         {
             foreach (KeyValuePair<string, string> stagedPath in stagedPaths)
@@ -2142,7 +2599,10 @@ namespace Neurocle.Infrastructure.Persistence
             }
         }
 
-        /// <summary>清除建立或另存失敗而留下的新專案檔及圖片目錄。</summary>
+        /// <summary>
+        /// 清除建立或另存失敗而留下的新專案檔及圖片目錄。
+        /// </summary>
+        /// <param name="projectPath">專案資料庫檔案路徑。</param>
         private static void DeleteNewProject(string projectPath)
         {
             string imagesDirectory = Path.Combine(Path.GetDirectoryName(projectPath), Path.GetFileNameWithoutExtension(projectPath) + ".images");
@@ -2154,7 +2614,13 @@ namespace Neurocle.Infrastructure.Persistence
         // 保存一個可重播的操作及其記憶體用量估算。
         private sealed class HistoryEntry
         {
-            /// <summary>建立一筆 Undo、Redo 委派及其容量估算資料。</summary>
+            /// <summary>
+            /// 建立一筆 Undo、Redo 委派及其容量估算資料。
+            /// </summary>
+            /// <param name="undo">執行 Undo 時還原資料狀態的委派。</param>
+            /// <param name="redo">執行 Redo 時重做資料狀態的委派。</param>
+            /// <param name="sizeBytes">歷程項目估計占用的位元組數。</param>
+            /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
             public HistoryEntry(Action undo, Action redo, long sizeBytes)
             {
                 Undo = undo ?? throw new ArgumentNullException(nameof(undo));
@@ -2191,7 +2657,10 @@ namespace Neurocle.Infrastructure.Persistence
             // 表示 Redo 堆疊是否有可重做項目。
             public bool CanRedo { get { return redo.Count != 0; } }
 
-            /// <summary>將新操作放入 Undo 歷程並清空 Redo 歷程。</summary>
+            /// <summary>
+            /// 將新操作放入 Undo 歷程並清空 Redo 歷程。
+            /// </summary>
+            /// <param name="entry">要處理的單一項目。</param>
             public void Push(HistoryEntry entry)
             {
                 redo.Clear();
@@ -2201,33 +2670,48 @@ namespace Neurocle.Infrastructure.Persistence
                 Trim(undo, ref undoSizeBytes);
             }
 
-            /// <summary>取出最新的 Undo 歷程項目。</summary>
+            /// <summary>
+            /// 取出最新的 Undo 歷程項目。
+            /// </summary>
+            /// <returns>最新的 Undo 歷程項目；堆疊為空時回傳 <see langword="null"/>。</returns>
             public HistoryEntry TakeUndo()
             {
                 return Take(undo, ref undoSizeBytes);
             }
 
-            /// <summary>取出最新的 Redo 歷程項目。</summary>
+            /// <summary>
+            /// 取出最新的 Redo 歷程項目。
+            /// </summary>
+            /// <returns>最新的 Redo 歷程項目；堆疊為空時回傳 <see langword="null"/>。</returns>
             public HistoryEntry TakeRedo()
             {
                 return Take(redo, ref redoSizeBytes);
             }
 
-            /// <summary>Undo 執行失敗時將歷程項目放回原堆疊。</summary>
+            /// <summary>
+            /// Undo 執行失敗時將歷程項目放回原堆疊。
+            /// </summary>
+            /// <param name="entry">要處理的單一項目。</param>
             public void ReturnUndo(HistoryEntry entry)
             {
                 undo.Add(entry);
                 undoSizeBytes += entry.SizeBytes;
             }
 
-            /// <summary>Redo 執行失敗時將歷程項目放回原堆疊。</summary>
+            /// <summary>
+            /// Redo 執行失敗時將歷程項目放回原堆疊。
+            /// </summary>
+            /// <param name="entry">要處理的單一項目。</param>
             public void ReturnRedo(HistoryEntry entry)
             {
                 redo.Add(entry);
                 redoSizeBytes += entry.SizeBytes;
             }
 
-            /// <summary>Undo 成功後將歷程項目移入 Redo 堆疊。</summary>
+            /// <summary>
+            /// Undo 成功後將歷程項目移入 Redo 堆疊。
+            /// </summary>
+            /// <param name="entry">要處理的單一項目。</param>
             public void MoveUndoToRedo(HistoryEntry entry)
             {
                 redo.Add(entry);
@@ -2235,7 +2719,10 @@ namespace Neurocle.Infrastructure.Persistence
                 Trim(redo, ref redoSizeBytes);
             }
 
-            /// <summary>Redo 成功後將歷程項目移入 Undo 堆疊。</summary>
+            /// <summary>
+            /// Redo 成功後將歷程項目移入 Undo 堆疊。
+            /// </summary>
+            /// <param name="entry">要處理的單一項目。</param>
             public void MoveRedoToUndo(HistoryEntry entry)
             {
                 undo.Add(entry);
@@ -2243,7 +2730,12 @@ namespace Neurocle.Infrastructure.Persistence
                 Trim(undo, ref undoSizeBytes);
             }
 
-            /// <summary>移除指定歷程堆疊最新項目並更新容量計數。</summary>
+            /// <summary>
+            /// 移除指定歷程堆疊最新項目並更新容量計數。
+            /// </summary>
+            /// <param name="entries">要檢查或處理的項目集合。</param>
+            /// <param name="sizeBytes">歷程項目估計占用的位元組數。</param>
+            /// <returns>移除的最新歷程項目；集合為空時回傳 <see langword="null"/>。</returns>
             private static HistoryEntry Take(List<HistoryEntry> entries, ref long sizeBytes)
             {
                 if (entries.Count == 0) return null;
@@ -2254,7 +2746,11 @@ namespace Neurocle.Infrastructure.Persistence
                 return entry;
             }
 
-            /// <summary>移除超過項目數或記憶體容量上限的最舊歷程項目。</summary>
+            /// <summary>
+            /// 移除超過項目數或記憶體容量上限的最舊歷程項目。
+            /// </summary>
+            /// <param name="entries">要檢查或處理的項目集合。</param>
+            /// <param name="sizeBytes">歷程項目估計占用的位元組數。</param>
             private static void Trim(List<HistoryEntry> entries, ref long sizeBytes)
             {
                 while (entries.Count > MaximumActionCount || sizeBytes > MaximumSizeBytes)
@@ -2271,7 +2767,12 @@ namespace Neurocle.Infrastructure.Persistence
             // 共用自然檔名比較器執行個體。
             public static readonly NaturalFileNameComparer Instance = new NaturalFileNameComparer();
 
-            /// <summary>以不區分大小寫的自然數字順序比較兩個檔名。</summary>
+            /// <summary>
+            /// 以不區分大小寫的自然數字順序比較兩個檔名。
+            /// </summary>
+            /// <param name="left">排序比較中的第一個檔名。</param>
+            /// <param name="right">排序比較中的第二個檔名。</param>
+            /// <returns>依排序規則回傳負數、零或正數。</returns>
             public int Compare(string left, string right)
             {
                 if (ReferenceEquals(left, right)) return 0;
@@ -2303,7 +2804,12 @@ namespace Neurocle.Infrastructure.Persistence
                 return left.Length.CompareTo(right.Length);
             }
 
-            /// <summary>取得檔名中連續數字片段的結束索引。</summary>
+            /// <summary>
+            /// 取得檔名中連續數字片段的結束索引。
+            /// </summary>
+            /// <param name="value">要掃描數字片段的檔名。</param>
+            /// <param name="start">數字片段的起始字元索引。</param>
+            /// <returns>連續數字片段之後的字元索引。</returns>
             private static int FindDigitsEnd(string value, int start)
             {
                 int index = start;
@@ -2311,7 +2817,16 @@ namespace Neurocle.Infrastructure.Persistence
                 return index;
             }
 
-            /// <summary>忽略前導零後比較兩個數字片段的數值大小。</summary>
+            /// <summary>
+            /// 忽略前導零後比較兩個數字片段的數值大小。
+            /// </summary>
+            /// <param name="left">包含左側數字片段的檔名。</param>
+            /// <param name="leftStart">左側數字片段的起始字元索引。</param>
+            /// <param name="leftEnd">左側數字片段結束後的字元索引。</param>
+            /// <param name="right">包含右側數字片段的檔名。</param>
+            /// <param name="rightStart">右側數字片段的起始字元索引。</param>
+            /// <param name="rightEnd">右側數字片段結束後的字元索引。</param>
+            /// <returns>左側數字片段小於、等於或大於右側時，分別回傳負數、零或正數。</returns>
             private static int CompareDigits(string left, int leftStart, int leftEnd, string right, int rightStart, int rightEnd)
             {
                 while (leftStart < leftEnd && left[leftStart] == '0') leftStart++;

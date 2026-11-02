@@ -13,7 +13,12 @@ namespace Neurocle.Infrastructure.Persistence
         // 限定 JSON 根物件允許辨識的欄位名稱。
         private static readonly HashSet<string> RootFields = new HashSet<string>(new[] { "label_type", "source", "time", "version", "classes", "data" }, StringComparer.Ordinal);
 
-        /// <summary>剖析並驗證一份完整的標註集 JSON。</summary>
+        /// <summary>
+        /// 剖析並驗證一份完整的標註集 JSON。
+        /// </summary>
+        /// <param name="json">待剖析及驗證的 JSON 文字。</param>
+        /// <returns>回傳已完整驗證的標註集資料。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         public static ImportedAnnotationSet Parse(string json)
         {
             if (String.IsNullOrWhiteSpace(json)) throw new JsonAnnotationImportException("JSON is empty.");
@@ -43,7 +48,14 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImportedAnnotationSet(annotationType, importedClasses, images, unknownFields);
         }
 
-        /// <summary>驗證類別物件並建立正規化後的匯入類別。</summary>
+        /// <summary>
+        /// 驗證類別物件並建立正規化後的匯入類別。
+        /// </summary>
+        /// <param name="token">要剖析的 JSON 欄位或陣列項目。</param>
+        /// <param name="unknownFields">要記錄的未知 JSON 欄位路徑集合。</param>
+        /// <param name="index">集合或路徑中的索引。</param>
+        /// <returns>回傳已驗證的類別資料。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static ImportedClass ParseClass(JToken token, ICollection<string> unknownFields, int index)
         {
             JObject value = token as JObject;
@@ -52,7 +64,16 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImportedClass(NormalizeLabelName(RequiredString(value, "name")), RequiredString(value, "color"));
         }
 
-        /// <summary>驗證圖片及其資料集狀態，並剖析所含標註區域。</summary>
+        /// <summary>
+        /// 驗證圖片及其資料集狀態，並剖析所含標註區域。
+        /// </summary>
+        /// <param name="value">包含圖片欄位與標註區域的 JSON 物件。</param>
+        /// <param name="type">標註集或標註區域的型別。</param>
+        /// <param name="classNames">標註集中允許使用的類別名稱。</param>
+        /// <param name="unknownFields">要記錄的未知 JSON 欄位路徑集合。</param>
+        /// <param name="index">集合或路徑中的索引。</param>
+        /// <returns>回傳已驗證的圖片與標註資料。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static ImportedImage ParseImage(JObject value, AnnotationSetType type, ISet<string> classNames, ICollection<string> unknownFields, int index)
         {
             CollectUnknown(value, new HashSet<string>(new[] { "fileName", "set", "classLabel", "regionLabel", "retestset", "rotation_angle", "width", "height" }, StringComparer.Ordinal), "data[" + index + "]", unknownFields);
@@ -76,7 +97,19 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImportedImage(fileName, set, classLabel, retest == 1, width, height, parsedRegions);
         }
 
-        /// <summary>依 OBD 或 SEG 型別驗證區域欄位、尺寸與類別關聯。</summary>
+        /// <summary>
+        /// 依 OBD 或 SEG 型別驗證區域欄位、尺寸與類別關聯。
+        /// </summary>
+        /// <param name="token">要剖析的 JSON 欄位或陣列項目。</param>
+        /// <param name="annotationType">匯入資料使用的標註型別。</param>
+        /// <param name="classNames">標註集中允許使用的類別名稱。</param>
+        /// <param name="width">圖片或形狀的寬度。</param>
+        /// <param name="height">圖片或形狀的高度。</param>
+        /// <param name="unknownFields">要記錄的未知 JSON 欄位路徑集合。</param>
+        /// <param name="imageIndex">圖片在輸入集合中的索引。</param>
+        /// <param name="regionIndex">區域在圖片中的索引。</param>
+        /// <returns>回傳已驗證的標註區域資料。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static ImportedRegion ParseRegion(JToken token, AnnotationSetType annotationType, ISet<string> classNames, int width, int height, ICollection<string> unknownFields, int imageIndex, int regionIndex)
         {
             JObject value = token as JObject;
@@ -104,7 +137,15 @@ namespace Neurocle.Infrastructure.Persistence
             return new ImportedRegion(className, type, x, y, regionWidth, regionHeight, radiusX, radiusY, stroke, parsedPoints);
         }
 
-        /// <summary>驗證路徑點的整數格式及圖片座標範圍。</summary>
+        /// <summary>
+        /// 驗證路徑點的整數格式及圖片座標範圍。
+        /// </summary>
+        /// <param name="values">要估算、驗證或處理的值集合。</param>
+        /// <param name="width">圖片或形狀的寬度。</param>
+        /// <param name="height">圖片或形狀的高度。</param>
+        /// <param name="type">標註集或標註區域的型別。</param>
+        /// <returns>回傳通過整數格式與圖片範圍驗證的點集合。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static IReadOnlyList<SegPoint> ParsePoints(JArray values, int width, int height, SegRegionType type)
         {
             var result = new List<SegPoint>();
@@ -119,13 +160,25 @@ namespace Neurocle.Infrastructure.Persistence
             return result;
         }
 
-        /// <summary>記錄物件中不屬於允許欄位集合的欄位路徑。</summary>
+        /// <summary>
+        /// 記錄物件中不屬於允許欄位集合的欄位路徑。
+        /// </summary>
+        /// <param name="value">要檢查未知欄位的 JSON 物件。</param>
+        /// <param name="allowed">允許欄位名稱的集合。</param>
+        /// <param name="location">JSON 物件或陣列的路徑前綴，例如 <c>data[3]</c>。</param>
+        /// <param name="unknownFields">要記錄的未知 JSON 欄位路徑集合。</param>
         private static void CollectUnknown(JObject value, ISet<string> allowed, string location, ICollection<string> unknownFields)
         {
             foreach (JProperty property in value.Properties().Where(property => !allowed.Contains(property.Name))) unknownFields.Add(location + "." + property.Name);
         }
 
-        /// <summary>取得非空白 JSON 字串欄位，欄位缺少或型別錯誤時拒絕匯入。</summary>
+        /// <summary>
+        /// 取得非空白 JSON 字串欄位，欄位缺少或型別錯誤時拒絕匯入。
+        /// </summary>
+        /// <param name="value">包含待讀取欄位的 JSON 物件。</param>
+        /// <param name="name">要從 JSON 物件讀取的字串欄位名稱。</param>
+        /// <returns>回傳指定的非空白字串欄位。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static string RequiredString(JObject value, string name)
         {
             JValue token = value[name] as JValue;
@@ -133,7 +186,13 @@ namespace Neurocle.Infrastructure.Persistence
             return (string)token.Value;
         }
 
-        /// <summary>取得 JSON 字串欄位，允許其內容為空字串。</summary>
+        /// <summary>
+        /// 取得 JSON 字串欄位，允許其內容為空字串。
+        /// </summary>
+        /// <param name="value">包含待讀取欄位的 JSON 物件。</param>
+        /// <param name="name">要從 JSON 物件讀取的字串欄位名稱。</param>
+        /// <returns>回傳指定的字串欄位，允許空字串。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static string RequiredStringOrEmpty(JObject value, string name)
         {
             JValue token = value[name] as JValue;
@@ -141,7 +200,12 @@ namespace Neurocle.Infrastructure.Persistence
             return (string)token.Value;
         }
 
-        /// <summary>修剪類別名稱並拒絕空白名稱。</summary>
+        /// <summary>
+        /// 修剪類別名稱並拒絕空白名稱。
+        /// </summary>
+        /// <param name="value">待修剪空白並驗證的類別名稱。</param>
+        /// <returns>回傳修剪空白後且非空的類別名稱。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static string NormalizeLabelName(string value)
         {
             string normalized = value.Trim();
@@ -149,7 +213,13 @@ namespace Neurocle.Infrastructure.Persistence
             return normalized;
         }
 
-        /// <summary>取得字串或日期型別的時間欄位並轉成不變文化字串。</summary>
+        /// <summary>
+        /// 取得字串或日期型別的時間欄位並轉成不變文化字串。
+        /// </summary>
+        /// <param name="value">包含待讀取時間欄位的 JSON 物件。</param>
+        /// <param name="name">要從 JSON 物件讀取的時間欄位名稱。</param>
+        /// <returns>回傳轉換為不變文化格式的時間文字。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static string RequiredDateText(JObject value, string name)
         {
             JValue token = value[name] as JValue;
@@ -157,7 +227,13 @@ namespace Neurocle.Infrastructure.Persistence
             return Convert.ToString(token.Value, System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        /// <summary>取得整數欄位，並將超出 Int32 範圍的值轉成匯入錯誤。</summary>
+        /// <summary>
+        /// 取得整數欄位，並將超出 Int32 範圍的值轉成匯入錯誤。
+        /// </summary>
+        /// <param name="value">包含待讀取整數欄位的 JSON 物件。</param>
+        /// <param name="name">要從 JSON 物件讀取的整數欄位名稱。</param>
+        /// <returns>回傳指定欄位中的 Int32 整數。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static int RequiredInteger(JObject value, string name)
         {
             JValue token = value[name] as JValue;
@@ -165,10 +241,22 @@ namespace Neurocle.Infrastructure.Persistence
             try { return Convert.ToInt32(token.Value); } catch (OverflowException) { throw new JsonAnnotationImportException(name + " is invalid."); }
         }
 
-        /// <summary>讀取可省略的整數欄位，缺少時以零表示。</summary>
+        /// <summary>
+        /// 讀取可省略的整數欄位，缺少時以零表示。
+        /// </summary>
+        /// <param name="value">包含待讀取欄位的 JSON 物件。</param>
+        /// <param name="name">要從 JSON 物件讀取的整數欄位名稱。</param>
+        /// <returns>欄位存在時回傳欄位的 Int32 整數；欄位缺少時回傳零。</returns>
+        /// <exception cref="JsonAnnotationImportException">欄位存在但不是有效 Int32 整數時擲回。</exception>
         private static int OptionalInteger(JObject value, string name) { return value[name] == null ? 0 : RequiredInteger(value, name); }
 
-        /// <summary>取得 JSON 陣列欄位，欄位缺少或型別錯誤時拒絕匯入。</summary>
+        /// <summary>
+        /// 取得 JSON 陣列欄位，欄位缺少或型別錯誤時拒絕匯入。
+        /// </summary>
+        /// <param name="value">包含待讀取陣列欄位的 JSON 物件。</param>
+        /// <param name="name">要從 JSON 物件讀取的陣列欄位名稱。</param>
+        /// <returns>回傳指定的 JSON 陣列欄位。</returns>
+        /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         private static JArray RequiredArray(JObject value, string name)
         {
             JArray token = value[name] as JArray;
@@ -180,14 +268,18 @@ namespace Neurocle.Infrastructure.Persistence
     // 表示標註 JSON 格式或內容不符合匯入契約。
     public sealed class JsonAnnotationImportException : Exception
     {
-        /// <summary>建立匯入例外，並保留造成錯誤的原始例外。</summary>
+        /// <summary>
+        /// 建立匯入例外，並保留造成錯誤的原始例外。
+        /// </summary>
         public JsonAnnotationImportException(string message, Exception innerException = null) : base(message, innerException) { }
     }
 
     // 保存已驗證的標註集型別、類別、圖片及未知欄位資訊。
     internal sealed class ImportedAnnotationSet
     {
-        /// <summary>建立已剖析的標註集資料。</summary>
+        /// <summary>
+        /// 建立已剖析的標註集資料。
+        /// </summary>
         public ImportedAnnotationSet(AnnotationSetType type, IReadOnlyList<ImportedClass> classes, IReadOnlyList<ImportedImage> data, IReadOnlyList<string> unknownFields) { Type = type; Classes = classes; Data = data; UnknownFields = unknownFields; }
         // 取得匯入標註集的型別。
         public AnnotationSetType Type { get; }
@@ -202,7 +294,9 @@ namespace Neurocle.Infrastructure.Persistence
     // 保存一筆已驗證的類別名稱與顏色。
     internal sealed class ImportedClass
     {
-        /// <summary>建立匯入類別資料。</summary>
+        /// <summary>
+        /// 建立匯入類別資料。
+        /// </summary>
         public ImportedClass(string name, string color) { Name = name; Color = color; }
         // 取得類別名稱。
         public string Name { get; }
@@ -213,7 +307,9 @@ namespace Neurocle.Infrastructure.Persistence
     // 保存一張已驗證圖片及其分類、資料集與區域標註資料。
     internal sealed class ImportedImage
     {
-        /// <summary>建立匯入圖片資料及其區域清單。</summary>
+        /// <summary>
+        /// 建立匯入圖片資料及其區域清單。
+        /// </summary>
         public ImportedImage(string fileName, string set, string classLabel, bool retest, int width, int height, IReadOnlyList<ImportedRegion> regions) { FileName = fileName; Set = set; ClassLabel = classLabel; Retest = retest; Width = width; Height = height; Regions = regions; }
         // 取得匯入格式中的圖片檔名。
         public string FileName { get; }
@@ -234,7 +330,9 @@ namespace Neurocle.Infrastructure.Persistence
     // 保存一筆已驗證的 OBD 或 SEG 區域幾何資料。
     internal sealed class ImportedRegion
     {
-        /// <summary>建立標註區域資料及其幾何座標。</summary>
+        /// <summary>
+        /// 建立標註區域資料及其幾何座標。
+        /// </summary>
         public ImportedRegion(string className, SegRegionType type, int x, int y, int width, int height, int radiusX, int radiusY, int strokeWidth, IReadOnlyList<SegPoint> points) { ClassName = className; Type = type; X = x; Y = y; Width = width; Height = height; RadiusX = radiusX; RadiusY = radiusY; StrokeWidth = strokeWidth; Points = points; }
         // 取得區域所屬的類別名稱。
         public string ClassName { get; }

@@ -8,7 +8,9 @@ namespace Neurocle.Domain.Segmentation
     // 以 Clipper2 整數路徑執行 SEG 幾何運算與空洞橋接網路建立。
     public static class SegGeometryPrototype
     {
-        /// <summary>聯集兩組路徑；只有重疊面積大於零時才合併互相接觸的區域。</summary>
+        /// <summary>
+        /// 聯集兩組路徑；只有重疊面積大於零時才合併互相接觸的區域。
+        /// </summary>
         /// <param name="subject">主要區域路徑。</param>
         /// <param name="clip">要聯集的另一組路徑。</param>
         /// <returns>依 Non-Zero 規則正規化後的聯集路徑。</returns>
@@ -28,7 +30,9 @@ namespace Neurocle.Domain.Segmentation
             return Clipper.Union(Combine(subject, clip), FillRule.NonZero);
         }
 
-        /// <summary>從主要路徑中扣除橡皮擦路徑所覆蓋的區域。</summary>
+        /// <summary>
+        /// 從主要路徑中扣除橡皮擦路徑所覆蓋的區域。
+        /// </summary>
         /// <param name="subject">待保留的主要路徑。</param>
         /// <param name="eraser">要扣除的橡皮擦路徑。</param>
         /// <returns>依 Non-Zero 規則計算的差集路徑。</returns>
@@ -37,7 +41,9 @@ namespace Neurocle.Domain.Segmentation
             return Clipper.Difference(subject, eraser, FillRule.NonZero);
         }
 
-        /// <summary>將中心線膨脹為具有圓角接合與端點的封閉筆畫區域。</summary>
+        /// <summary>
+        /// 將中心線膨脹為具有圓角接合與端點的封閉筆畫區域。
+        /// </summary>
         /// <param name="centerLine">筆畫中心線。</param>
         /// <param name="width">正整數筆畫寬度。</param>
         /// <returns>代表筆畫覆蓋範圍的多邊形路徑。</returns>
@@ -52,7 +58,9 @@ namespace Neurocle.Domain.Segmentation
             return Clipper.InflatePaths(new Paths64 { centerLine }, width / 2.0, JoinType.Round, EndType.Round);
         }
 
-        /// <summary>依左、上、右、下座標建立矩形路徑。</summary>
+        /// <summary>
+        /// 依左、上、右、下座標建立矩形路徑。
+        /// </summary>
         /// <param name="left">左側 X 座標。</param>
         /// <param name="top">上側 Y 座標。</param>
         /// <param name="right">右側 X 座標。</param>
@@ -66,7 +74,9 @@ namespace Neurocle.Domain.Segmentation
             };
         }
 
-        /// <summary>以指定中心、半徑及線段數近似建立橢圓路徑。</summary>
+        /// <summary>
+        /// 以指定中心、半徑及線段數近似建立橢圓路徑。
+        /// </summary>
         /// <param name="centerX">中心 X 座標。</param>
         /// <param name="centerY">中心 Y 座標。</param>
         /// <param name="radiusX">正整數水平半徑。</param>
@@ -93,7 +103,9 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
-        /// <summary>繞指定中心旋轉路徑，並將結果四捨五入至整數座標。</summary>
+        /// <summary>
+        /// 繞指定中心旋轉路徑，並將結果四捨五入至整數座標。
+        /// </summary>
         /// <param name="path">待旋轉路徑。</param>
         /// <param name="degrees">以度為單位的旋轉角度。</param>
         /// <param name="centerX">旋轉中心 X 座標。</param>
@@ -117,7 +129,9 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
-        /// <summary>旋轉路徑；若任一點超出圖片範圍則回傳原路徑複本。</summary>
+        /// <summary>
+        /// 旋轉路徑；若任一點超出圖片範圍則回傳原路徑複本。
+        /// </summary>
         /// <param name="path">待旋轉路徑。</param>
         /// <param name="degrees">以度為單位的旋轉角度。</param>
         /// <param name="centerX">旋轉中心 X 座標。</param>
@@ -139,7 +153,9 @@ namespace Neurocle.Domain.Segmentation
             return rotated;
         }
 
-        /// <summary>將單一空洞以最短合法橋接連至外圈。</summary>
+        /// <summary>
+        /// 將單一空洞以最短合法橋接連至外圈。
+        /// </summary>
         /// <param name="outer">外圈輪廓。</param>
         /// <param name="hole">空洞輪廓。</param>
         /// <returns>包含外圈、空洞及重合橋接往返段的路徑。</returns>
@@ -148,7 +164,9 @@ namespace Neurocle.Domain.Segmentation
             return BridgeHoles(outer, new[] { hole });
         }
 
-        /// <summary>建立外圈與全部空洞的最短合法連通橋接網路。</summary>
+        /// <summary>
+        /// 建立外圈與全部空洞的最短合法連通橋接網路。
+        /// </summary>
         /// <param name="outer">外圈輪廓。</param>
         /// <param name="holes">空洞輪廓集合。</param>
         /// <returns>表示所有空洞均連通外圈且不含多餘循環的路徑。</returns>
@@ -157,11 +175,14 @@ namespace Neurocle.Domain.Segmentation
             return BridgeHoles(outer, holes, null);
         }
 
-        /// <summary>建立最短合法橋接網路，等距時優先保留仍合法的既有橋接。</summary>
+        /// <summary>
+        /// 建立最短合法橋接網路，等距時優先保留仍合法的既有橋接。
+        /// </summary>
         /// <param name="outer">外圈輪廓。</param>
         /// <param name="holes">空洞輪廓集合。</param>
         /// <param name="existingConnections">可優先保留的既有橋接；可為 null。</param>
         /// <returns>連通外圈與所有空洞的整數路徑。</returns>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
         /// <exception cref="ArgumentException">外圈或空洞輪廓無效，或既有橋接索引不合法。</exception>
         /// <exception cref="BridgeNetworkException">找不到連通全部輪廓的合法橋接網路。</exception>
         public static Path64 BridgeHoles(Path64 outer, IEnumerable<Path64> holes, IEnumerable<BridgeConnection> existingConnections)
@@ -231,7 +252,9 @@ namespace Neurocle.Domain.Segmentation
             return BuildBridgeNetwork(contours, selected);
         }
 
-        /// <summary>重新分析包含往返橋接段的路徑，並依目前最短網路規則重建橋接。</summary>
+        /// <summary>
+        /// 重新分析包含往返橋接段的路徑，並依目前最短網路規則重建橋接。
+        /// </summary>
         /// <param name="polygon">含外圈、空洞及既有橋接的單一路徑。</param>
         /// <returns>保留輪廓形狀並重新建立橋接後的路徑。</returns>
         /// <exception cref="ArgumentNullException"><paramref name="polygon"/> 為 null。</exception>
@@ -250,7 +273,9 @@ namespace Neurocle.Domain.Segmentation
             return BridgeHoles(outer, holes, MapBridgeSegments(bridges, new[] { outer }.Concat(holes).ToArray()));
         }
 
-        /// <summary>從既有路徑中解析每條橋接的兩端輪廓與實際端點。</summary>
+        /// <summary>
+        /// 從既有路徑中解析每條橋接的兩端輪廓與實際端點。
+        /// </summary>
         /// <param name="polygon">含橋接往返段的路徑。</param>
         /// <param name="outer">已解析的外圈輪廓。</param>
         /// <param name="holes">已解析的空洞輪廓。</param>
@@ -265,7 +290,13 @@ namespace Neurocle.Domain.Segmentation
             return MapBridgeSegments(FindBridgeSegments(polygon), contours);
         }
 
-        /// <summary>將橋接端點對應至包含端點的輪廓索引。</summary>
+        /// <summary>
+        /// 將橋接端點對應至包含端點的輪廓索引。
+        /// </summary>
+        /// <param name="bridges">要處理的橋接線段集合。</param>
+        /// <param name="contours">依序排列的外圈與空洞輪廓。</param>
+        /// <returns>回傳依輪廓索引映射後的橋接連線集合。</returns>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
         private static IReadOnlyList<BridgeConnection> MapBridgeSegments(IEnumerable<UndirectedEdge> bridges, params Path64[] contours)
         {
             if (contours == null) throw new ArgumentNullException(nameof(contours));
@@ -281,7 +312,11 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
-        /// <summary>找出路徑中以相反方向重複出現、因此代表橋接的無向線段。</summary>
+        /// <summary>
+        /// 找出路徑中以相反方向重複出現、因此代表橋接的無向線段。
+        /// </summary>
+        /// <param name="polygon">包含外圈、空洞或橋接線段的多邊形路徑。</param>
+        /// <returns>回傳多邊形路徑中的橋接線段集合。</returns>
         private static List<UndirectedEdge> FindBridgeSegments(Path64 polygon)
         {
             var traversals = new Dictionary<UndirectedEdge, EdgeTraversal>();
@@ -311,7 +346,12 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
-        /// <summary>移除橋接線段並還原各自封閉的輪廓；遇到無法形成輪廓的拓樸時回傳 null。</summary>
+        /// <summary>
+        /// 移除橋接線段並還原各自封閉的輪廓；遇到無法形成輪廓的拓樸時回傳 null。
+        /// </summary>
+        /// <param name="polygon">包含外圈、空洞或橋接線段的多邊形路徑。</param>
+        /// <param name="bridges">要處理的橋接線段集合。</param>
+        /// <returns>回傳移除橋接線段後的外圈與空洞輪廓。</returns>
         private static Paths64 ExtractBridgeContours(Path64 polygon, IEnumerable<UndirectedEdge> bridges)
         {
             var bridgeSet = new HashSet<UndirectedEdge>(bridges);
@@ -345,7 +385,12 @@ namespace Neurocle.Domain.Segmentation
             return contours;
         }
 
-        /// <summary>尋找包含指定邊界點的第一個輪廓索引。</summary>
+        /// <summary>
+        /// 尋找包含指定邊界點的第一個輪廓索引。
+        /// </summary>
+        /// <param name="contours">依序排列的外圈與空洞輪廓。</param>
+        /// <param name="point">要檢查或轉換的幾何點。</param>
+        /// <returns>回傳包含指定點的輪廓索引；未找到時回傳 -1。</returns>
         private static int FindContainingContour(IReadOnlyList<Path64> contours, Point64 point)
         {
             for (int index = 0; index < contours.Count; index++)
@@ -359,7 +404,9 @@ namespace Neurocle.Domain.Segmentation
             return -1;
         }
 
-        /// <summary>以射線奇偶規則判斷整數點是否位於輪廓內部。</summary>
+        /// <summary>
+        /// 以射線奇偶規則判斷整數點是否位於輪廓內部。
+        /// </summary>
         /// <param name="contour">封閉輪廓。</param>
         /// <param name="point">待判斷的整數座標。</param>
         /// <returns>點位於輪廓內部時回傳 true。</returns>
@@ -375,7 +422,12 @@ namespace Neurocle.Domain.Segmentation
             return inside;
         }
 
-        /// <summary>依 X 再依 Y 的字典順序比較座標。</summary>
+        /// <summary>
+        /// 依 X 再依 Y 的字典順序比較座標。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <returns>依 X、Y 座標排序回傳負數、零或正數。</returns>
         private static int CompareCoordinates(Point64 first, Point64 second)
         {
             int comparison = first.X.CompareTo(second.X);
@@ -385,7 +437,9 @@ namespace Neurocle.Domain.Segmentation
         // 以座標排序後的端點表示不分方向的線段。
         private struct UndirectedEdge : IEquatable<UndirectedEdge>
         {
-            /// <summary>建立端點固定排序的無向邊，並回報輸入方向是否為正向。</summary>
+            /// <summary>
+            /// 建立端點固定排序的無向邊，並回報輸入方向是否為正向。
+            /// </summary>
             /// <param name="start">輸入線段起點。</param>
             /// <param name="end">輸入線段終點。</param>
             /// <param name="forward">輸入方向與端點排序方向相同時為 true。</param>
@@ -401,15 +455,21 @@ namespace Neurocle.Domain.Segmentation
             // 取得依座標順序排列的第二個端點。
             public Point64 Second { get; private set; }
 
-            /// <summary>依兩個端點判斷無向邊是否相等。</summary>
+            /// <summary>
+            /// 依兩個端點判斷無向邊是否相等。
+            /// </summary>
             /// <param name="other">待比較的無向邊。</param>
             /// <returns>兩個排序後端點皆相同時回傳 true。</returns>
             public bool Equals(UndirectedEdge other) { return First == other.First && Second == other.Second; }
-            /// <summary>判斷物件是否為端點相同的無向邊。</summary>
+            /// <summary>
+            /// 判斷物件是否為端點相同的無向邊。
+            /// </summary>
             /// <param name="value">待比較的物件。</param>
             /// <returns>物件是端點相同的無向邊時回傳 true。</returns>
             public override bool Equals(object value) { return value is UndirectedEdge && Equals((UndirectedEdge)value); }
-            /// <summary>依端點計算無向邊雜湊碼。</summary>
+            /// <summary>
+            /// 依端點計算無向邊雜湊碼。
+            /// </summary>
             /// <returns>由兩端點雜湊值組成的整數。</returns>
             public override int GetHashCode() { return (First.GetHashCode() * 397) ^ Second.GetHashCode(); }
         }
@@ -423,7 +483,12 @@ namespace Neurocle.Domain.Segmentation
             public int Reverse;
         }
 
-        /// <summary>沿父節點陣列尋找集合根節點，並壓縮查找路徑。</summary>
+        /// <summary>
+        /// 沿父節點陣列尋找集合根節點，並壓縮查找路徑。
+        /// </summary>
+        /// <param name="parents">記錄各集合節點父節點索引的陣列。</param>
+        /// <param name="index">集合或路徑中的索引。</param>
+        /// <returns>回傳並壓縮至最上層的集合代表索引。</returns>
         private static int FindRoot(int[] parents, int index)
         {
             while (parents[index] != index)
@@ -434,7 +499,12 @@ namespace Neurocle.Domain.Segmentation
             return index;
         }
 
-        /// <summary>依選取的無循環橋接邊遞迴輸出所有輪廓與往返線段。</summary>
+        /// <summary>
+        /// 依選取的無循環橋接邊遞迴輸出所有輪廓與往返線段。
+        /// </summary>
+        /// <param name="contours">依序排列的外圈與空洞輪廓。</param>
+        /// <param name="edges">表示輪廓間連接關係的邊集合。</param>
+        /// <returns>回傳連通外圈與全部空洞的橋接路徑。</returns>
         private static Path64 BuildBridgeNetwork(Path64[] contours, IEnumerable<BridgeSelection> edges)
         {
             BridgeSelection[] links = edges.ToArray();
@@ -443,7 +513,15 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
-        /// <summary>從指定輪廓端點開始輸出輪廓，並遞迴加入其子輪廓橋接。</summary>
+        /// <summary>
+        /// 從指定輪廓端點開始輸出輪廓，並遞迴加入其子輪廓橋接。
+        /// </summary>
+        /// <param name="contourIndex">輪廓集合中的索引。</param>
+        /// <param name="startPoint">要對齊或插入的起始幾何點。</param>
+        /// <param name="parentIndex">父節點在集合中的索引。</param>
+        /// <param name="contours">依序排列的外圈與空洞輪廓。</param>
+        /// <param name="edges">表示輪廓間連接關係的邊集合。</param>
+        /// <param name="result">目前正在組裝的幾何或資料結果。</param>
         private static void AppendNetworkContour(int contourIndex, Point64 startPoint, int parentIndex, Path64[] contours, BridgeSelection[] edges, Path64 result)
         {
             Path64 path = RotateTo(contours[contourIndex], startPoint);
@@ -467,7 +545,17 @@ namespace Neurocle.Domain.Segmentation
             if (contourIndex != 0) result.Add(startPoint);
         }
 
-        /// <summary>以輪廓邊最近距離為下界搜尋兩輪廓間最短的合法整數橋接。</summary>
+        /// <summary>
+        /// 以輪廓邊最近距離為下界搜尋兩輪廓間最短的合法整數橋接。
+        /// </summary>
+        /// <param name="firstContour">橋接候選的第一個輪廓。</param>
+        /// <param name="secondContour">橋接候選的第二個輪廓。</param>
+        /// <param name="outer">包含所有空洞的外圈輪廓。</param>
+        /// <param name="holes">要連接至外圈的空洞輪廓集合。</param>
+        /// <param name="blockers">橋接線段不可穿越或進入的遮擋輪廓。</param>
+        /// <param name="firstIndex">第一個項目在集合中的索引。</param>
+        /// <param name="secondIndex">第二個項目在集合中的索引。</param>
+        /// <returns>回傳兩個輪廓間最短且合法的橋接選擇。</returns>
         private static BridgeSelection FindShortestLegalBridge(Path64 firstContour, Path64 secondContour, Path64 outer, Path64[] holes, IEnumerable<Path64> blockers, int firstIndex, int secondIndex)
         {
             BridgeSelection best = null;
@@ -502,7 +590,14 @@ namespace Neurocle.Domain.Segmentation
             return best;
         }
 
-        /// <summary>為一對候選輪廓邊產生可能的整數橋接端點組合。</summary>
+        /// <summary>
+        /// 為一對候選輪廓邊產生可能的整數橋接端點組合。
+        /// </summary>
+        /// <param name="pair">兩個候選輪廓或邊的配對資料。</param>
+        /// <param name="blockers">橋接線段不可穿越或進入的遮擋輪廓。</param>
+        /// <param name="firstIndex">第一個項目在集合中的索引。</param>
+        /// <param name="secondIndex">第二個項目在集合中的索引。</param>
+        /// <returns>回傳依距離排序的橋接候選集合。</returns>
         private static List<BridgeSelection> BridgeCandidates(EdgePair pair, IEnumerable<Path64> blockers, int firstIndex, int secondIndex)
         {
             var outerPoints = new HashSet<Point64>(NearbyLatticePoints(pair.OuterStart, pair.OuterEnd, pair.OuterParameter));
@@ -551,13 +646,27 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
-        /// <summary>加入線段指定比例附近可用的整數端點。</summary>
+        /// <summary>
+        /// 加入線段指定比例附近可用的整數端點。
+        /// </summary>
+        /// <param name="points">要插入、檢查或轉換的幾何點集合。</param>
+        /// <param name="start">線段或範圍的起點。</param>
+        /// <param name="end">線段或範圍的終點。</param>
+        /// <param name="parameter">線段上的比例位置參數。</param>
         private static void AddNearby(ISet<Point64> points, Point64 start, Point64 end, double parameter)
         {
             foreach (Point64 point in NearbyLatticePoints(start, end, parameter)) points.Add(point);
         }
 
-        /// <summary>測試由原點朝指定點延伸的射線是否與線段相交，並回報線段比例。</summary>
+        /// <summary>
+        /// 測試由原點朝指定點延伸的射線是否與線段相交，並回報線段比例。
+        /// </summary>
+        /// <param name="origin">定義射線起點的座標。</param>
+        /// <param name="through">用來定義直線方向的第二個點。</param>
+        /// <param name="start">線段或範圍的起點。</param>
+        /// <param name="end">線段或範圍的終點。</param>
+        /// <param name="segmentParameter">相交點在線段上的比例位置。</param>
+        /// <returns>回傳射線是否與線段相交，並輸出交點位置參數。</returns>
         private static bool RayIntersectsSegment(Point64 origin, Point64 through, Point64 start, Point64 end, out double segmentParameter)
         {
             double directionX = through.X - origin.X; double directionY = through.Y - origin.Y;
@@ -570,7 +679,15 @@ namespace Neurocle.Domain.Segmentation
             return rayParameter >= 1d && segmentParameter >= 0d && segmentParameter <= 1d;
         }
 
-        /// <summary>測試兩條有限線段的交點，並回報第二條線段上的比例。</summary>
+        /// <summary>
+        /// 測試兩條有限線段的交點，並回報第二條線段上的比例。
+        /// </summary>
+        /// <param name="origin">定義直線方向的第一個座標。</param>
+        /// <param name="through">用來定義直線方向的第二個點。</param>
+        /// <param name="start">線段或範圍的起點。</param>
+        /// <param name="end">線段或範圍的終點。</param>
+        /// <param name="segmentParameter">相交點在線段上的比例位置。</param>
+        /// <returns>回傳直線是否與線段相交，並輸出交點位置參數。</returns>
         private static bool LineIntersectsSegment(Point64 origin, Point64 through, Point64 start, Point64 end, out double segmentParameter)
         {
             double directionX = through.X - origin.X; double directionY = through.Y - origin.Y;
@@ -582,7 +699,13 @@ namespace Neurocle.Domain.Segmentation
             return segmentParameter >= 0d && segmentParameter <= 1d;
         }
 
-        /// <summary>產生最接近線段指定投影位置的周邊整數格點。</summary>
+        /// <summary>
+        /// 產生最接近線段指定投影位置的周邊整數格點。
+        /// </summary>
+        /// <param name="start">線段或範圍的起點。</param>
+        /// <param name="end">線段或範圍的終點。</param>
+        /// <param name="parameter">線段上的比例位置參數。</param>
+        /// <returns>回傳指定線段位置附近的整數格點。</returns>
         private static IEnumerable<Point64> NearbyLatticePoints(Point64 start, Point64 end, double parameter)
         {
             long deltaX = end.X - start.X;
@@ -594,7 +717,15 @@ namespace Neurocle.Domain.Segmentation
             return positions.Select(value => new Point64(start.X + deltaX / count * value, start.Y + deltaY / count * value));
         }
 
-        /// <summary>計算兩線段彼此最近位置在各自線段上的參數。</summary>
+        /// <summary>
+        /// 計算兩線段彼此最近位置在各自線段上的參數。
+        /// </summary>
+        /// <param name="firstStart">第一個線段的起點。</param>
+        /// <param name="firstEnd">第一個線段的終點。</param>
+        /// <param name="secondStart">第二個線段的起點。</param>
+        /// <param name="secondEnd">第二個線段的終點。</param>
+        /// <param name="firstParameter">第一個線段上的位置參數。</param>
+        /// <param name="secondParameter">第二個線段上的位置參數。</param>
         private static void ClosestSegmentParameters(Point64 firstStart, Point64 firstEnd, Point64 secondStart, Point64 secondEnd, out double firstParameter, out double secondParameter)
         {
             var values = new[]
@@ -609,7 +740,13 @@ namespace Neurocle.Domain.Segmentation
             secondParameter = closest.Second;
         }
 
-        /// <summary>將點正交投影至線段並回傳限制於線段範圍內的比例。</summary>
+        /// <summary>
+        /// 將點正交投影至線段並回傳限制於線段範圍內的比例。
+        /// </summary>
+        /// <param name="point">要檢查或轉換的幾何點。</param>
+        /// <param name="start">線段或範圍的起點。</param>
+        /// <param name="end">線段或範圍的終點。</param>
+        /// <returns>回傳點在線段上的投影位置參數。</returns>
         private static double ProjectParameter(Point64 point, Point64 start, Point64 end)
         {
             double x = end.X - start.X; double y = end.Y - start.Y;
@@ -617,20 +754,40 @@ namespace Neurocle.Domain.Segmentation
             return length == 0d ? 0d : Clamp(((point.X - start.X) * x + (point.Y - start.Y) * y) / length, 0d, 1d);
         }
 
-        /// <summary>依線段比例內插並四捨五入至整數座標。</summary>
+        /// <summary>
+        /// 依線段比例內插並四捨五入至整數座標。
+        /// </summary>
+        /// <param name="start">線段或範圍的起點。</param>
+        /// <param name="end">線段或範圍的終點。</param>
+        /// <param name="parameter">線段上的比例位置參數。</param>
+        /// <returns>回傳沿線段依位置參數插值的整數座標點。</returns>
         private static Point64 Interpolate(Point64 start, Point64 end, double parameter)
         {
             return new Point64((long)Math.Round(start.X + (end.X - start.X) * parameter, MidpointRounding.AwayFromZero), (long)Math.Round(start.Y + (end.Y - start.Y) * parameter, MidpointRounding.AwayFromZero));
         }
 
-        /// <summary>計算兩個整數座標點之間的平方距離。</summary>
+        /// <summary>
+        /// 計算兩個整數座標點之間的平方距離。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <returns>回傳兩點或兩線段間的平方距離。</returns>
         private static double DistanceSquared(Point64 first, Point64 second)
         {
             double x = first.X - second.X; double y = first.Y - second.Y;
             return x * x + y * y;
         }
 
-        /// <summary>計算兩線段指定比例位置之間的平方距離。</summary>
+        /// <summary>
+        /// 計算兩線段指定比例位置之間的平方距離。
+        /// </summary>
+        /// <param name="firstStart">第一個線段的起點。</param>
+        /// <param name="firstEnd">第一個線段的終點。</param>
+        /// <param name="firstParameter">第一個線段上的位置參數。</param>
+        /// <param name="secondStart">第二個線段的起點。</param>
+        /// <param name="secondEnd">第二個線段的終點。</param>
+        /// <param name="secondParameter">第二個線段上的位置參數。</param>
+        /// <returns>回傳兩點或兩線段間的平方距離。</returns>
         private static double DistanceSquared(Point64 firstStart, Point64 firstEnd, double firstParameter, Point64 secondStart, Point64 secondEnd, double secondParameter)
         {
             double firstX = firstStart.X + (firstEnd.X - firstStart.X) * firstParameter;
@@ -641,7 +798,17 @@ namespace Neurocle.Domain.Segmentation
             return x * x + y * y;
         }
 
-        /// <summary>驗證橋接端點位於來源輪廓，且線段不穿越外圈、空洞或阻擋輪廓。</summary>
+        /// <summary>
+        /// 驗證橋接端點位於來源輪廓，且線段不穿越外圈、空洞或阻擋輪廓。
+        /// </summary>
+        /// <param name="firstPoint">第一個幾何點。</param>
+        /// <param name="secondPoint">第二個幾何點。</param>
+        /// <param name="firstContour">橋接候選的第一個輪廓。</param>
+        /// <param name="secondContour">橋接候選的第二個輪廓。</param>
+        /// <param name="outer">包含所有空洞的外圈輪廓。</param>
+        /// <param name="holes">要連接至外圈的空洞輪廓集合。</param>
+        /// <param name="blockers">橋接線段不可穿越或進入的遮擋輪廓。</param>
+        /// <returns>回傳候選橋接是否符合輪廓與遮擋限制。</returns>
         private static bool IsLegalBridge(Point64 firstPoint, Point64 secondPoint, Path64 firstContour, Path64 secondContour, Path64 outer, IEnumerable<Path64> holes, IEnumerable<Path64> blockers)
         {
             if (firstPoint == secondPoint) return false;
@@ -665,14 +832,26 @@ namespace Neurocle.Domain.Segmentation
             return true;
         }
 
-        /// <summary>判斷點是否位於路徑的任一線段上。</summary>
+        /// <summary>
+        /// 判斷點是否位於路徑的任一線段上。
+        /// </summary>
+        /// <param name="point">要檢查或轉換的幾何點。</param>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <returns>回傳指定點是否位於路徑上。</returns>
         private static bool PointOnPath(Point64 point, Path64 path)
         {
             for (int index = 0; index < path.Count; index++) if (PointOnSegment(point, path[index], path[(index + 1) % path.Count])) return true;
             return false;
         }
 
-        /// <summary>確認橋接與輪廓只在允許的端點相接，且沒有沿輪廓重疊。</summary>
+        /// <summary>
+        /// 確認橋接與輪廓只在允許的端點相接，且沒有沿輪廓重疊。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <param name="allowed">允許橋接接觸輪廓的端點座標。</param>
+        /// <param name="path">用來檢查交點與重疊的輪廓點集合。</param>
+        /// <returns>回傳橋接是否只在允許端點接觸輪廓。</returns>
         private static bool BridgeOnlyTouchesAt(Point64 first, Point64 second, Point64 allowed, Path64 path)
         {
             bool touched = false;
@@ -688,14 +867,25 @@ namespace Neurocle.Domain.Segmentation
             return touched;
         }
 
-        /// <summary>判斷線段是否與封閉路徑任一邊相交。</summary>
+        /// <summary>
+        /// 判斷線段是否與封閉路徑任一邊相交。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <returns>回傳線段是否與路徑相交。</returns>
         private static bool SegmentIntersectsPath(Point64 first, Point64 second, Path64 path)
         {
             for (int index = 0; index < path.Count; index++) if (SegmentsIntersect(first, second, path[index], path[(index + 1) % path.Count])) return true;
             return false;
         }
 
-        /// <summary>將邊界視為內部後，判斷整數座標是否位於路徑內或其上。</summary>
+        /// <summary>
+        /// 將邊界視為內部後，判斷整數座標是否位於路徑內或其上。
+        /// </summary>
+        /// <param name="point">要檢查或轉換的幾何點。</param>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <returns>回傳指定點是否位於輪廓內。</returns>
         private static bool PointInside(Point64 point, Path64 path)
         {
             for (int index = 0; index < path.Count; index++) if (PointOnSegment(point, path[index], path[(index + 1) % path.Count])) return true;
@@ -708,7 +898,13 @@ namespace Neurocle.Domain.Segmentation
             return inside;
         }
 
-        /// <summary>以浮點射線奇偶規則判斷點是否位於路徑嚴格內部。</summary>
+        /// <summary>
+        /// 以浮點射線奇偶規則判斷點是否位於路徑嚴格內部。
+        /// </summary>
+        /// <param name="x">原圖或幾何的 X 座標。</param>
+        /// <param name="y">原圖或幾何的 Y 座標。</param>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <returns>回傳指定點是否位於輪廓內。</returns>
         private static bool PointInside(double x, double y, Path64 path)
         {
             bool inside = false;
@@ -723,7 +919,14 @@ namespace Neurocle.Domain.Segmentation
             return inside;
         }
 
-        /// <summary>判斷兩線段相交，包含共線重疊與端點接觸。</summary>
+        /// <summary>
+        /// 判斷兩線段相交，包含共線重疊與端點接觸。
+        /// </summary>
+        /// <param name="firstStart">第一個線段的起點。</param>
+        /// <param name="firstEnd">第一個線段的終點。</param>
+        /// <param name="secondStart">第二個線段的起點。</param>
+        /// <param name="secondEnd">第二個線段的終點。</param>
+        /// <returns>回傳兩條線段是否相交。</returns>
         private static bool SegmentsIntersect(Point64 firstStart, Point64 firstEnd, Point64 secondStart, Point64 secondEnd)
         {
             long first = Cross(firstStart, firstEnd, secondStart);
@@ -734,25 +937,49 @@ namespace Neurocle.Domain.Segmentation
             return first == 0 && PointOnSegment(secondStart, firstStart, firstEnd) || second == 0 && PointOnSegment(secondEnd, firstStart, firstEnd) || third == 0 && PointOnSegment(firstStart, secondStart, secondEnd) || fourth == 0 && PointOnSegment(firstEnd, secondStart, secondEnd);
         }
 
-        /// <summary>判斷整數點是否位於線段範圍內。</summary>
+        /// <summary>
+        /// 判斷整數點是否位於線段範圍內。
+        /// </summary>
+        /// <param name="point">要檢查或轉換的幾何點。</param>
+        /// <param name="start">線段或範圍的起點。</param>
+        /// <param name="end">線段或範圍的終點。</param>
+        /// <returns>回傳指定點是否位於線段上。</returns>
         private static bool PointOnSegment(Point64 point, Point64 start, Point64 end)
         {
             return Cross(start, end, point) == 0 && point.X >= Math.Min(start.X, end.X) && point.X <= Math.Max(start.X, end.X) && point.Y >= Math.Min(start.Y, end.Y) && point.Y <= Math.Max(start.Y, end.Y);
         }
 
-        /// <summary>判斷兩條非退化線段是否位於同一直線。</summary>
+        /// <summary>
+        /// 判斷兩條非退化線段是否位於同一直線。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <param name="pathStart">路徑線段的起點。</param>
+        /// <param name="pathEnd">路徑線段的終點。</param>
+        /// <returns>回傳指定三點是否共線。</returns>
         private static bool IsCollinear(Point64 first, Point64 second, Point64 pathStart, Point64 pathEnd)
         {
             return Cross(first, second, pathStart) == 0 && Cross(first, second, pathEnd) == 0;
         }
 
-        /// <summary>計算兩向量的二維叉積，用於整數方向與共線判斷。</summary>
+        /// <summary>
+        /// 計算兩向量的二維叉積，用於整數方向與共線判斷。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <param name="third">第三個比較或運算的值。</param>
+        /// <returns>回傳向量叉積的整數值。</returns>
         private static long Cross(Point64 first, Point64 second, Point64 third)
         {
             return (second.X - first.X) * (third.Y - first.Y) - (second.Y - first.Y) * (third.X - first.X);
         }
 
-        /// <summary>將位於既有輪廓邊上的橋接端點插入輪廓順序。</summary>
+        /// <summary>
+        /// 將位於既有輪廓邊上的橋接端點插入輪廓順序。
+        /// </summary>
+        /// <param name="path">要讀取、檢查或轉換的路徑。</param>
+        /// <param name="points">要插入、檢查或轉換的幾何點集合。</param>
+        /// <returns>回傳插入橋接點後的路徑。</returns>
         private static Path64 InsertBridgePoints(Path64 path, IEnumerable<Point64> points)
         {
             Point64[] values = points.Distinct().ToArray();
@@ -767,7 +994,13 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
-        /// <summary>以指定端點為首點循環旋轉輪廓頂點順序。</summary>
+        /// <summary>
+        /// 以指定端點為首點循環旋轉輪廓頂點順序。
+        /// </summary>
+        /// <param name="path">要循環旋轉頂點順序的輪廓點集合。</param>
+        /// <param name="point">必須位於輪廓上的起始端點。</param>
+        /// <returns>回傳以指定點為起點的路徑副本。</returns>
+        /// <exception cref="ArgumentException">輸入資料不符合操作契約。</exception>
         private static Path64 RotateTo(Path64 path, Point64 point)
         {
             int index = path.FindIndex(value => value == point);
@@ -777,21 +1010,37 @@ namespace Neurocle.Domain.Segmentation
             return result;
         }
 
-        /// <summary>計算兩個整數座標點之間的 64 位元平方距離。</summary>
+        /// <summary>
+        /// 計算兩個整數座標點之間的 64 位元平方距離。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <returns>回傳兩點間的平方距離。</returns>
         private static long SquaredDistance(Point64 first, Point64 second)
         {
             long x = first.X - second.X; long y = first.Y - second.Y;
             return x * x + y * y;
         }
 
-        /// <summary>以歐幾里得算法計算兩個整數的最大公因數。</summary>
+        /// <summary>
+        /// 以歐幾里得算法計算兩個整數的最大公因數。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <returns>回傳兩整數的最大公因數。</returns>
         private static long GreatestCommonDivisor(long first, long second)
         {
             while (second != 0) { long remainder = first % second; first = second; second = remainder; }
             return first;
         }
 
-        /// <summary>將數值限制於指定的上下界。</summary>
+        /// <summary>
+        /// 將數值限制於指定的上下界。
+        /// </summary>
+        /// <param name="value">要限制於最小值與最大值之間的數值。</param>
+        /// <param name="minimum">允許的最小值。</param>
+        /// <param name="maximum">允許的最大值。</param>
+        /// <returns>回傳限制在指定範圍內的數值。</returns>
         private static double Clamp(double value, double minimum, double maximum)
         {
             return Math.Max(minimum, Math.Min(maximum, value));
@@ -800,7 +1049,17 @@ namespace Neurocle.Domain.Segmentation
         // 保存兩條候選輪廓邊、最近投影位置及搜尋下界。
         private sealed class EdgePair : IComparable<EdgePair>
         {
-            /// <summary>建立兩邊最近點搜尋資料並計算距離下界。</summary>
+            /// <summary>
+            /// 建立兩邊最近點搜尋資料並計算距離下界。
+            /// </summary>
+            /// <param name="outerStart">外圈輪廓線段的起點。</param>
+            /// <param name="outerEnd">外圈輪廓線段的終點。</param>
+            /// <param name="holeStart">空洞輪廓線段的起點。</param>
+            /// <param name="holeEnd">空洞輪廓線段的終點。</param>
+            /// <param name="outerParameter">外圈輪廓線段上的位置參數。</param>
+            /// <param name="holeParameter">空洞輪廓線段上的位置參數。</param>
+            /// <param name="outerIndex">外圈在輪廓集合中的索引。</param>
+            /// <param name="holeIndex">空洞在輪廓集合中的索引。</param>
             public EdgePair(Point64 outerStart, Point64 outerEnd, Point64 holeStart, Point64 holeEnd, double outerParameter, double holeParameter, int outerIndex, int holeIndex)
             {
                 OuterStart = outerStart; OuterEnd = outerEnd; HoleStart = holeStart; HoleEnd = holeEnd;
@@ -826,7 +1085,9 @@ namespace Neurocle.Domain.Segmentation
             public int HoleIndex { get; private set; }
             // 取得此邊對間距的平方距離下界。
             public double LowerBound { get; private set; }
-            /// <summary>依距離下界及輪廓邊索引建立穩定排序。</summary>
+            /// <summary>
+            /// 依距離下界及輪廓邊索引建立穩定排序。
+            /// </summary>
             /// <param name="other">待比較的候選邊對。</param>
             /// <returns>依排序先後回傳負數、零或正數。</returns>
             public int CompareTo(EdgePair other)
@@ -841,7 +1102,9 @@ namespace Neurocle.Domain.Segmentation
         // 保存兩條線段最近點各自的投影比例。
         private sealed class SegmentParameters
         {
-            /// <summary>建立兩個線段比例的結果物件。</summary>
+            /// <summary>
+            /// 建立兩個線段比例的結果物件。
+            /// </summary>
             public SegmentParameters(double first, double second) { First = first; Second = second; }
             // 取得第一條線段的比例。
             public double First { get; private set; }
@@ -852,7 +1115,14 @@ namespace Neurocle.Domain.Segmentation
         // 表示候選橋接及其端點所屬輪廓，並保留既有連線標記。
         private sealed class BridgeSelection : IComparable<BridgeSelection>
         {
-            /// <summary>建立候選橋接資料。</summary>
+            /// <summary>
+            /// 建立候選橋接資料。
+            /// </summary>
+            /// <param name="firstPoint">第一個幾何點。</param>
+            /// <param name="secondPoint">第二個幾何點。</param>
+            /// <param name="firstContourIndex">第一個輪廓在集合中的索引。</param>
+            /// <param name="secondContourIndex">第二個輪廓在集合中的索引。</param>
+            /// <param name="isExisting">橋接是否為可保留的既有連線。</param>
             public BridgeSelection(Point64 firstPoint, Point64 secondPoint, int firstContourIndex, int secondContourIndex, bool isExisting = false)
             {
                 FirstPoint = firstPoint; SecondPoint = secondPoint; FirstContourIndex = firstContourIndex; SecondContourIndex = secondContourIndex; IsExisting = isExisting;
@@ -867,7 +1137,9 @@ namespace Neurocle.Domain.Segmentation
             public int SecondContourIndex { get; private set; }
             // 指出此候選是否來自先前已存在的橋接。
             public bool IsExisting { get; private set; }
-            /// <summary>依橋接長度、既有狀態與固定端點順序比較候選。</summary>
+            /// <summary>
+            /// 依橋接長度、既有狀態與固定端點順序比較候選。
+            /// </summary>
             /// <param name="other">待比較的橋接候選。</param>
             /// <returns>依排序先後回傳負數、零或正數。</returns>
             public int CompareTo(BridgeSelection other)
@@ -888,7 +1160,12 @@ namespace Neurocle.Domain.Segmentation
                 return comparison != 0 ? comparison : SecondContourIndex.CompareTo(other.SecondContourIndex);
             }
 
-            /// <summary>依 X 再依 Y 的順序比較兩個整數座標。</summary>
+            /// <summary>
+            /// 依 X 再依 Y 的順序比較兩個整數座標。
+            /// </summary>
+            /// <param name="first">第一個比較或運算的值。</param>
+            /// <param name="second">第二個比較或運算的值。</param>
+            /// <returns>依座標排序回傳負數、零或正數。</returns>
             private static int ComparePoint(Point64 first, Point64 second)
             {
                 int comparison = first.X.CompareTo(second.X);
@@ -899,7 +1176,9 @@ namespace Neurocle.Domain.Segmentation
         // 表示兩個不同輪廓間既有橋接的輪廓索引與實際端點。
         public sealed class BridgeConnection
         {
-            /// <summary>建立既有橋接；輪廓索引較小者會固定存為第一端。</summary>
+            /// <summary>
+            /// 建立既有橋接；輪廓索引較小者會固定存為第一端。
+            /// </summary>
             /// <param name="firstContourIndex">輸入第一端所屬輪廓索引。</param>
             /// <param name="firstPoint">輸入第一端的整數座標。</param>
             /// <param name="secondContourIndex">輸入第二端所屬輪廓索引。</param>
@@ -935,11 +1214,15 @@ namespace Neurocle.Domain.Segmentation
         // 表示無法建立涵蓋全部輪廓的合法空洞橋接網路。
         public sealed class BridgeNetworkException : InvalidOperationException
         {
-            /// <summary>建立橋接網路無法連通的例外。</summary>
+            /// <summary>
+            /// 建立橋接網路無法連通的例外。
+            /// </summary>
             public BridgeNetworkException() : base("A legal hole bridge network could not be found.") { }
         }
 
-        /// <summary>將浮點座標四捨五入並限制在圖片的有效整數像素範圍。</summary>
+        /// <summary>
+        /// 將浮點座標四捨五入並限制在圖片的有效整數像素範圍。
+        /// </summary>
         /// <param name="x">浮點 X 座標。</param>
         /// <param name="y">浮點 Y 座標。</param>
         /// <param name="width">正整數圖片寬度。</param>
@@ -958,7 +1241,9 @@ namespace Neurocle.Domain.Segmentation
                 Math.Max(0, Math.Min(height - 1, (long)Math.Round(y, MidpointRounding.AwayFromZero))));
         }
 
-        /// <summary>計算多個路徑的絕對有向面積總和。</summary>
+        /// <summary>
+        /// 計算多個路徑的絕對有向面積總和。
+        /// </summary>
         /// <param name="paths">要計算面積的整數路徑集合。</param>
         /// <returns>路徑面積總和的絕對值。</returns>
         public static double Area(Paths64 paths)
@@ -972,7 +1257,12 @@ namespace Neurocle.Domain.Segmentation
             return Math.Abs(area);
         }
 
-        /// <summary>建立包含兩組路徑的串接集合，不執行幾何正規化。</summary>
+        /// <summary>
+        /// 建立包含兩組路徑的串接集合，不執行幾何正規化。
+        /// </summary>
+        /// <param name="first">第一個比較或運算的值。</param>
+        /// <param name="second">第二個比較或運算的值。</param>
+        /// <returns>回傳依 Non-Zero 規則合併後的路徑集合。</returns>
         private static Paths64 Combine(Paths64 first, Paths64 second)
         {
             var result = new Paths64(first.Count + second.Count);
