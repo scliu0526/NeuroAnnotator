@@ -301,6 +301,7 @@ namespace Neurocle.WinForms
                         {
                             job.Status = ImportJobStatus.Canceled;
                             job.Result = new ImportJobResult(true, new string[0]);
+                            TrimHistoryLocked();
                         }
                         else job.Status = ImportJobStatus.Running;
                     }

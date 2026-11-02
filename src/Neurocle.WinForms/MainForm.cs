@@ -1539,12 +1539,23 @@ namespace Neurocle.WinForms
         /// <summary>僅在沒有匯入或背景標註操作時允許更換目前專案。</summary>
         private void UpdateProjectMenuAvailability()
         {
-            projectMenu.Enabled = !importInProgress && !annotationOperationInProgress;
+            bool projectChangeAllowed = !importInProgress && !annotationOperationInProgress;
+            projectMenu.Enabled = true;
+            newProjectMenuItem.Enabled = projectChangeAllowed;
+            openProjectMenuItem.Enabled = projectChangeAllowed;
+            saveProjectMenuItem.Enabled = projectChangeAllowed;
+            saveProjectAsMenuItem.Enabled = projectChangeAllowed;
+            backupsMenuItem.Enabled = projectChangeAllowed;
+            missingImagesMenuItem.Enabled = projectChangeAllowed;
+            importQueueMenuItem.Enabled = project != null;
             deleteSelectedImagesButton.Enabled = !importInProgress;
             deleteAllImagesButton.Enabled = !importInProgress;
             exportSelected.Enabled = !importInProgress;
             exportAll.Enabled = !importInProgress;
             datasetAssignments.Enabled = !importInProgress;
+            newSet.Enabled = projectChangeAllowed;
+            renameSet.Enabled = projectChangeAllowed;
+            deleteSet.Enabled = projectChangeAllowed;
         }
 
         /// <summary>顯示單一非強制回應匯入佇列視窗。</summary>

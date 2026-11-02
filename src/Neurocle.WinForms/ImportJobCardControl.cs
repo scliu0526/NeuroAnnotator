@@ -24,7 +24,7 @@ namespace Neurocle.WinForms
             sourceLabel.Text = KindText(value.Request) + "：" + SourceText(value.Request);
             statusLabel.Text = StatusText(value.Status);
             progressLabel.Text = value.Result == null
-                ? value.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, value.Progress.ProcessedCount, value.Progress.TotalCount)
+                ? value.Status == ImportJobStatus.Waiting ? Strings.ImportQueueWaiting : value.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, value.Progress.ProcessedCount, value.Progress.TotalCount)
                 : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
             detailsLabel.Text = value.ErrorMessage ?? string.Empty;
             detailsLabel.Visible = detailsVisible && detailsLabel.Text.Length > 0;
