@@ -44,6 +44,7 @@ namespace Neurocle.WinForms.Resources
         internal static string ImportQueueProgressColumn { get { return ResourceManager.GetString("ImportQueueProgressColumn", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueFileCount { get { return ResourceManager.GetString("ImportQueueFileCount", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueProgress { get { return ResourceManager.GetString("ImportQueueProgress", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueResultSummary { get { return ResourceManager.GetString("ImportQueueResultSummary", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueWaiting { get { return ResourceManager.GetString("ImportQueueWaiting", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueRunning { get { return ResourceManager.GetString("ImportQueueRunning", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueCompleted { get { return ResourceManager.GetString("ImportQueueCompleted", CultureInfo.CurrentUICulture); } }

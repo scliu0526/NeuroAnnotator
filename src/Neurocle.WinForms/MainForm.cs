@@ -95,6 +95,7 @@ namespace Neurocle.WinForms
         private ComboBox zoom;
         private Button imageFit;
         private Button importImagesButton;
+        private Button importFolderButton;
         private ComboBox imageZoom;
         private Label annotationZoomText;
         private Label imageZoomText;
@@ -277,7 +278,8 @@ namespace Neurocle.WinForms
             saveProjectAsMenuItem.Click += (sender, args) => RunProjectCommand(SaveProjectAs);
             importImagesMenuItem.Click += (sender, args) => QueueImageFiles();
             importImagesButton.Click += (sender, args) => QueueImageFiles();
-            importFolderMenuItem.Click += async (sender, args) => await ImportFolderAsync();
+            importFolderButton.Click += (sender, args) => QueueFolder();
+            importFolderMenuItem.Click += (sender, args) => QueueFolder();
             importAnnotationMenuItem.Click += (sender, args) => RunProjectCommand(ImportAnnotationJson);
             missingImagesMenuItem.Click += (sender, args) => ManageMissingImages();
             backupsMenuItem.Click += (sender, args) => ManageBackups();
@@ -1394,6 +1396,20 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>選取資料夾並將其加入目前專案的匯入佇列。</summary>
+        private void QueueFolder()
+        {
+            if (project == null || importJobQueue == null) return;
+            using (var dialog = new FolderBrowserDialog())
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                DialogResult choice = MessageBox.Show(this, Strings.IncludeSubdirectoriesPrompt, Text, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (choice == DialogResult.Cancel) return;
+                importJobQueue.Enqueue(new FolderImportJobRequest(dialog.SelectedPath, choice == DialogResult.Yes));
+                ShowImportQueue();
+            }
+        }
+
         /// <summary>建立目前專案專用的圖片匯入佇列並接收狀態更新。</summary>
         private void InitializeImageImportQueue(IProjectSession session)
         {
@@ -1407,21 +1423,30 @@ namespace Neurocle.WinForms
             importJobQueue.JobsChanged += ImageImportJobsChanged;
             if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(new ImportJobSnapshot[0]);
             importImagesButton.Enabled = true;
+            importFolderButton.Enabled = true;
             importImagesMenuItem.Enabled = true;
         }
 
         /// <summary>依匯入工作種類執行對應專案操作並轉換成共用結果。</summary>
         private static ImportJobResult ExecuteImportJob(IProjectSession session, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress)
         {
+            ImageImportReport report;
             var imageRequest = request as ImageFilesImportJobRequest;
-            if (imageRequest == null) throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
-            ImageImportReport report = session.ImportFilesWithReport(
-                imageRequest.FilePaths,
-                cancellationRequested,
-                value => progress(new ImportJobProgress(value.ProcessedCount, value.TotalCount, value.SuccessfulCount, value.FailedCount)));
+            if (imageRequest != null)
+            {
+                report = session.ImportFilesWithReport(imageRequest.FilePaths, cancellationRequested,
+                    value => progress(new ImportJobProgress(value.ProcessedCount, value.TotalCount, value.SuccessfulCount, value.FailedCount)));
+            }
+            else
+            {
+                var folderRequest = request as FolderImportJobRequest;
+                if (folderRequest == null) throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
+                report = session.ImportDirectory(folderRequest.DirectoryPath, folderRequest.IncludeSubdirectories, cancellationRequested,
+                    value => progress(new ImportJobProgress(value.ProcessedCount, value.TotalCount, value.SuccessfulCount, value.FailedCount)));
+            }
             return new ImportJobResult(
                 report.UnprocessedCount > 0 || report.WasCancelledDuringScan,
-                report.Imported.Select(image => image.Id).ToArray());
+                report.Imported.Select(image => image.Id).ToArray(), report.Failures.Count, report.UnprocessedCount);
         }
 
         /// <summary>在 UI 執行緒顯示最新匯入狀態並於工作結束後刷新圖片清單。</summary>
@@ -1470,21 +1495,6 @@ namespace Neurocle.WinForms
             importQueueForm.UpdateJobs(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
             if (!importQueueForm.Visible) importQueueForm.Show(this);
             else importQueueForm.Activate();
-        }
-
-        /// <summary>選取資料夾並非同步匯入其中的圖片。</summary>
-        private async Task ImportFolderAsync()
-        {
-            if (project == null) return;
-            using (var dialog = new FolderBrowserDialog())
-            {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                DialogResult choice = MessageBox.Show(this, Strings.IncludeSubdirectoriesPrompt, Text, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-                if (choice == DialogResult.Cancel) return;
-                IProjectSession session = project;
-                string selectedPath = dialog.SelectedPath;
-                await ImportAsync(progress => session.ImportDirectory(selectedPath, choice == DialogResult.Yes, () => progress.IsCancellationRequested, progress.Report));
-            }
         }
 
         /// <summary>執行匯入工作並管理進度視窗與取消操作。</summary>

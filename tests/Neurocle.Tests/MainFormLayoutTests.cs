@@ -330,9 +330,12 @@ namespace Neurocle.Tests
                 Assert.AreEqual(300, Field<ImageBrowserControl>(form, "imageBrowser").Width);
                 Assert.IsTrue(GetDescendants(form).OfType<CanvasScrollHost>().Count() == 2);
                 Button importImages = Field<Button>(form, "importImagesButton");
+                Button importFolder = Field<Button>(form, "importFolderButton");
                 Assert.IsFalse(importImages.Enabled);
+                Assert.IsFalse(importFolder.Enabled);
                 Assert.IsFalse(Field<ToolStripMenuItem>(form, "importImagesMenuItem").Enabled);
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importImages));
+                Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importFolder));
             }
         }
 
@@ -345,12 +348,15 @@ namespace Neurocle.Tests
                 {
                     new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "one.png" }), ImportJobStatus.Waiting, null, null, null),
                     new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "two.png" }), ImportJobStatus.Running, new ImportJobProgress(1, 2, 1, 0), null, null),
-                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "three.png" }), ImportJobStatus.Completed, new ImportJobProgress(1, 1, 1, 0), null, null)
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "three.png" }), ImportJobStatus.Completed, new ImportJobProgress(1, 1, 1, 0), new ImportJobResult(false, new[] { "image-id" }, 2, 0), null),
+                    new ImportJobSnapshot(Guid.NewGuid(), new FolderImportJobRequest("folder", true), ImportJobStatus.Completed, new ImportJobProgress(2, 2, 1, 1), new ImportJobResult(false, new[] { "folder-image-id" }, 1, 0), null)
                 });
 
                 ListView jobs = Field<ListView>(form, "jobsList");
-                CollectionAssert.AreEqual(new[] { "等待中", "執行中", "已完成" }, jobs.Items.Cast<ListViewItem>().Select(item => item.SubItems[1].Text).ToArray());
+                CollectionAssert.AreEqual(new[] { "等待中", "執行中", "已完成", "已完成" }, jobs.Items.Cast<ListViewItem>().Select(item => item.SubItems[1].Text).ToArray());
+                Assert.AreEqual("成功 1，失敗 1，未完成 0", jobs.Items[3].SubItems[2].Text);
                 Assert.AreEqual("1 / 2", jobs.Items[1].SubItems[2].Text);
+                Assert.AreEqual("成功 1，失敗 1，未完成 0", jobs.Items[3].SubItems[2].Text);
                 jobs.Items[2].Selected = true;
                 Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
             }

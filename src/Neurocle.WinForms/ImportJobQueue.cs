@@ -8,7 +8,8 @@ namespace Neurocle.WinForms
 {
     internal enum ImportJobKind
     {
-        ImageFiles
+        ImageFiles,
+        Folder
     }
 
     internal enum ImportJobStatus
@@ -43,6 +44,20 @@ namespace Neurocle.WinForms
         public IReadOnlyList<string> FilePaths { get; }
     }
 
+    internal sealed class FolderImportJobRequest : ImportJobRequest
+    {
+        public FolderImportJobRequest(string directoryPath, bool includeSubdirectories)
+            : base(ImportJobKind.Folder)
+        {
+            if (String.IsNullOrWhiteSpace(directoryPath)) throw new ArgumentException("A directory path is required.", nameof(directoryPath));
+            DirectoryPath = directoryPath;
+            IncludeSubdirectories = includeSubdirectories;
+        }
+
+        public string DirectoryPath { get; }
+        public bool IncludeSubdirectories { get; }
+    }
+
     internal sealed class ImportJobProgress
     {
         public ImportJobProgress(int processedCount, int totalCount, int successfulCount, int failedCount)
@@ -61,14 +76,18 @@ namespace Neurocle.WinForms
 
     internal sealed class ImportJobResult
     {
-        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds)
+        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0)
         {
             WasCanceled = wasCanceled;
             ImportedImageIds = Array.AsReadOnly((importedImageIds ?? new string[0]).ToArray());
+            FailedCount = failedCount;
+            UnprocessedCount = unprocessedCount;
         }
 
         public bool WasCanceled { get; }
         public IReadOnlyList<string> ImportedImageIds { get; }
+        public int FailedCount { get; }
+        public int UnprocessedCount { get; }
     }
 
     internal sealed class ImportJobSnapshot

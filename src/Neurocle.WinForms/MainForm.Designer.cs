@@ -82,6 +82,7 @@ namespace Neurocle.WinForms
             this.zoom = new ComboBox();
             this.imageFit = new Button();
             this.importImagesButton = new Button();
+            this.importFolderButton = new Button();
             this.imageZoom = new ComboBox();
             this.annotationZoomText = new Label();
             this.imageZoomText = new Label();
@@ -163,6 +164,11 @@ namespace Neurocle.WinForms
             this.importImagesButton.Name = "importImagesButton";
             this.importImagesButton.Text = Strings.ImportImages;
             this.importImagesButton.UseVisualStyleBackColor = true;
+            this.importFolderButton.AutoSize = true;
+            this.importFolderButton.Enabled = false;
+            this.importFolderButton.Name = "importFolderButton";
+            this.importFolderButton.Text = Strings.ImportFolder;
+            this.importFolderButton.UseVisualStyleBackColor = true;
             this.imageZoom.DropDownStyle = ComboBoxStyle.DropDownList;
             this.imageZoom.Name = "imageZoom";
             this.imageZoom.Width = 100;
@@ -175,7 +181,7 @@ namespace Neurocle.WinForms
             this.deleteAllImagesButton.AutoSize = true;
             this.deleteAllImagesButton.Name = "deleteAllImages";
             this.deleteAllImagesButton.Text = Strings.DeleteAllImages;
-            this.imageControls.Controls.AddRange(new Control[] { this.importImagesButton, this.imageFit, this.imageZoom, this.imageZoomText, this.deleteSelectedImagesButton, this.deleteAllImagesButton });
+            this.imageControls.Controls.AddRange(new Control[] { this.importImagesButton, this.importFolderButton, this.imageFit, this.imageZoom, this.imageZoomText, this.deleteSelectedImagesButton, this.deleteAllImagesButton });
             this.imageHeader.Controls.Add(this.imageControls);
             this.imagesPage.Controls.Add(this.imageCanvasHost);
             this.imagesPage.Controls.Add(this.imageHeader);

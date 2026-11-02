@@ -234,6 +234,15 @@ namespace Neurocle.Infrastructure.Persistence
         public ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
         {
             if (directoryPath == null) throw new ArgumentNullException(nameof(directoryPath));
+            if (disposed) throw new ObjectDisposedException(nameof(ProjectStore));
+            using (var importSession = new ProjectStore(ProjectPath, null, OpenConnection(ProjectPath)))
+            {
+                return importSession.ImportDirectoryCore(directoryPath, includeSubdirectories, cancellationRequested, progress);
+            }
+        }
+
+        private ImageImportReport ImportDirectoryCore(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested, Action<ImageImportProgress> progress)
+        {
             var sources = new List<string>();
             var failures = new List<ImageImportFailureDetail>();
             try

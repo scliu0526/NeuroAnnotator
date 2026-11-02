@@ -71,6 +71,25 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Image_and_folder_jobs_execute_in_one_fifo()
+        {
+            var executionOrder = new List<ImportJobKind>();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                executionOrder.Add(request.Kind);
+                return new ImportJobResult(false, new string[0]);
+            }))
+            {
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "first.png" }));
+                queue.Enqueue(new FolderImportJobRequest("folder", false));
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "last.png" }));
+
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                CollectionAssert.AreEqual(new[] { ImportJobKind.ImageFiles, ImportJobKind.Folder, ImportJobKind.ImageFiles }, executionOrder.ToArray());
+            }
+        }
+
+        [TestMethod]
         public void Completed_image_jobs_add_images_to_the_project()
         {
             string directory = Path.Combine(Path.GetTempPath(), "neurocle-image-queue-" + Guid.NewGuid().ToString("N"));
@@ -94,6 +113,85 @@ namespace Neurocle.Tests
             }
             finally
             {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Completed_folder_job_reports_partial_success()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "neurocle-folder-queue-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string sourceDirectory = Path.Combine(directory, "source");
+                Directory.CreateDirectory(sourceDirectory);
+                string valid = Path.Combine(sourceDirectory, "valid.png");
+                using (var bitmap = new Bitmap(4, 4)) bitmap.Save(valid, ImageFormat.Png);
+                File.WriteAllText(Path.Combine(sourceDirectory, "invalid.txt"), "not an image");
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(directory, "queue.neurocle")))
+                using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => ImportImportJob(store, request, cancellationRequested, progress)))
+                {
+                    queue.Enqueue(new FolderImportJobRequest(sourceDirectory, false));
+
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                    ImportJobSnapshot job = queue.Jobs.Single();
+                    Assert.AreEqual(ImportJobStatus.Completed, job.Status);
+                    Assert.AreEqual(1, job.Result.ImportedImageIds.Count);
+                    Assert.AreEqual(1, job.Result.FailedCount);
+                    Assert.AreEqual(0, job.Result.UnprocessedCount);
+                    Assert.AreEqual(1, store.GetImages().Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Canceling_a_running_folder_job_preserves_completed_images()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "neurocle-folder-cancel-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            var firstProcessed = new ManualResetEventSlim();
+            var release = new ManualResetEventSlim();
+            try
+            {
+                string sourceDirectory = Path.Combine(directory, "source");
+                Directory.CreateDirectory(sourceDirectory);
+                foreach (string name in new[] { "first.png", "second.png" })
+                {
+                    using (var bitmap = new Bitmap(4, 4)) bitmap.Save(Path.Combine(sourceDirectory, name), ImageFormat.Png);
+                }
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(directory, "queue.neurocle")))
+                using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => ImportImportJob(store, request, cancellationRequested, progress, value =>
+                {
+                    if (value.ProcessedCount == 1)
+                    {
+                        firstProcessed.Set();
+                        Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(5)));
+                    }
+                })))
+                {
+                    Guid jobId = queue.Enqueue(new FolderImportJobRequest(sourceDirectory, false));
+                    Assert.IsTrue(firstProcessed.Wait(TimeSpan.FromSeconds(5)));
+                    queue.Cancel(jobId);
+                    release.Set();
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+
+                    ImportJobSnapshot job = queue.Jobs.Single();
+                    Assert.AreEqual(ImportJobStatus.Canceled, job.Status);
+                    Assert.AreEqual(1, job.Result.ImportedImageIds.Count);
+                    Assert.AreEqual(1, job.Result.UnprocessedCount);
+                    Assert.AreEqual(1, store.GetImages().Count);
+                }
+            }
+            finally
+            {
+                release.Set();
+                firstProcessed.Dispose();
+                release.Dispose();
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
         }
@@ -202,7 +300,7 @@ namespace Neurocle.Tests
                         Assert.IsTrue(releaseImport.Wait(TimeSpan.FromSeconds(5)));
                     })))
                     {
-                        queue.Enqueue(new ImageFilesImportJobRequest(new[] { firstPath, secondPath }));
+                    queue.Enqueue(new ImageFilesImportJobRequest(new[] { firstPath, secondPath }));
                         Assert.IsTrue(firstImported.Wait(TimeSpan.FromSeconds(5)));
 
                         store.SetClaClass(set.Id, existing.Id, classId);
@@ -223,15 +321,25 @@ namespace Neurocle.Tests
 
         private static ImportJobResult ImportImages(ProjectStore store, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress, Action<ImageImportProgress> afterProgress = null)
         {
-            var imageRequest = (ImageFilesImportJobRequest)request;
-            ImageImportReport report = store.ImportFilesWithReport(imageRequest.FilePaths, cancellationRequested, value =>
+            return ImportImportJob(store, request, cancellationRequested, progress, afterProgress);
+        }
+
+        private static ImportJobResult ImportImportJob(ProjectStore store, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress, Action<ImageImportProgress> afterProgress = null)
+        {
+            ImageImportReport report;
+            var imageRequest = request as ImageFilesImportJobRequest;
+            var folderRequest = request as FolderImportJobRequest;
+            Action<ImageImportProgress> reportProgress = value =>
             {
                 progress(new ImportJobProgress(value.ProcessedCount, value.TotalCount, value.SuccessfulCount, value.FailedCount));
                 if (afterProgress != null) afterProgress(value);
-            });
+            };
+            if (imageRequest != null) report = store.ImportFilesWithReport(imageRequest.FilePaths, cancellationRequested, reportProgress);
+            else if (folderRequest != null) report = store.ImportDirectory(folderRequest.DirectoryPath, folderRequest.IncludeSubdirectories, cancellationRequested, reportProgress);
+            else throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
             return new ImportJobResult(
                 report.UnprocessedCount > 0 || report.WasCancelledDuringScan,
-                report.Imported.Select(image => image.Id).ToArray());
+                report.Imported.Select(image => image.Id).ToArray(), report.Failures.Count, report.UnprocessedCount);
         }
     }
 }
