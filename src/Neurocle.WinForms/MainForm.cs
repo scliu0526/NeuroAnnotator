@@ -873,7 +873,10 @@ namespace Neurocle.WinForms
                 bool activeClass = selected.Type == AnnotationSetType.Cla
                     ? selectedImageId != null && project.GetClaClassId(selected.Id, selectedImageId) == value.Id
                     : selected.Type == AnnotationSetType.Obd ? selectedObdClassId == value.Id : selectedSegClassId == value.Id;
-                var button = new Button { Text = value.Name, AutoSize = true, BackColor = AnnotationColorFormat.ToColor(value.Color), FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false };
+                Color classColor = AnnotationColorFormat.ToColor(value.Color);
+                var button = new ClassLabelButton { Text = value.Name, AutoSize = false, Width = 220, Height = 34, ClassColor = classColor, IsActive = activeClass, BackColor = activeClass ? classColor : SystemColors.Control, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false };
+                button.AutoEllipsis = true;
+                annotationToolTips.SetToolTip(button, value.Name);
                 button.FlatAppearance.BorderSize = activeClass ? 3 : 1;
                 button.FlatAppearance.BorderColor = activeClass ? SystemColors.Highlight : SystemColors.ControlDark;
                 button.Click += (sender, args) =>

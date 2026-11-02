@@ -655,6 +655,20 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Class_label_button_renders_color_block_name_and_active_accent()
+        {
+            using (var button = new ClassLabelButton { Text = "A very long class name", ClassColor = Color.MediumPurple, IsActive = true, Size = new Size(220, 34) })
+            using (var rendered = new Bitmap(220, 34))
+            {
+                button.CreateControl();
+                button.DrawToBitmap(rendered, button.ClientRectangle);
+                Assert.AreEqual(Color.MediumPurple.ToArgb(), rendered.GetPixel(20, 17).ToArgb());
+                Assert.AreEqual(SystemColors.Highlight.ToArgb(), rendered.GetPixel(1, 17).ToArgb());
+                Assert.AreEqual("A very long class name", button.Text);
+            }
+        }
+
+        [STATestMethod]
         public void Annotation_set_creation_dialog_shows_all_types_in_unselected_cards()
         {
             using (var dialog = new AnnotationSetCreationDialog())

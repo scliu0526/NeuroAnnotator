@@ -121,6 +121,7 @@
     <Compile Include="DatasetAssignmentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="ClassLabelButton.cs" />
     <Compile Include="DatasetAssignmentControl.Designer.cs">
       <DependentUpon>DatasetAssignmentControl.cs</DependentUpon>
     </Compile>
