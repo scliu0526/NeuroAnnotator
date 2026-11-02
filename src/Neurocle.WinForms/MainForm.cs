@@ -698,6 +698,7 @@ namespace Neurocle.WinForms
             UpdateProjectStatus();
             RefreshAnnotationClasses();
             RefreshDatasetAssignments();
+            RefreshImportedImageAvailability(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
         }
 
         /// <summary>開啟遺失圖片管理介面。</summary>
@@ -708,6 +709,7 @@ namespace Neurocle.WinForms
             UpdateProjectStatus();
             imageBrowser.LoadImages(project.GetImages(), GetImagesDirectory(project.ProjectPath));
             RefreshAnnotationSets();
+            RefreshImportedImageAvailability(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
         }
 
         /// <summary>開啟診斷日誌管理介面。</summary>
@@ -1500,7 +1502,11 @@ namespace Neurocle.WinForms
                 return;
             }
 
-            if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(jobs);
+            if (importQueueForm != null && !importQueueForm.IsDisposed)
+            {
+                importQueueForm.UpdateJobs(jobs);
+                RefreshImportedImageAvailability(jobs);
+            }
             importInProgress = importJobQueue != null && importJobQueue.IsBusy;
             UpdateProjectMenuAvailability();
             foreach (ImportJobSnapshot job in jobs.Where(value => value.RequiresConfirmation && value.Status == ImportJobStatus.Waiting))
@@ -1534,6 +1540,35 @@ namespace Neurocle.WinForms
         private static bool IsEndedImageImportJob(ImportJobSnapshot job)
         {
             return job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled;
+        }
+
+        /// <summary>切換圖片頁並選取指定匯入工作仍存在的圖片。</summary>
+        private void ViewImportedImages(Guid jobId)
+        {
+            if (project == null || importJobQueue == null || importQueueForm == null) return;
+            ImportJobSnapshot job = importJobQueue.Jobs.FirstOrDefault(value => value.Id == jobId);
+            if (job == null || job.Result == null || job.Status != ImportJobStatus.Completed || job.Request is AnnotationJsonImportJobRequest) return;
+            var existingImageIds = new HashSet<string>(project.GetImages().Select(image => image.Id), StringComparer.Ordinal);
+            string[] imageIds = job.Result.ImportedImageIds.Where(existingImageIds.Contains).ToArray();
+            if (imageIds.Length == 0)
+            {
+                importQueueForm.SetImportedImagesAvailability(jobId, false, Strings.ImportedImagesUnavailable);
+                return;
+            }
+            pages.SelectedTab = imagesPage;
+            imageBrowser.SelectImages(imageIds);
+        }
+
+        /// <summary>依目前專案圖片更新已完成匯入工作的跳轉可用性。</summary>
+        private void RefreshImportedImageAvailability(IReadOnlyList<ImportJobSnapshot> jobs)
+        {
+            if (importQueueForm == null || importQueueForm.IsDisposed) return;
+            var existingImageIds = new HashSet<string>(project == null ? new string[0] : project.GetImages().Select(image => image.Id), StringComparer.Ordinal);
+            foreach (ImportJobSnapshot job in (jobs ?? new ImportJobSnapshot[0]).Where(value => value.Status == ImportJobStatus.Completed && value.Result != null && !(value.Request is AnnotationJsonImportJobRequest)))
+            {
+                bool hasExisting = job.Result.ImportedImageIds.Any(existingImageIds.Contains);
+                importQueueForm.SetImportedImagesAvailability(job.Id, hasExisting, hasExisting ? null : Strings.ImportedImagesUnavailable);
+            }
         }
 
         /// <summary>僅在沒有匯入或背景標註操作時允許更換目前專案。</summary>
@@ -1571,8 +1606,10 @@ namespace Neurocle.WinForms
                 importQueueForm = new ImportQueueForm();
                 importQueueForm.CancelRequested += id => importJobQueue?.Cancel(id);
                 importQueueForm.ClearCompletedRequested += () => importJobQueue?.ClearCompleted();
+                importQueueForm.ViewImportedImagesRequested += ViewImportedImages;
             }
             importQueueForm.UpdateJobs(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
+            RefreshImportedImageAvailability(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
             if (!importQueueForm.Visible) importQueueForm.Show(this);
             else importQueueForm.Activate();
         }

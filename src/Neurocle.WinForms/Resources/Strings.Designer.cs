@@ -58,6 +58,8 @@ namespace Neurocle.WinForms.Resources
         internal static string ClearCompleted { get { return ResourceManager.GetString("ClearCompleted", CultureInfo.CurrentUICulture); } }
         internal static string ShowDetails { get { return ResourceManager.GetString("ShowDetails", CultureInfo.CurrentUICulture); } }
         internal static string HideDetails { get { return ResourceManager.GetString("HideDetails", CultureInfo.CurrentUICulture); } }
+        internal static string ViewImportedImages { get { return ResourceManager.GetString("ViewImportedImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportedImagesUnavailable { get { return ResourceManager.GetString("ImportedImagesUnavailable", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportSummary { get { return ResourceManager.GetString("ImportReportSummary", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportUnknownCount { get { return ResourceManager.GetString("ImportReportUnknownCount", CultureInfo.CurrentUICulture); } }
         internal static string ImportScanCancelled { get { return ResourceManager.GetString("ImportScanCancelled", CultureInfo.CurrentUICulture); } }

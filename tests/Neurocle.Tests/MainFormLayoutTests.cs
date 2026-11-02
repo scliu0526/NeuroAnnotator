@@ -374,6 +374,53 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Completed_image_import_card_can_request_viewing_imported_images()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                Guid jobId = Guid.NewGuid();
+                bool requested = false;
+                form.ViewImportedImagesRequested += id => requested = id == jobId;
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(jobId, new ImageFilesImportJobRequest(new[] { "one.png" }), ImportJobStatus.Completed, null, new ImportJobResult(false, new[] { "image-id" }), null)
+                });
+
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                Button view = Field<Button>(card, "viewImportedImagesButton");
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(view.Visible);
+                typeof(ImportJobCardControl).GetMethod("ViewImportedImagesButton_Click", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(card, new object[] { view, EventArgs.Empty });
+                Assert.IsTrue(requested);
+                form.SetImportedImagesAvailability(jobId, false, "該批匯入的圖片已全部刪除");
+                Assert.IsFalse(view.Enabled);
+            }
+        }
+
+        [STATestMethod]
+        public void Image_browser_select_images_clears_filter_and_selects_only_requested_rows()
+        {
+            using (var browser = new ImageBrowserControl())
+            {
+                browser.CreateControl();
+                var images = new[]
+                {
+                    new ProjectImage("one", "one.png", "one.png", "sha-one", 10, 10, 1),
+                    new ProjectImage("two", "two.png", "two.png", "sha-two", 10, 10, 2),
+                    new ProjectImage("three", "three.png", "three.png", "sha-three", 10, 10, 3)
+                };
+                browser.LoadImages(images, Path.GetTempPath());
+                TextBox search = Field<TextBox>(browser, "search");
+                search.Text = "three";
+                browser.SelectImages(new[] { "one", "three" });
+                CollectionAssert.AreEquivalent(new[] { "one", "three" }, browser.SelectedImageIds.ToArray());
+                Assert.AreEqual(string.Empty, search.Text);
+            }
+        }
+
+        [STATestMethod]
         public void Import_queue_window_explains_unknown_remaining_folder_scan_after_cancel()
         {
             using (var form = new ImportQueueForm())

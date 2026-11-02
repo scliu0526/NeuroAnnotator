@@ -17,6 +17,7 @@ namespace Neurocle.WinForms
         }
 
         public event Action<Guid> CancelRequested;
+        public event Action<Guid> ViewImportedImagesRequested;
         public event Action ClearCompletedRequested;
 
         public void UpdateJobs(IReadOnlyList<ImportJobSnapshot> jobs)
@@ -54,11 +55,23 @@ namespace Neurocle.WinForms
                 var card = new ImportJobCardControl { Width = Math.Max(380, cardsPanel.ClientSize.Width - 24) };
                 card.UpdateJob(job);
                 card.CancelRequested += id => { if (CancelRequested != null) CancelRequested(id); };
+                card.ViewImportedImagesRequested += id => { if (ViewImportedImagesRequested != null) ViewImportedImagesRequested(id); };
                 cardsPanel.Controls.Add(card);
             }
             cardsPanel.ResumeLayout();
             UpdateCancelButton();
             clearCompletedButton.Enabled = currentJobs.Any(job => job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled);
+        }
+
+        /// <summary>更新指定工作的匯入圖片跳轉狀態。</summary>
+        public void SetImportedImagesAvailability(Guid jobId, bool enabled, string unavailableReason)
+        {
+            ImportJobSnapshot job = currentJobs.FirstOrDefault(value => value.Id == jobId);
+            if (job == null) return;
+            foreach (ImportJobCardControl card in cardsPanel.Controls.OfType<ImportJobCardControl>())
+            {
+                if (card.JobId == jobId) card.SetViewImportedImagesAvailability(enabled, unavailableReason);
+            }
         }
 
         private static string SourceText(ImportJobRequest request)

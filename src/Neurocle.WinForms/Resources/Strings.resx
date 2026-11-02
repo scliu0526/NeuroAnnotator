@@ -72,6 +72,8 @@
   <data name="ClearCompleted" xml:space="preserve"><value>清除已結束</value></data>
   <data name="ShowDetails" xml:space="preserve"><value>展開詳細</value></data>
   <data name="HideDetails" xml:space="preserve"><value>收合詳細</value></data>
+  <data name="ViewImportedImages" xml:space="preserve"><value>查看匯入圖片</value></data>
+  <data name="ImportedImagesUnavailable" xml:space="preserve"><value>該批匯入的圖片已全部刪除</value></data>
   <data name="ImportReportSummary" xml:space="preserve"><value>已匯入：{0}&#13;&#10;失敗：{1}&#13;&#10;未完成：{2}</value></data>
   <data name="ImportReportUnknownCount" xml:space="preserve"><value>無法確定</value></data>
   <data name="ImportScanCancelled" xml:space="preserve"><value>資料夾掃描已取消；尚未掃描的項目數無法確定。</value></data>

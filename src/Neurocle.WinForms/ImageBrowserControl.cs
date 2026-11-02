@@ -52,6 +52,21 @@ namespace Neurocle.WinForms
             if (index >= 0) list.SelectedIndices.Add(index);
         }
 
+        /// <summary>清除搜尋並取代目前選取，選取仍存在的指定圖片且確保第一張可見。</summary>
+        internal void SelectImages(IReadOnlyCollection<string> imageIds)
+        {
+            if (imageIds == null || imageIds.Count == 0) return;
+            search.Clear();
+            var selectedIds = new HashSet<string>(imageIds, StringComparer.Ordinal);
+            var indices = visible.Select((row, index) => new { row, index })
+                .Where(item => selectedIds.Contains(item.row.Image.Id))
+                .Select(item => item.index)
+                .ToArray();
+            list.SelectedIndices.Clear();
+            foreach (int index in indices) list.SelectedIndices.Add(index);
+            if (indices.Length > 0) list.EnsureVisible(indices[0]);
+        }
+
         /// <summary>初始化搜尋欄、虛擬清單及選取排序事件。</summary>
         public ImageBrowserControl()
         {

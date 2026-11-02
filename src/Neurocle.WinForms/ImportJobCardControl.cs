@@ -16,6 +16,10 @@ namespace Neurocle.WinForms
         }
 
         public event Action<Guid> CancelRequested;
+        public event Action<Guid> ViewImportedImagesRequested;
+
+        /// <summary>取得目前卡片所代表的工作識別碼。</summary>
+        public Guid JobId { get { return job == null ? Guid.Empty : job.Id; } }
 
         /// <summary>套用匯入工作快照並更新卡片內容。</summary>
         public void UpdateJob(ImportJobSnapshot value)
@@ -30,6 +34,13 @@ namespace Neurocle.WinForms
             detailsLabel.Visible = detailsVisible && detailsLabel.Text.Length > 0;
             detailsButton.Text = detailsVisible ? Strings.HideDetails : Strings.ShowDetails;
             cancelButton.Enabled = value.Status == ImportJobStatus.Waiting || (value.Status == ImportJobStatus.Running && !(value.Request is AnnotationJsonImportJobRequest));
+            bool canView = value.Status == ImportJobStatus.Completed
+                && !(value.Request is AnnotationJsonImportJobRequest)
+                && value.Result != null
+                && value.Result.ImportedImageIds.Count > 0;
+            viewImportedImagesButton.Visible = canView;
+            viewImportedImagesButton.Enabled = canView;
+            toolTip.SetToolTip(viewImportedImagesButton, string.Empty);
         }
 
         private void DetailsButton_Click(object sender, EventArgs args)
@@ -41,6 +52,19 @@ namespace Neurocle.WinForms
         private void CancelButton_Click(object sender, EventArgs args)
         {
             if (job != null && CancelRequested != null) CancelRequested(job.Id);
+        }
+
+        /// <summary>通知要求切換至本次匯入仍存在的圖片。</summary>
+        private void ViewImportedImagesButton_Click(object sender, EventArgs args)
+        {
+            if (job != null && ViewImportedImagesRequested != null) ViewImportedImagesRequested(job.Id);
+        }
+
+        /// <summary>更新本次匯入圖片的跳轉可用性及停用原因。</summary>
+        public void SetViewImportedImagesAvailability(bool enabled, string unavailableReason)
+        {
+            viewImportedImagesButton.Enabled = enabled;
+            toolTip.SetToolTip(viewImportedImagesButton, enabled ? string.Empty : unavailableReason ?? string.Empty);
         }
 
         private static string SourceText(ImportJobRequest request)
