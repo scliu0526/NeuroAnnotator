@@ -24,6 +24,8 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 | 空洞橋接 | SEG 區域以單一路徑表示外圈與洞時，連接內外輪廓且往返重合的路徑段；它不增加填色面積。 |
 | 可用圖片（Available Image） | 受管理圖片檔仍存在且可讀取的圖片。缺失圖片不匯出。 |
 | 完成操作（Completed Operation） | 已通過有效性檢查且可形成單一 Undo/Redo 記錄的使用者動作。 |
+| 匯入工作（Import Job） | 對目前專案提出的一次圖片檔案、資料夾或標註 JSON 匯入要求；具有等待中、執行中、已完成、失敗或已取消狀態。 |
+| 匯入佇列（Import Queue） | 同一專案工作階段內，依加入順序保存並逐一執行匯入工作的集合。 |
 
 ## 不變條件
 
@@ -37,10 +39,11 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 - 永久刪除圖片會刪除該圖片在所有標註集中的資料；永久刪除標註集會刪除其全部資料。
 - JSON 是交換格式，不是專案的完整持久化格式。
 - 新匯入 BMP 的顯示檔名反映轉換後 PNG 格式；既有專案圖片不因新匯入規則改名。
+- 同一專案的匯入工作一次只執行一項；佇列未清空前不得更換目標專案。
 
 ## 主要工作流程
 
-1. 建立或開啟專案並匯入圖片。
+1. 建立或開啟專案，將圖片、資料夾或標註 JSON 排入匯入佇列。
 2. 建立或選擇標註集與類別。
 3. 依 CLA、OBD 或 SEG 工具完成標註。
 4. 手動或自動分配 train、test、未分配、not_used，並視需要設定 Retest。
@@ -60,10 +63,12 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 - 標註介面與 SEG 增量規格：`docs/specs/annotation-ui-seg-performance.md`
 - 圖片匯入與標註操作增量規格：`docs/specs/annotation-workflow-import-update.md`
 - 畫布互動、標註複製與集體旋轉增量規格：`docs/specs/annotation-canvas-interactions.md`
+- 標註介面與匯入工作流程增量規格：`docs/specs/annotation-ui-workflow-refresh.md`
 - 實作順序：`docs/plans/implementation-plan.md`
 - 標註介面與 SEG 增量計畫：`docs/plans/annotation-ui-seg-performance.md`
 - 圖片匯入與標註操作增量計畫：`docs/plans/annotation-workflow-import-update.md`
 - 畫布互動、標註複製與集體旋轉增量計畫：`docs/plans/annotation-canvas-interactions.md`
+- 標註介面與匯入工作流程增量計畫：`docs/plans/annotation-ui-workflow-refresh.md`
 - 測試與驗收：`docs/plans/test-and-acceptance-plan.md`
 - 已知風險：`docs/plans/known-risks.md`
 - 架構決策：`docs/adr/`
