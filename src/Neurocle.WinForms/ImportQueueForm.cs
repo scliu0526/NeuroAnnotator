@@ -47,6 +47,7 @@ namespace Neurocle.WinForms
             }
             jobsList.EndUpdate();
             cardsPanel.SuspendLayout();
+            foreach (Control card in cardsPanel.Controls.Cast<Control>().ToArray()) card.Dispose();
             cardsPanel.Controls.Clear();
             foreach (ImportJobSnapshot job in currentJobs)
             {

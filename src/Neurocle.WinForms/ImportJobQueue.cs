@@ -315,16 +315,28 @@ namespace Neurocle.WinForms
                     ImportJobResult result = executor(job.Request, () => IsCancellationRequested(job), progress => Report(job, progress));
                     if (result.RequiresConfirmation)
                     {
+                        bool waitForConfirmation;
                         lock (gate)
                         {
-                            job.ErrorMessage = result.ConfirmationMessage;
-                            job.Status = ImportJobStatus.Waiting;
-                            job.RequiresConfirmation = true;
-                            confirmationJob = job;
-                            confirmationRetry = null;
-                            confirmationSignal.Reset();
+                            waitForConfirmation = !disposed && !job.CancellationRequested;
+                            if (!waitForConfirmation)
+                            {
+                                job.Status = ImportJobStatus.Canceled;
+                                job.Result = new ImportJobResult(true, new string[0]);
+                                job.RequiresConfirmation = false;
+                            }
+                            else
+                            {
+                                job.ErrorMessage = result.ConfirmationMessage;
+                                job.Status = ImportJobStatus.Waiting;
+                                job.RequiresConfirmation = true;
+                                confirmationJob = job;
+                                confirmationRetry = null;
+                                confirmationSignal.Reset();
+                            }
                         }
                         Publish();
+                        if (!waitForConfirmation) continue;
                         confirmationSignal.Wait();
                         lock (gate)
                         {

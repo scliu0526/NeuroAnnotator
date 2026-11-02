@@ -331,6 +331,29 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void CancelAll_during_json_confirmation_result_does_not_wait_for_ui()
+        {
+            var started = new ManualResetEventSlim();
+            var release = new ManualResetEventSlim();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                started.Set();
+                Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(5)));
+                return new ImportJobResult(false, new string[0], 0, 0, false, true, "JSON contains unknown fields.");
+            }))
+            {
+                queue.Enqueue(new AnnotationJsonImportJobRequest("labels.json", "labels", false));
+                Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+                queue.CancelAll();
+                release.Set();
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                Assert.AreEqual(ImportJobStatus.Canceled, queue.Jobs.Single().Status);
+            }
+            started.Dispose();
+            release.Dispose();
+        }
+
+        [TestMethod]
         public void Completed_image_jobs_add_images_to_the_project()
         {
             string directory = Path.Combine(Path.GetTempPath(), "neurocle-image-queue-" + Guid.NewGuid().ToString("N"));

@@ -1556,6 +1556,11 @@ namespace Neurocle.WinForms
             newSet.Enabled = projectChangeAllowed;
             renameSet.Enabled = projectChangeAllowed;
             deleteSet.Enabled = projectChangeAllowed;
+            addClass.Enabled = projectChangeAllowed;
+            foreach (Button classButton in annotationClasses.Controls.OfType<Button>())
+            {
+                if (classButton.ContextMenuStrip != null) classButton.ContextMenuStrip.Enabled = projectChangeAllowed;
+            }
         }
 
         /// <summary>顯示單一非強制回應匯入佇列視窗。</summary>
