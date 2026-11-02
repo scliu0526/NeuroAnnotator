@@ -54,6 +54,8 @@ namespace Neurocle.WinForms
             if (imageRequest != null) return imageRequest.FilePaths.Count == 1 ? Path.GetFileName(imageRequest.FilePaths[0]) : string.Format(Strings.ImportQueueFileCount, imageRequest.FilePaths.Count);
             var folderRequest = request as FolderImportJobRequest;
             if (folderRequest != null) return folderRequest.DirectoryPath + (folderRequest.IncludeSubdirectories ? Strings.ImportQueueFolderRecursive : string.Empty);
+            var jsonRequest = request as AnnotationJsonImportJobRequest;
+            if (jsonRequest != null) return Path.GetFileName(jsonRequest.FilePath);
             return request.Kind.ToString();
         }
 
@@ -84,7 +86,8 @@ namespace Neurocle.WinForms
             }
             Guid selectedId = (Guid)jobsList.SelectedItems[0].Tag;
             ImportJobSnapshot selected = currentJobs.FirstOrDefault(job => job.Id == selectedId);
-            cancelButton.Enabled = selected != null && (selected.Status == ImportJobStatus.Waiting || selected.Status == ImportJobStatus.Running);
+            bool isJson = selected != null && selected.Request is AnnotationJsonImportJobRequest;
+            cancelButton.Enabled = selected != null && (selected.Status == ImportJobStatus.Waiting || (!isJson && selected.Status == ImportJobStatus.Running));
         }
 
         private void CancelButton_Click(object sender, EventArgs args)

@@ -9,7 +9,8 @@ namespace Neurocle.WinForms
     internal enum ImportJobKind
     {
         ImageFiles,
-        Folder
+        Folder,
+        AnnotationJson
     }
 
     internal enum ImportJobStatus
@@ -56,6 +57,23 @@ namespace Neurocle.WinForms
 
         public string DirectoryPath { get; }
         public bool IncludeSubdirectories { get; }
+    }
+
+    internal sealed class AnnotationJsonImportJobRequest : ImportJobRequest
+    {
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, bool allowUnknownFields)
+            : base(ImportJobKind.AnnotationJson)
+        {
+            if (String.IsNullOrWhiteSpace(filePath)) throw new ArgumentException("A JSON file path is required.", nameof(filePath));
+            if (String.IsNullOrWhiteSpace(annotationSetName)) throw new ArgumentException("An annotation set name is required.", nameof(annotationSetName));
+            FilePath = filePath;
+            AnnotationSetName = annotationSetName;
+            AllowUnknownFields = allowUnknownFields;
+        }
+
+        public string FilePath { get; }
+        public string AnnotationSetName { get; }
+        public bool AllowUnknownFields { get; }
     }
 
     internal sealed class ImportJobProgress

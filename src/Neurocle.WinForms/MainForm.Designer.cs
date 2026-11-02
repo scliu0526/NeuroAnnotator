@@ -61,6 +61,7 @@ namespace Neurocle.WinForms
             this.newSet = new Button();
             this.renameSet = new Button();
             this.deleteSet = new Button();
+            this.importAnnotationButton = new Button();
             this.addClass = new Button();
             this.obdSelect = new Button();
             this.obdRectangle = new Button();
@@ -208,6 +209,11 @@ namespace Neurocle.WinForms
             this.deleteSet.AutoSize = true;
             this.deleteSet.Name = "deleteSet";
             this.deleteSet.Text = Strings.DeleteAnnotationSet;
+            this.importAnnotationButton.AutoSize = true;
+            this.importAnnotationButton.Enabled = false;
+            this.importAnnotationButton.Name = "importAnnotationButton";
+            this.importAnnotationButton.Text = Strings.ImportAnnotationJson;
+            this.importAnnotationButton.UseVisualStyleBackColor = true;
             this.annotationOpacity.Minimum = 0;
             this.annotationOpacity.Maximum = 100;
             this.annotationOpacity.Value = 40;
@@ -269,7 +275,7 @@ namespace Neurocle.WinForms
             this.annotationZoomText.AutoSize = true;
             this.annotationZoomText.Name = "annotationZoomText";
             this.annotationZoomText.Margin = new Padding(8, 6, 0, 0);
-            this.annotationHeader.Controls.AddRange(new Control[] { this.annotationSets, this.newSet, this.renameSet, this.deleteSet, this.segOpacityLabel, this.annotationOpacity, this.annotationOpacityValue, this.showAnnotations, this.segWidths, this.fit, this.zoom, this.annotationZoomText });
+            this.annotationHeader.Controls.AddRange(new Control[] { this.annotationSets, this.newSet, this.renameSet, this.deleteSet, this.importAnnotationButton, this.segOpacityLabel, this.annotationOpacity, this.annotationOpacityValue, this.showAnnotations, this.segWidths, this.fit, this.zoom, this.annotationZoomText });
             this.annotationSidebar.Dock = DockStyle.Right;
             this.annotationSidebar.Width = 180;
             this.annotationSidebar.Name = "annotationSidebar";

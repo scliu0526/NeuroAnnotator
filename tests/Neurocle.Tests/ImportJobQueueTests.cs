@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -86,6 +87,60 @@ namespace Neurocle.Tests
 
                 Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
                 CollectionAssert.AreEqual(new[] { ImportJobKind.ImageFiles, ImportJobKind.Folder, ImportJobKind.ImageFiles }, executionOrder.ToArray());
+            }
+        }
+
+        [TestMethod]
+        public void Image_folder_and_json_jobs_execute_in_one_fifo()
+        {
+            var executionOrder = new List<ImportJobKind>();
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+            {
+                executionOrder.Add(request.Kind);
+                return new ImportJobResult(false, new string[0]);
+            }))
+            {
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "first.png" }));
+                queue.Enqueue(new FolderImportJobRequest("folder", false));
+                queue.Enqueue(new AnnotationJsonImportJobRequest("labels.json", "labels", false));
+
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                CollectionAssert.AreEqual(new[] { ImportJobKind.ImageFiles, ImportJobKind.Folder, ImportJobKind.AnnotationJson }, executionOrder.ToArray());
+            }
+        }
+
+        [TestMethod]
+        public void Json_request_keeps_source_options_immutable()
+        {
+            var request = new AnnotationJsonImportJobRequest("labels.json", "labels", false);
+
+            Assert.AreEqual("labels.json", request.FilePath);
+            Assert.AreEqual("labels", request.AnnotationSetName);
+            Assert.IsFalse(request.AllowUnknownFields);
+        }
+
+        [TestMethod]
+        public void Json_job_executor_imports_the_file_as_one_atomic_operation()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "neurocle-json-queue-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string jsonPath = Path.Combine(directory, "labels.json");
+                File.WriteAllText(jsonPath, "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"class1\",\"color\":\"rgba(1, 2, 3, 1)\"}],\"data\":[]}");
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(directory, "queue.neurocle")))
+                using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => ExecuteMainFormImport(store, request, cancellationRequested, progress)))
+                {
+                    queue.Enqueue(new AnnotationJsonImportJobRequest(jsonPath, "labels", false));
+
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                    Assert.AreEqual(ImportJobStatus.Completed, queue.Jobs.Single().Status);
+                    Assert.AreEqual(1, store.GetAnnotationSets().Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
         }
 
@@ -352,6 +407,12 @@ namespace Neurocle.Tests
         private static ImportJobResult ImportImages(ProjectStore store, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress, Action<ImageImportProgress> afterProgress = null)
         {
             return ImportImportJob(store, request, cancellationRequested, progress, afterProgress);
+        }
+
+        private static ImportJobResult ExecuteMainFormImport(ProjectStore store, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress)
+        {
+            MethodInfo method = typeof(MainForm).GetMethod("ExecuteImportJob", BindingFlags.Static | BindingFlags.NonPublic);
+            return (ImportJobResult)method.Invoke(null, new object[] { store, request, cancellationRequested, progress });
         }
 
         private static ImportJobResult ImportImportJob(ProjectStore store, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress, Action<ImageImportProgress> afterProgress = null)

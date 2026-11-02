@@ -331,12 +331,15 @@ namespace Neurocle.Tests
                 Assert.IsTrue(GetDescendants(form).OfType<CanvasScrollHost>().Count() == 2);
                 Button importImages = Field<Button>(form, "importImagesButton");
                 Button importFolder = Field<Button>(form, "importFolderButton");
+                Button importAnnotation = Field<Button>(form, "importAnnotationButton");
                 Assert.IsFalse(importImages.Enabled);
                 Assert.IsFalse(importFolder.Enabled);
+                Assert.IsFalse(importAnnotation.Enabled);
                 Assert.IsFalse(Field<ToolStripMenuItem>(form, "importImagesMenuItem").Enabled);
                 Assert.IsFalse(Field<ToolStripMenuItem>(form, "importFolderMenuItem").Enabled);
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importImages));
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importFolder));
+                Assert.IsTrue(Field<FlowLayoutPanel>(form, "annotationHeader").Controls.Contains(importAnnotation));
             }
         }
 
@@ -374,6 +377,20 @@ namespace Neurocle.Tests
 
                 ListView jobs = Field<ListView>(form, "jobsList");
                 Assert.AreEqual("資料夾掃描已取消；尚未掃描的項目數無法確定。", jobs.Items[0].SubItems[2].Text);
+            }
+        }
+
+        [STATestMethod]
+        public void Import_queue_window_disables_cancel_for_running_json_write()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(Guid.NewGuid(), new AnnotationJsonImportJobRequest("labels.json", "labels", false), ImportJobStatus.Running, null, null, null)
+                });
+
+                Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
             }
         }
 

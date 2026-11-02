@@ -91,6 +91,7 @@ namespace Neurocle.WinForms
         private Button newSet;
         private Button renameSet;
         private Button deleteSet;
+        private Button importAnnotationButton;
         private Button fit;
         private ComboBox zoom;
         private Button imageFit;
@@ -280,7 +281,8 @@ namespace Neurocle.WinForms
             importImagesButton.Click += (sender, args) => QueueImageFiles();
             importFolderButton.Click += (sender, args) => QueueFolder();
             importFolderMenuItem.Click += (sender, args) => QueueFolder();
-            importAnnotationMenuItem.Click += (sender, args) => RunProjectCommand(ImportAnnotationJson);
+            importAnnotationButton.Click += (sender, args) => QueueAnnotationJson();
+            importAnnotationMenuItem.Click += (sender, args) => QueueAnnotationJson();
             missingImagesMenuItem.Click += (sender, args) => ManageMissingImages();
             backupsMenuItem.Click += (sender, args) => ManageBackups();
             diagnosticsMenuItem.Click += (sender, args) => ManageDiagnostics();
@@ -994,23 +996,15 @@ namespace Neurocle.WinForms
             if (plan.Warnings.Count > 0) MessageBox.Show(Strings.DatasetSplitCannotMeet, Strings.DatasetSplitWarning, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
-        /// <summary>匯入標註 JSON 並更新目前專案畫面。</summary>
-        private void ImportAnnotationJson()
+        /// <summary>選取標註 JSON 並將其加入目前專案的匯入佇列。</summary>
+        private void QueueAnnotationJson()
         {
-            if (project == null) return;
+            if (project == null || importJobQueue == null) return;
             using (var dialog = new OpenFileDialog { Filter = "JSON (*.json)|*.json", Multiselect = false })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                string json = File.ReadAllText(dialog.FileName);
-                string name = Path.GetFileNameWithoutExtension(dialog.FileName);
-                try { project.ImportAnnotationJson(json, name, false); }
-                catch (JsonAnnotationImportException exception)
-                {
-                    if (exception.Message != "JSON contains unknown fields." || MessageBox.Show(Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) throw;
-                    project.ImportAnnotationJson(json, name, true);
-                }
-                RefreshAnnotationSets();
-                WriteDiagnostic(DiagnosticEvent.AnnotationJsonImported);
+                importJobQueue.Enqueue(new AnnotationJsonImportJobRequest(dialog.FileName, Path.GetFileNameWithoutExtension(dialog.FileName), false));
+                ShowImportQueue();
             }
         }
 
@@ -1424,6 +1418,7 @@ namespace Neurocle.WinForms
             if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(new ImportJobSnapshot[0]);
             importImagesButton.Enabled = true;
             importFolderButton.Enabled = true;
+            importAnnotationButton.Enabled = true;
             importImagesMenuItem.Enabled = true;
             importFolderMenuItem.Enabled = true;
         }
@@ -1438,12 +1433,20 @@ namespace Neurocle.WinForms
                 report = session.ImportFilesWithReport(imageRequest.FilePaths, cancellationRequested,
                     value => progress(new ImportJobProgress(value.ProcessedCount, value.TotalCount, value.SuccessfulCount, value.FailedCount)));
             }
-            else
+            else if (request is FolderImportJobRequest)
             {
                 var folderRequest = request as FolderImportJobRequest;
-                if (folderRequest == null) throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
                 report = session.ImportDirectory(folderRequest.DirectoryPath, folderRequest.IncludeSubdirectories, cancellationRequested,
                     value => progress(new ImportJobProgress(value.ProcessedCount, value.TotalCount, value.SuccessfulCount, value.FailedCount)));
+            }
+            else
+            {
+                var jsonRequest = request as AnnotationJsonImportJobRequest;
+                if (jsonRequest == null) throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
+                if (cancellationRequested()) return new ImportJobResult(true, new string[0]);
+                string json = File.ReadAllText(jsonRequest.FilePath);
+                session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, jsonRequest.AllowUnknownFields);
+                return new ImportJobResult(false, new string[0]);
             }
             return new ImportJobResult(
                 report.UnprocessedCount > 0 || report.WasCancelledDuringScan,
@@ -1469,7 +1472,16 @@ namespace Neurocle.WinForms
                 if (!handledImageImportJobs.Add(job.Id)) continue;
                 if (job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Canceled) WriteDiagnostic(DiagnosticEvent.ImageImportCompleted);
                 else WriteDiagnostic(DiagnosticEvent.OperationFailed);
-                RefreshImageBrowser();
+                var jsonRequest = job.Request as AnnotationJsonImportJobRequest;
+                if (jsonRequest != null)
+                {
+                    if (job.Status == ImportJobStatus.Completed) RefreshAnnotationSets();
+                    else if (job.Status == ImportJobStatus.Failed && !jsonRequest.AllowUnknownFields && job.ErrorMessage == "JSON contains unknown fields." && MessageBox.Show(this, Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                    {
+                        importJobQueue.Enqueue(new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, true));
+                    }
+                }
+                else RefreshImageBrowser();
             }
         }
 
