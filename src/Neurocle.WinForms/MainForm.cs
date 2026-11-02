@@ -177,107 +177,115 @@ namespace Neurocle.WinForms
             WindowState = FormWindowState.Maximized;
             activeCanvas = imageCanvas;
             InitializeRuntimeBehavior();
-            FormClosing += (sender, args) =>
+        }
+
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs args)
+        {
+            if (importJobQueue != null && importJobQueue.IsBusy)
             {
-                if (importJobQueue != null && importJobQueue.IsBusy)
+                IReadOnlyList<ImportJobSnapshot> jobs = importJobQueue.Jobs;
+                int running = jobs.Count(job => job.Status == ImportJobStatus.Running);
+                int waiting = jobs.Count(job => job.Status == ImportJobStatus.Waiting);
+                DialogResult choice = MessageBox.Show(this, string.Format(Strings.ImportQueueClosePrompt, running, waiting), Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (choice != DialogResult.Yes)
                 {
-                    IReadOnlyList<ImportJobSnapshot> jobs = importJobQueue.Jobs;
-                    int running = jobs.Count(job => job.Status == ImportJobStatus.Running);
-                    int waiting = jobs.Count(job => job.Status == ImportJobStatus.Waiting);
-                    DialogResult choice = MessageBox.Show(this, string.Format(Strings.ImportQueueClosePrompt, running, waiting), Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                    if (choice != DialogResult.Yes)
-                    {
-                        args.Cancel = true;
-                        return;
-                    }
-                    importJobQueue.CancelAll();
-                    if (!importJobQueue.WaitUntilIdle(TimeSpan.FromSeconds(30)))
-                    {
-                        args.Cancel = true;
-                        return;
-                    }
+                    args.Cancel = true;
+                    return;
                 }
-                if (exportInProgress || annotationOperationInProgress) args.Cancel = true;
-            };
-            FormClosed += (sender, args) =>
+                importJobQueue.CancelAll();
+                if (!importJobQueue.WaitUntilIdle(TimeSpan.FromSeconds(30)))
+                {
+                    args.Cancel = true;
+                    return;
+                }
+            }
+            if (exportInProgress || annotationOperationInProgress) args.Cancel = true;
+        }
+
+        private void MainForm_FormClosed(object sender, FormClosedEventArgs args)
+        {
+            DisposeToastMessage();
+            importJobQueue?.Dispose();
+            importQueueForm?.Dispose();
+            project?.Dispose();
+        }
+
+        private void MainForm_AnnotationShortcutKeyDown(object sender, KeyEventArgs args)
+        {
+            if (!args.Control) return;
+            if (HasTextInputFocus() && (args.KeyCode == Keys.Z || args.KeyCode == Keys.Y)) return;
+            if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
+            else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
+            else if (args.KeyCode == Keys.C && !HasTextInputFocus()) CopySelectedAnnotations();
+            else if (args.KeyCode == Keys.V && !HasTextInputFocus()) PasteCopiedAnnotations();
+            else if (args.KeyCode == Keys.A && pages.SelectedTab == annotationPage && !HasTextInputFocus()) SelectAllAnnotations();
+            else return;
+            args.Handled = true;
+            args.SuppressKeyPress = true;
+        }
+
+        private void MainForm_ToolShortcutKeyDown(object sender, KeyEventArgs args)
+        {
+            if (args.Handled || args.Control || args.Alt || HasTextInputFocus()) return;
+            if (TrySelectAnnotationToolByShortcut(args.KeyCode))
             {
-                DisposeToastMessage();
-                importJobQueue?.Dispose();
-                importQueueForm?.Dispose();
-                project?.Dispose();
-            };
-            KeyDown += (sender, args) =>
-            {
-                if (!args.Control) return;
-                if (HasTextInputFocus() && (args.KeyCode == Keys.Z || args.KeyCode == Keys.Y)) return;
-                if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
-                else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
-                else if (args.KeyCode == Keys.C && !HasTextInputFocus()) CopySelectedAnnotations();
-                else if (args.KeyCode == Keys.V && !HasTextInputFocus()) PasteCopiedAnnotations();
-                else if (args.KeyCode == Keys.A && pages.SelectedTab == annotationPage && !HasTextInputFocus()) SelectAllAnnotations();
-                else return;
                 args.Handled = true;
                 args.SuppressKeyPress = true;
-            };
-            KeyDown += (sender, args) =>
+            }
+        }
+
+        private void MainForm_AnnotationNudgeKeyDown(object sender, KeyEventArgs args)
+        {
+            if (args.Handled || args.Control || HasTextInputFocus() || pages.SelectedTab != annotationPage) return;
+            int deltaX = args.KeyCode == Keys.Left ? -1 : args.KeyCode == Keys.Right ? 1 : 0;
+            int deltaY = args.KeyCode == Keys.Up ? -1 : args.KeyCode == Keys.Down ? 1 : 0;
+            if (canvas.NudgeSelectedAnnotations(deltaX, deltaY))
             {
-                if (args.Handled || args.Control || args.Alt || HasTextInputFocus()) return;
-                if (TrySelectAnnotationToolByShortcut(args.KeyCode))
-                {
-                    args.Handled = true;
-                    args.SuppressKeyPress = true;
-                }
-            };
-            KeyDown += (sender, args) =>
-            {
-                if (args.Handled || args.Control || HasTextInputFocus() || pages.SelectedTab != annotationPage) return;
-                int deltaX = args.KeyCode == Keys.Left ? -1 : args.KeyCode == Keys.Right ? 1 : 0;
-                int deltaY = args.KeyCode == Keys.Up ? -1 : args.KeyCode == Keys.Down ? 1 : 0;
-                if (canvas.NudgeSelectedAnnotations(deltaX, deltaY))
-                {
-                    args.Handled = true;
-                    args.SuppressKeyPress = true;
-                }
-            };
-            KeyUp += (sender, args) =>
-            {
-                if ((args.KeyCode == Keys.Up || args.KeyCode == Keys.Down || args.KeyCode == Keys.Left || args.KeyCode == Keys.Right) && canvas.CommitKeyboardNudge())
-                {
-                    args.Handled = true;
-                    args.SuppressKeyPress = true;
-                }
-            };
-            KeyDown += (sender, args) =>
-            {
-                if (args.Handled) return;
-                if (args.Control || HasTextInputFocus() || (pages.SelectedTab != imagesPage && pages.SelectedTab != annotationPage)) return;
-                if (args.KeyCode == Keys.F)
-                {
-                    activeCanvas.CancelInProgressGesture();
-                    activeCanvas.FitToWindow();
-                    args.Handled = true;
-                    args.SuppressKeyPress = true;
-                    return;
-                }
-                if (args.KeyCode == Keys.OemOpenBrackets && pages.SelectedTab == annotationPage)
-                {
-                    showAnnotations.Checked = !showAnnotations.Checked;
-                    args.Handled = true;
-                    args.SuppressKeyPress = true;
-                    return;
-                }
-                if (pages.SelectedTab == annotationPage && SelectedAnnotationSet?.Type == AnnotationSetType.Seg && (args.KeyCode == Keys.Z || args.KeyCode == Keys.X))
-                {
-                    SetSegStrokeWidth(Math.Max(1, Math.Min(100, (int)segStrokeWidth.Value + (args.KeyCode == Keys.Z ? -1 : 1))));
-                    args.Handled = true;
-                    args.SuppressKeyPress = true;
-                    return;
-                }
-                if (args.KeyCode != Keys.Up && args.KeyCode != Keys.Down) return;
-                imageBrowser.MoveSelection(args.KeyCode == Keys.Up ? -1 : 1);
                 args.Handled = true;
                 args.SuppressKeyPress = true;
-            };
+            }
+        }
+
+        private void MainForm_AnnotationNudgeKeyUp(object sender, KeyEventArgs args)
+        {
+            if ((args.KeyCode == Keys.Up || args.KeyCode == Keys.Down || args.KeyCode == Keys.Left || args.KeyCode == Keys.Right) && canvas.CommitKeyboardNudge())
+            {
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+            }
+        }
+
+        private void MainForm_GlobalShortcutKeyDown(object sender, KeyEventArgs args)
+        {
+            if (args.Handled) return;
+            if (args.Control || HasTextInputFocus() || (pages.SelectedTab != imagesPage && pages.SelectedTab != annotationPage)) return;
+            if (args.KeyCode == Keys.F)
+            {
+                if (activeCanvas == null) return;
+                activeCanvas.CancelInProgressGesture();
+                activeCanvas.FitToWindow();
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+                return;
+            }
+            if (args.KeyCode == Keys.OemOpenBrackets && pages.SelectedTab == annotationPage)
+            {
+                showAnnotations.Checked = !showAnnotations.Checked;
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+                return;
+            }
+            if (pages.SelectedTab == annotationPage && SelectedAnnotationSet?.Type == AnnotationSetType.Seg && (args.KeyCode == Keys.Z || args.KeyCode == Keys.X))
+            {
+                SetSegStrokeWidth(Math.Max(1, Math.Min(100, (int)segStrokeWidth.Value + (args.KeyCode == Keys.Z ? -1 : 1))));
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+                return;
+            }
+            if (args.KeyCode != Keys.Up && args.KeyCode != Keys.Down) return;
+            imageBrowser.MoveSelection(args.KeyCode == Keys.Up ? -1 : 1);
+            args.Handled = true;
+            args.SuppressKeyPress = true;
         }
 
         /// <summary>將資料命令與互動事件接到 Designer 建立的固定控制項。</summary>
@@ -293,21 +301,6 @@ namespace Neurocle.WinForms
             ConfigureAnnotationToolButton(segEraser, "橡皮擦", "E", "02_eraser.png");
             ConfigureAnnotationToolButton(segSelect, "選取", "V", "01_cursor.png");
             annotationTools.Controls.Clear();
-            newProjectMenuItem.Click += (sender, args) => RunProjectCommand(CreateProject);
-            openProjectMenuItem.Click += (sender, args) => RunProjectCommand(OpenProject);
-            saveProjectMenuItem.Click += (sender, args) => RunProjectCommand(SaveProject);
-            saveProjectAsMenuItem.Click += (sender, args) => RunProjectCommand(SaveProjectAs);
-            importQueueMenuItem.Click += (sender, args) => ShowImportQueue();
-            importImagesButton.Click += (sender, args) => QueueImageFiles();
-            importFolderButton.Click += (sender, args) => QueueFolder();
-            importAnnotationButton.Click += (sender, args) => QueueAnnotationJson();
-            missingImagesMenuItem.Click += (sender, args) => ManageMissingImages();
-            backupsMenuItem.Click += (sender, args) => ManageBackups();
-            diagnosticsMenuItem.Click += (sender, args) => ManageDiagnostics();
-            shortcutsMenuItem.Click += (sender, args) =>
-            {
-                using (var dialog = new KeyboardShortcutsForm()) dialog.ShowDialog(this);
-            };
             imageCanvas.ViewChanged += (sender, args) => SynchronizeCanvasView(imageCanvas, canvas);
             canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
             datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
@@ -329,65 +322,80 @@ namespace Neurocle.WinForms
                 if (annotationOperationInProgress) pendingImageSelection = args;
                 else ApplyImageSelection(args);
             };
-            annotationPage.Resize += (sender, args) => PositionToastMessage();
-            annotationHeader.SizeChanged += (sender, args) => imageHeader.Height = annotationHeader.Height;
-            annotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(annotationSets);
-            datasetAnnotationSets.SelectedIndexChanged += (sender, args) => AnnotationSetSelectionChanged(datasetAnnotationSets);
-            newSet.Click += (sender, args) => RunAnnotationCommand(CreateAnnotationSet);
-            renameSet.Click += (sender, args) => RunAnnotationCommand(RenameSelectedAnnotationSet);
-            deleteSet.Click += (sender, args) => RunAnnotationCommand(DeleteSelectedAnnotationSet);
-            addClass.Click += (sender, args) => RunAnnotationCommand(AddAnnotationClass);
-            obdSelect.Click += (sender, args) => SelectObdTool(true);
-            obdRectangle.Click += (sender, args) => SelectObdTool(false);
-            segRectangle.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Rect);
-            segEllipse.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Ellipse);
-            segPolygon.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Polygon);
-            segBrush.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Brush);
-            segLine.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Line);
-            segEraser.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Eraser);
-            segSelect.Click += (sender, args) => SelectSegTool(ImageCanvasControl.SegToolKind.Select);
-            segStrokeWidth.ValueChanged += (sender, args) => SetSegStrokeWidth((int)segStrokeWidth.Value);
-            segStrokeWidthSlider.ValueChanged += (sender, args) => SetSegStrokeWidth(segStrokeWidthSlider.Value);
-            annotationOpacity.ValueChanged += (sender, args) => SetAnnotationOpacity(annotationOpacity.Value);
-            annotationOpacityValue.ValueChanged += (sender, args) => SetAnnotationOpacity((int)annotationOpacityValue.Value);
-            showAnnotations.CheckedChanged += (sender, args) => SetAnnotationsVisible(showAnnotations.Checked);
-            deleteSelectedImagesButton.Click += (sender, args) => RunProjectCommand(DeleteSelectedImages);
-            deleteAllImagesButton.Click += (sender, args) => RunProjectCommand(DeleteAllImages);
 
-            Action updateZoomText = () =>
-            {
-                if (IsDisposed || Disposing || annotationZoomText.IsDisposed || imageZoomText.IsDisposed) return;
-                string value = Math.Round(activeCanvas.Zoom * 100d).ToString() + "%";
-                annotationZoomText.Text = value;
-                imageZoomText.Text = value;
-            };
-            Action<string> setZoom = selected =>
-            {
-                if (selected == Strings.FitToWindow) activeCanvas.FitToWindow();
-                else activeCanvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
-            };
-            fit.Click += (sender, args) => activeCanvas.FitToWindow();
-            imageFit.Click += (sender, args) => activeCanvas.FitToWindow();
-            zoom.SelectedIndexChanged += (sender, args) => setZoom(zoom.SelectedItem as string);
-            imageZoom.SelectedIndexChanged += (sender, args) => setZoom(imageZoom.SelectedItem as string);
-            imageCanvas.ZoomChanged += (sender, args) => updateZoomText();
-            canvas.ZoomChanged += (sender, args) => updateZoomText();
-            exportJson.Click += async (sender, args) => await ExportAnnotationJsonAsync();
-            exportSelected.Click += async (sender, args) => await ExportImagesAsync(imageBrowser.SelectedImageIds);
-            exportAll.Click += async (sender, args) => await ExportImagesAsync(null);
+            imageCanvas.ZoomChanged += (sender, args) => UpdateZoomText();
+            canvas.ZoomChanged += (sender, args) => UpdateZoomText();
             SetAnnotationOpacity(annotationOpacity.Value);
-            pages.SelectedIndexChanged += (sender, args) =>
+        }
+
+        private void NewProjectMenuItem_Click(object sender, EventArgs args) { RunProjectCommand(CreateProject); }
+        private void OpenProjectMenuItem_Click(object sender, EventArgs args) { RunProjectCommand(OpenProject); }
+        private void SaveProjectMenuItem_Click(object sender, EventArgs args) { RunProjectCommand(SaveProject); }
+        private void SaveProjectAsMenuItem_Click(object sender, EventArgs args) { RunProjectCommand(SaveProjectAs); }
+        private void ImportQueueMenuItem_Click(object sender, EventArgs args) { ShowImportQueue(); }
+        private void MissingImagesMenuItem_Click(object sender, EventArgs args) { ManageMissingImages(); }
+        private void BackupsMenuItem_Click(object sender, EventArgs args) { ManageBackups(); }
+        private void ImportImagesButton_Click(object sender, EventArgs args) { QueueImageFiles(); }
+        private void ImportFolderButton_Click(object sender, EventArgs args) { QueueFolder(); }
+        private void ImportAnnotationButton_Click(object sender, EventArgs args) { QueueAnnotationJson(); }
+        private void DeleteSelectedImagesButton_Click(object sender, EventArgs args) { RunProjectCommand(DeleteSelectedImages); }
+        private void DeleteAllImagesButton_Click(object sender, EventArgs args) { RunProjectCommand(DeleteAllImages); }
+        private void DiagnosticsMenuItem_Click(object sender, EventArgs args) { ManageDiagnostics(); }
+        private void AnnotationPage_Resize(object sender, EventArgs args) { PositionToastMessage(); }
+        private void AnnotationHeader_SizeChanged(object sender, EventArgs args) { imageHeader.Height = annotationHeader.Height; }
+        private void ObdSelect_Click(object sender, EventArgs args) { SelectObdTool(true); }
+        private void ObdRectangle_Click(object sender, EventArgs args) { SelectObdTool(false); }
+        private void SegRectangle_Click(object sender, EventArgs args) { SelectSegTool(ImageCanvasControl.SegToolKind.Rect); }
+        private void SegEllipse_Click(object sender, EventArgs args) { SelectSegTool(ImageCanvasControl.SegToolKind.Ellipse); }
+        private void SegPolygon_Click(object sender, EventArgs args) { SelectSegTool(ImageCanvasControl.SegToolKind.Polygon); }
+        private void SegBrush_Click(object sender, EventArgs args) { SelectSegTool(ImageCanvasControl.SegToolKind.Brush); }
+        private void SegLine_Click(object sender, EventArgs args) { SelectSegTool(ImageCanvasControl.SegToolKind.Line); }
+        private void SegEraser_Click(object sender, EventArgs args) { SelectSegTool(ImageCanvasControl.SegToolKind.Eraser); }
+        private void SegSelect_Click(object sender, EventArgs args) { SelectSegTool(ImageCanvasControl.SegToolKind.Select); }
+        private void ShortcutsMenuItem_Click(object sender, EventArgs args) { using (var dialog = new KeyboardShortcutsForm()) dialog.ShowDialog(this); }
+        private void AnnotationSets_SelectedIndexChanged(object sender, EventArgs args) { AnnotationSetSelectionChanged(annotationSets); }
+        private void DatasetAnnotationSets_SelectedIndexChanged(object sender, EventArgs args) { AnnotationSetSelectionChanged(datasetAnnotationSets); }
+        private void NewSet_Click(object sender, EventArgs args) { RunAnnotationCommand(CreateAnnotationSet); }
+        private void RenameSet_Click(object sender, EventArgs args) { RunAnnotationCommand(RenameSelectedAnnotationSet); }
+        private void DeleteSet_Click(object sender, EventArgs args) { RunAnnotationCommand(DeleteSelectedAnnotationSet); }
+        private void AddClass_Click(object sender, EventArgs args) { RunAnnotationCommand(AddAnnotationClass); }
+        private void SegStrokeWidth_ValueChanged(object sender, EventArgs args) { SetSegStrokeWidth((int)segStrokeWidth.Value); }
+        private void SegStrokeWidthSlider_ValueChanged(object sender, EventArgs args) { SetSegStrokeWidth(segStrokeWidthSlider.Value); }
+        private void AnnotationOpacity_ValueChanged(object sender, EventArgs args) { SetAnnotationOpacity(annotationOpacity.Value); }
+        private void AnnotationOpacityValue_ValueChanged(object sender, EventArgs args) { SetAnnotationOpacity((int)annotationOpacityValue.Value); }
+        private void ShowAnnotations_CheckedChanged(object sender, EventArgs args) { SetAnnotationsVisible(showAnnotations.Checked); }
+        private void Fit_Click(object sender, EventArgs args) { activeCanvas.FitToWindow(); }
+        private void ImageFit_Click(object sender, EventArgs args) { activeCanvas.FitToWindow(); }
+        private void Zoom_SelectedIndexChanged(object sender, EventArgs args) { SetCanvasZoom(zoom.SelectedItem as string); }
+        private void ImageZoom_SelectedIndexChanged(object sender, EventArgs args) { SetCanvasZoom(imageZoom.SelectedItem as string); }
+        private async void ExportJson_Click(object sender, EventArgs args) { await ExportAnnotationJsonAsync(); }
+        private async void ExportSelected_Click(object sender, EventArgs args) { await ExportImagesAsync(imageBrowser.SelectedImageIds); }
+        private async void ExportAll_Click(object sender, EventArgs args) { await ExportImagesAsync(null); }
+        private void Pages_SelectedIndexChanged(object sender, EventArgs args)
+        {
+            ImageCanvasControl selectedCanvas = pages.SelectedTab == imagesPage ? imageCanvas : pages.SelectedTab == annotationPage ? canvas : null;
+            if (selectedCanvas != null && !ReferenceEquals(activeCanvas, selectedCanvas))
             {
-                ImageCanvasControl selectedCanvas = pages.SelectedTab == imagesPage ? imageCanvas : pages.SelectedTab == annotationPage ? canvas : null;
-                if (selectedCanvas != null && !ReferenceEquals(activeCanvas, selectedCanvas))
-                {
-                    SynchronizeCanvasView(activeCanvas, selectedCanvas);
-                    activeCanvas = selectedCanvas;
-                    updateZoomText();
-                }
-                canvas.DiscardUnfinishedShape();
-                if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
-            };
+                SynchronizeCanvasView(activeCanvas, selectedCanvas);
+                activeCanvas = selectedCanvas;
+                UpdateZoomText();
+            }
+            canvas.DiscardUnfinishedShape();
+            if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
+        }
+
+        private void SetCanvasZoom(string selected)
+        {
+            if (selected == Strings.FitToWindow) activeCanvas.FitToWindow();
+            else activeCanvas.SetZoomPercent(double.Parse(selected.TrimEnd('%')));
+        }
+
+        private void UpdateZoomText()
+        {
+            if (IsDisposed || Disposing || annotationZoomText.IsDisposed || imageZoomText.IsDisposed) return;
+            string value = Math.Round(activeCanvas.Zoom * 100d).ToString() + "%";
+            annotationZoomText.Text = value;
+            imageZoomText.Text = value;
         }
 
         /// <summary>讓圖片方向鍵先進入既有鍵盤路由，避免被 WinForms 當作焦點導覽鍵消耗。</summary>
