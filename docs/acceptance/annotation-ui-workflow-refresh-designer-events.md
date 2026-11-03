@@ -20,6 +20,9 @@
 ## 驗證紀錄
 
 - Debug x64 WinForms 建置成功。
-- MSTest：241 項通過。
+- Release x64 WinForms 建置成功。
+- MSTest：Debug 與 Release 均為 243 項通過。
 - Visual Studio Designer 開啟 `MainForm` 與 `DatasetAssignmentControl`，主要版面可見；`MainForm` 的「匯入圖片」按鈕事件頁顯示 `Click → ImportImagesButton_Click`。
-- 本次 DatasetAssignmentControl Designer 檢查中，版面可見且控制項可選取，但屬性視窗沒有列出所選控制項的屬性／事件；因此 DatasetAssignmentControl 與 ImageBrowserControl 的事件頁及雙擊導覽仍需在可正常顯示屬性視窗的 Designer 工作階段確認。
+- 本次 Visual Studio 2022 重載後，`DatasetAssignmentControl` 版面可見；「切分所選」按鈕的事件頁顯示 `Click → SplitSelectedButton_Click`，雙擊後跳至對應程式碼。
+- `ImageBrowserControl` Designer 版面可見，但屬性視窗仍為空且停用；其事件頁與雙擊導覽尚未確認。程式碼中的 Designer 接線可見於 `ImageBrowserControl.Designer.cs`，但不視為 UI 驗收完成。
+- 執行期畫面曾在 1920×1080、96 DPI 確認；1366×768 與 150%／200% DPI 的桌面驗收仍待完成。缺少上述驗收前，Issue #115 維持開啟、PR 維持 Draft。
