@@ -133,28 +133,28 @@ namespace Neurocle.WinForms
         private bool annotationsVisible = true;
 
         // 取得或設定 OBD 工具是否啟用。
-        public bool ObdEnabled { get { return obdEnabled; } set { obdEnabled = value; UpdateToolCursor(); Invalidate(); } }
+        public bool ObdEnabled { get { return obdEnabled; } set { if (obdEnabled == value) return; obdEnabled = value; UpdateToolCursor(); Invalidate(); } }
         // 記錄 OBD 工具是否啟用。
         private bool obdEnabled;
         // 取得或設定 OBD 是否處於選取模式。
         public bool ObdSelectMode
         {
             get { return obdSelectMode; }
-            set { obdSelectMode = value; UpdateToolCursor(); Invalidate(); }
+            set { if (obdSelectMode == value) return; obdSelectMode = value; UpdateToolCursor(); Invalidate(); }
         }
         // 記錄 OBD 工具是否處於選取模式。
         private bool obdSelectMode;
         // 提供目前修飾鍵狀態的可替換來源。
         internal Func<Keys> ModifierKeysProvider { get; set; }
         // 取得或設定 SEG 工具是否啟用。
-        public bool SegEnabled { get { return segEnabled; } set { segEnabled = value; UpdateToolCursor(); Invalidate(); } }
+        public bool SegEnabled { get { return segEnabled; } set { if (segEnabled == value) return; segEnabled = value; UpdateToolCursor(); Invalidate(); } }
         // 記錄 SEG 工具是否啟用。
         private bool segEnabled;
         // 取得或設定目前使用的 SEG 工具。
         public SegToolKind? SegTool
         {
             get { return segTool; }
-            set { segTool = value; UpdateToolCursor(); Invalidate(); }
+            set { if (segTool == value) return; segTool = value; UpdateToolCursor(); Invalidate(); }
         }
         // 記錄目前使用的 SEG 工具種類。
         private SegToolKind? segTool;
@@ -165,6 +165,7 @@ namespace Neurocle.WinForms
             set
             {
                 if (value < 1 || value > 100) throw new ArgumentOutOfRangeException(nameof(value));
+                if (segStrokeWidth == value) return;
                 segStrokeWidth = value;
                 RefreshToolCursor();
                 Invalidate();
@@ -197,7 +198,7 @@ namespace Neurocle.WinForms
         public Color PreviewColor
         {
             get { return previewColor; }
-            set { previewColor = value; Invalidate(); }
+            set { if (previewColor == value) return; previewColor = value; Invalidate(); }
         }
         // 取得主要選取的 SEG 區域識別碼。
         public string SelectedSegId { get { return selectedSegId; } }
@@ -637,6 +638,9 @@ namespace Neurocle.WinForms
                 RectangleF imageRectangle;
                 if (!obdPreviews.TryGetValue(annotation.Id, out imageRectangle)) imageRectangle = new RectangleF(annotation.X, annotation.Y, annotation.Width, annotation.Height);
                 RectangleF rectangle = ToScreenRectangle(imageRectangle.X, imageRectangle.Y, imageRectangle.Width, imageRectangle.Height);
+                RectangleF paintBounds = rectangle;
+                paintBounds.Inflate(selectedObdIds.Contains(annotation.Id) ? 8f : 3f, selectedObdIds.Contains(annotation.Id) ? 8f : 3f);
+                if (!paintBounds.IntersectsWith(args.ClipRectangle)) continue;
                 AnnotationClass annotationClass;
                 obdClasses.TryGetValue(annotation.ClassId, out annotationClass);
                 Color color = annotationClass == null ? Color.Red : AnnotationColorFormat.ToColor(annotationClass.Color);
@@ -659,6 +663,9 @@ namespace Neurocle.WinForms
                 if (!AnnotationsVisible) continue;
                 SegRegion region;
                 if (!segPreviews.TryGetValue(stored.Id, out region)) region = stored;
+                RectangleF paintBounds = ToScreenRectangle(GetStoredBounds(region));
+                paintBounds.Inflate(selectedSegIds.Contains(stored.Id) ? 30f : 3f, selectedSegIds.Contains(stored.Id) ? 30f : 3f);
+                if (!paintBounds.IntersectsWith(args.ClipRectangle)) continue;
                 AnnotationClass annotationClass;
                 segClasses.TryGetValue(region.ClassId, out annotationClass);
                 Color color = annotationClass == null ? Color.Red : AnnotationColorFormat.ToColor(annotationClass.Color);
@@ -1269,6 +1276,7 @@ namespace Neurocle.WinForms
         {
             pointerInside = true;
             lastMousePosition = args.Location;
+            PointF previousSegCursor = segCursor;
             bool hadToolCursor = hasToolCursor;
             Rectangle oldCursorBounds = hadToolCursor ? GetToolCursorBounds(toolCursor) : Rectangle.Empty;
             RefreshToolCursor();
@@ -1299,13 +1307,18 @@ namespace Neurocle.WinForms
             else if (obdDrag != ObdDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
                 PointF point = ClampPoint(viewport.ScreenToImage(args.Location));
-                if (obdDrag == ObdDragKind.Create) obdPreview = Normalize(obdStart, point);
+                if (obdDrag == ObdDragKind.Create)
+                {
+                    RectangleF? previousPreview = obdPreview;
+                    obdPreview = Normalize(obdStart, point);
+                    InvalidateShapePreview(previousPreview, obdPreview, oldCursorBounds);
+                }
                 else if (obdDrag == ObdDragKind.Move) obdPreviews = MoveRectangles(point);
                 else
                 {
                     obdPreviews = new Dictionary<string, RectangleF> { { activeObd.Id, ResizeRectangle(point) } };
                 }
-                Invalidate();
+                if (obdDrag != ObdDragKind.Create) Invalidate();
             }
             else if (segDrag != SegDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
@@ -1326,26 +1339,30 @@ namespace Neurocle.WinForms
             }
             else if (segPreview.HasValue && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
+                RectangleF? previousPreview = segPreview;
                 segPreview = Normalize(segStart, ClampPoint(viewport.ScreenToImage(args.Location)));
-                Invalidate();
+                InvalidateShapePreview(previousPreview, segPreview, oldCursorBounds);
             }
             else if (SegEnabled && SegTool == SegToolKind.Line && segLineStart.HasValue)
             {
                 segCursor = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
-                Invalidate();
+                InvalidateStrokePreview(segLineStart.Value, previousSegCursor, segCursor, segPathStrokeWidth, oldCursorBounds);
             }
             else if (segPath.Count > 0 && (args.Button & MouseButtons.Left) == MouseButtons.Left && (SegTool == SegToolKind.Polygon || SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser))
             {
+                PointF previousPoint = segPath[segPath.Count - 1];
+                PointF nextPoint = ClampSegPathPoint(viewport.ScreenToImage(args.Location));
                 if (DistanceInScreenPixels(segPath[segPath.Count - 1], viewport.ScreenToImage(args.Location)) >= 2f)
                 {
-                    segPath.Add(ClampSegPathPoint(viewport.ScreenToImage(args.Location)));
+                    segPath.Add(nextPoint);
                     segPathDragging = true;
                 }
-                Invalidate();
+                float width = SegTool == SegToolKind.Polygon ? 3f : segPathStrokeWidth;
+                InvalidateStrokePreview(previousPoint, previousPoint, nextPoint, width, oldCursorBounds);
             }
             else if (segPath.Count > 0 && SegTool == SegToolKind.Polygon)
             {
-                Invalidate();
+                InvalidateStrokePreview(segPath[segPath.Count - 1], previousSegCursor, segCursor, 3f, oldCursorBounds);
             }
             else if (hasToolCursor)
             {
@@ -1353,6 +1370,57 @@ namespace Neurocle.WinForms
                 Invalidate(hadToolCursor ? Rectangle.Union(oldCursorBounds, newCursorBounds) : newCursorBounds);
             }
             base.OnMouseMove(args);
+        }
+
+        /// <summary>
+        /// 只重繪矩形或橢圓預覽前後涵蓋的畫布區域。
+        /// </summary>
+        /// <param name="previous">更新前的原圖預覽範圍。</param>
+        /// <param name="current">更新後的原圖預覽範圍。</param>
+        /// <param name="oldCursorBounds">更新前的工具游標範圍。</param>
+        private void InvalidateShapePreview(RectangleF? previous, RectangleF? current, Rectangle oldCursorBounds)
+        {
+            RectangleF bounds = current.HasValue ? ToScreenRectangle(current.Value) : RectangleF.Empty;
+            if (previous.HasValue) bounds = bounds.IsEmpty ? ToScreenRectangle(previous.Value) : RectangleF.Union(bounds, ToScreenRectangle(previous.Value));
+            bounds.Inflate(4f, 4f);
+            InvalidatePreviewBounds(Rectangle.Ceiling(bounds), oldCursorBounds);
+        }
+
+        /// <summary>
+        /// 只重繪線段或自由筆畫新增與移動所涵蓋的畫布區域。
+        /// </summary>
+        /// <param name="start">預覽線段的原圖起點。</param>
+        /// <param name="previousEnd">更新前的原圖終點。</param>
+        /// <param name="currentEnd">更新後的原圖終點。</param>
+        /// <param name="strokeWidth">原圖座標中的筆畫寬度。</param>
+        /// <param name="oldCursorBounds">更新前的工具游標範圍。</param>
+        private void InvalidateStrokePreview(PointF start, PointF previousEnd, PointF currentEnd, float strokeWidth, Rectangle oldCursorBounds)
+        {
+            PointF screenStart = viewport.ImageToScreen(start);
+            PointF screenPrevious = viewport.ImageToScreen(previousEnd);
+            PointF screenCurrent = viewport.ImageToScreen(currentEnd);
+            RectangleF bounds = RectangleF.FromLTRB(
+                Math.Min(screenStart.X, Math.Min(screenPrevious.X, screenCurrent.X)),
+                Math.Min(screenStart.Y, Math.Min(screenPrevious.Y, screenCurrent.Y)),
+                Math.Max(screenStart.X, Math.Max(screenPrevious.X, screenCurrent.X)),
+                Math.Max(screenStart.Y, Math.Max(screenPrevious.Y, screenCurrent.Y)));
+            float padding = Math.Max(4f, (float)(strokeWidth * viewport.Zoom / 2d + 3f));
+            bounds.Inflate(padding, padding);
+            InvalidatePreviewBounds(Rectangle.Ceiling(bounds), oldCursorBounds);
+        }
+
+        /// <summary>
+        /// 合併預覽與新舊游標範圍後，限制在目前畫布內排程局部重繪。
+        /// </summary>
+        /// <param name="previewBounds">需要更新的預覽範圍。</param>
+        /// <param name="oldCursorBounds">更新前的工具游標範圍。</param>
+        private void InvalidatePreviewBounds(Rectangle previewBounds, Rectangle oldCursorBounds)
+        {
+            Rectangle bounds = previewBounds;
+            if (!oldCursorBounds.IsEmpty) bounds = Rectangle.Union(bounds, oldCursorBounds);
+            if (hasToolCursor) bounds = Rectangle.Union(bounds, GetToolCursorBounds(toolCursor));
+            bounds.Intersect(ClientRectangle);
+            if (!bounds.IsEmpty) Invalidate(bounds);
         }
 
         /// <summary>

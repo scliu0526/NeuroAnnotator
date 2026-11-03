@@ -1232,7 +1232,6 @@ namespace Neurocle.WinForms
         private void RefreshAnnotationClasses()
         {
             if (annotationClasses == null) return;
-            annotationClasses.Controls.Clear();
             AnnotationSet selected = annotationSets.SelectedItem as AnnotationSet;
             bool selectedSetChanged = displayedAnnotationSetId != (selected == null ? null : selected.Id);
             displayedAnnotationSetId = selected == null ? null : selected.Id;
@@ -1242,21 +1241,22 @@ namespace Neurocle.WinForms
             else if (selectedSetChanged) canvas.ObdSelectMode = true;
             if (selected == null || selected.Type != AnnotationSetType.Seg) canvas.SegTool = null;
             else if (selectedSetChanged || !canvas.SegTool.HasValue) canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
-            annotationTools.Controls.Clear();
+            Button[] requiredTools;
             if (selected != null && selected.Type == AnnotationSetType.Obd)
             {
-                annotationTools.Controls.Add(obdSelect);
-                annotationTools.Controls.Add(obdRectangle);
+                requiredTools = new[] { obdSelect, obdRectangle };
             }
             else if (selected != null && selected.Type == AnnotationSetType.Seg)
             {
-                annotationTools.Controls.Add(segSelect);
-                annotationTools.Controls.Add(segRectangle);
-                annotationTools.Controls.Add(segEllipse);
-                annotationTools.Controls.Add(segPolygon);
-                annotationTools.Controls.Add(segBrush);
-                annotationTools.Controls.Add(segLine);
-                annotationTools.Controls.Add(segEraser);
+                requiredTools = new[] { segSelect, segRectangle, segEllipse, segPolygon, segBrush, segLine, segEraser };
+            }
+            else requiredTools = new Button[0];
+            if (!annotationTools.Controls.Cast<Control>().SequenceEqual(requiredTools.Cast<Control>()))
+            {
+                annotationTools.SuspendLayout();
+                annotationTools.Controls.Clear();
+                annotationTools.Controls.AddRange(requiredTools);
+                annotationTools.ResumeLayout();
             }
             RefreshAnnotationToolButtons();
             AnnotationClass[] classes = project == null || selected == null ? new AnnotationClass[0] : project.GetClasses(selected.Id).ToArray();
@@ -1276,48 +1276,69 @@ namespace Neurocle.WinForms
             canvas.SegRegions = canvas.SegEnabled ? project.GetSegRegions(selected.Id, selectedImageId) : null;
             if (project == null || selected == null)
             {
+                annotationClasses.Controls.Clear();
                 RefreshImageBrowser();
                 return;
             }
-            foreach (AnnotationClass value in classes)
+            ClassLabelButton[] existingButtons = annotationClasses.Controls.OfType<ClassLabelButton>().ToArray();
+            bool reuseButtons = existingButtons.Length == classes.Length && existingButtons.Zip(classes, (button, value) =>
+                string.Equals(button.Tag as string, value.Id, StringComparison.Ordinal)
+                && button.Text == value.Name
+                && button.ClassColor.ToArgb() == AnnotationColorFormat.ToColor(value.Color).ToArgb()).All(matches => matches);
+            if (!reuseButtons)
             {
-                bool activeClass = selected.Type == AnnotationSetType.Cla
-                    ? selectedImageId != null && project.GetClaClassId(selected.Id, selectedImageId) == value.Id
-                    : selected.Type == AnnotationSetType.Obd ? selectedObdClassId == value.Id : selectedSegClassId == value.Id;
-                Color classColor = AnnotationColorFormat.ToColor(value.Color);
-                var button = new ClassLabelButton { Text = value.Name, AutoSize = false, Height = 34, ClassColor = classColor, IsActive = activeClass, BackColor = activeClass ? classColor : SystemColors.Control, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false };
-                button.Width = Math.Max(1, annotationClasses.ClientSize.Width - button.Margin.Horizontal);
-                button.AutoEllipsis = true;
-                annotationToolTips.SetToolTip(button, value.Name);
+                annotationClasses.SuspendLayout();
+                annotationClasses.Controls.Clear();
+                foreach (AnnotationClass value in classes)
+                {
+                    Color classColor = AnnotationColorFormat.ToColor(value.Color);
+                    var button = new ClassLabelButton { Text = value.Name, Tag = value.Id, AutoSize = false, Height = 34, ClassColor = classColor, BackColor = SystemColors.Control, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false };
+                    button.Width = Math.Max(1, annotationClasses.ClientSize.Width - button.Margin.Horizontal);
+                    button.AutoEllipsis = true;
+                    annotationToolTips.SetToolTip(button, value.Name);
+                    button.Click += (sender, args) =>
+                    {
+                        if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() =>
+                        {
+                            project.SetClaClass(selected.Id, selectedImageId, value.Id);
+                            RefreshAnnotationClasses();
+                        });
+                        else if (selected.Type == AnnotationSetType.Obd)
+                        {
+                            selectedObdClassId = value.Id;
+                            if (selectedImageId != null && canvas.SelectedObdIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
+                            else RefreshAnnotationClasses();
+                        }
+                        else if (selected.Type == AnnotationSetType.Seg)
+                        {
+                            selectedSegClassId = value.Id;
+                            canvas.PreviewColor = AnnotationColorFormat.ToColor(value.Color);
+                            if (selectedImageId != null && canvas.SelectedSegIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedSegClass(value.Id));
+                            else RefreshAnnotationClasses();
+                        }
+                    };
+                    var menu = new ContextMenuStrip();
+                    menu.Items.Add(Strings.RenameAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => RenameAnnotationClass(value)));
+                    menu.Items.Add(Strings.ChangeAnnotationClassColor, null, (sender, args) => RunAnnotationCommand(() => ChangeAnnotationClassColor(value)));
+                    menu.Items.Add(Strings.DeleteAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => DeleteAnnotationClass(value)));
+                    button.ContextMenuStrip = menu;
+                    annotationClasses.Controls.Add(button);
+                }
+                annotationClasses.ResumeLayout();
+                existingButtons = annotationClasses.Controls.OfType<ClassLabelButton>().ToArray();
+            }
+            string activeClassId = selected.Type == AnnotationSetType.Cla
+                ? selectedImageId == null ? null : project.GetClaClassId(selected.Id, selectedImageId)
+                : selected.Type == AnnotationSetType.Obd ? selectedObdClassId : selectedSegClassId;
+            foreach (ClassLabelButton button in existingButtons)
+            {
+                bool activeClass = string.Equals(button.Tag as string, activeClassId, StringComparison.Ordinal);
+                if (button.IsActive == activeClass) continue;
+                button.IsActive = activeClass;
+                button.BackColor = activeClass ? button.ClassColor : SystemColors.Control;
                 button.FlatAppearance.BorderSize = activeClass ? 3 : 1;
                 button.FlatAppearance.BorderColor = activeClass ? SystemColors.Highlight : SystemColors.ControlDark;
-                button.Click += (sender, args) =>
-                {
-                    if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() =>
-                    {
-                        project.SetClaClass(selected.Id, selectedImageId, value.Id);
-                        RefreshAnnotationClasses();
-                    });
-                    else if (selected.Type == AnnotationSetType.Obd)
-                    {
-                        selectedObdClassId = value.Id;
-                        if (selectedImageId != null && canvas.SelectedObdIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedObdClass(value.Id));
-                        else RefreshAnnotationClasses();
-                    }
-                    else if (selected.Type == AnnotationSetType.Seg)
-                    {
-                        selectedSegClassId = value.Id;
-                        canvas.PreviewColor = AnnotationColorFormat.ToColor(value.Color);
-                        if (selectedImageId != null && canvas.SelectedSegIds.Count > 0) RunAnnotationCommand(() => ChangeSelectedSegClass(value.Id));
-                        else RefreshAnnotationClasses();
-                    }
-                };
-                var menu = new ContextMenuStrip();
-                menu.Items.Add(Strings.RenameAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => RenameAnnotationClass(value)));
-                menu.Items.Add(Strings.ChangeAnnotationClassColor, null, (sender, args) => RunAnnotationCommand(() => ChangeAnnotationClassColor(value)));
-                menu.Items.Add(Strings.DeleteAnnotationClass, null, (sender, args) => RunAnnotationCommand(() => DeleteAnnotationClass(value)));
-                button.ContextMenuStrip = menu;
-                annotationClasses.Controls.Add(button);
+                button.Invalidate();
             }
             RefreshImageBrowser();
         }
@@ -1667,7 +1688,6 @@ namespace Neurocle.WinForms
             else if (ReferenceEquals(project, session) && SelectedAnnotationSet?.Id == annotationSetId && selectedImageId == imageId)
             {
                 RefreshAnnotationClasses();
-                canvas.Refresh();
             }
             ImageSelectedEventArgs pending = pendingImageSelection;
             pendingImageSelection = null;

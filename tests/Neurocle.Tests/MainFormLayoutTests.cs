@@ -3819,6 +3819,102 @@ namespace Neurocle.Tests
             }
         }
 
+        [STATestMethod]
+        public void Selecting_an_annotation_class_updates_existing_buttons_without_rebuilding_the_sidebar()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(projectPath);
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass other = store.AddClass(set.Id, "other", "#00ff00");
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
+                    Button[] originalButtons = classes.Controls.OfType<Button>().ToArray();
+                    int removed = 0;
+                    classes.ControlRemoved += (sender, args) => removed++;
+
+                    Button target = originalButtons.Single(button => button.Text == other.Name);
+                    typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(target, new object[] { EventArgs.Empty });
+
+                    Assert.AreEqual(0, removed, "Changing the active class must not clear and rebuild the visible class list.");
+                    CollectionAssert.AreEqual(originalButtons, classes.Controls.OfType<Button>().ToArray(), "Stable controls avoid a visible sidebar flash.");
+                }
+                store.Dispose();
+                store = null;
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Drawing_previews_invalidate_only_the_changed_canvas_area()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 300);
+                using (var canvas = new ImageCanvasControl { Size = new Size(300, 300), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Brush, SegStrokeWidth = 15 })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    var invalidated = new List<Rectangle>();
+                    canvas.Invalidated += (sender, args) => invalidated.Add(args.InvalidRect);
+                    Action<MouseButtons> moveAndAssertPartial = buttons =>
+                    {
+                        invalidated.Clear();
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(buttons, 0, 30, 20, 0));
+                        Assert.IsTrue(invalidated.Count > 0);
+                        Assert.IsTrue(invalidated.All(bounds => bounds != canvas.ClientRectangle && bounds.Width * bounds.Height < canvas.ClientSize.Width * canvas.ClientSize.Height),
+                            "A short drawing preview must not schedule a repaint of the entire image and every stored annotation.");
+                    };
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    moveAndAssertPartial(MouseButtons.Left);
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 30, 20, 0));
+
+                    foreach (ImageCanvasControl.SegToolKind tool in new[] { ImageCanvasControl.SegToolKind.Rect, ImageCanvasControl.SegToolKind.Ellipse })
+                    {
+                        canvas.SegTool = tool;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                        moveAndAssertPartial(MouseButtons.Left);
+                        RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 30, 20, 0));
+                    }
+
+                    foreach (ImageCanvasControl.SegToolKind tool in new[] { ImageCanvasControl.SegToolKind.Line, ImageCanvasControl.SegToolKind.Polygon })
+                    {
+                        canvas.SegTool = tool;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                        moveAndAssertPartial(MouseButtons.None);
+                        canvas.DiscardUnfinishedShape();
+                    }
+
+                    canvas.SegEnabled = false;
+                    canvas.ObdEnabled = true;
+                    canvas.ObdSelectMode = false;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                    moveAndAssertPartial(MouseButtons.Left);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         [TestMethod]
         public void Annotation_side_panel_places_add_class_above_classes_and_labels_icon_tools()
         {
