@@ -168,6 +168,7 @@ namespace Neurocle.WinForms
             this.trainPercent.Width = 48;
             this.trainPercent.Name = "trainPercent";
             this.trainPercent.TabIndex = 6;
+            this.trainPercent.ValueChanged += new System.EventHandler(this.TrainPercent_ValueChanged);
             //
             // testLabel
             //
@@ -184,6 +185,7 @@ namespace Neurocle.WinForms
             this.testPercent.Width = 48;
             this.testPercent.Name = "testPercent";
             this.testPercent.TabIndex = 8;
+            this.testPercent.ValueChanged += new System.EventHandler(this.TestPercent_ValueChanged);
             //
             // splitSelectedButton
             //
@@ -193,12 +195,14 @@ namespace Neurocle.WinForms
             this.splitSelectedButton.Text = Strings.DatasetSplitSelected;
             this.splitSelectedButton.Enabled = false;
             this.splitSelectedButton.UseVisualStyleBackColor = true;
+            this.splitSelectedButton.Click += new System.EventHandler(this.SplitSelectedButton_Click);
             // splitAllButton
             this.splitAllButton.AutoSize = true;
             this.splitAllButton.Name = "splitAllButton";
             this.splitAllButton.TabIndex = 10;
             this.splitAllButton.Text = Strings.DatasetSplitAll;
             this.splitAllButton.UseVisualStyleBackColor = true;
+            this.splitAllButton.Click += new System.EventHandler(this.SplitAllButton_Click);
             this.randomSplitLabel.AutoSize = true;
             this.randomSplitLabel.Text = Strings.DatasetRandomSplitTitle;
             this.randomSplitLabel.Margin = new System.Windows.Forms.Padding(4, 8, 4, 2);
@@ -266,6 +270,7 @@ namespace Neurocle.WinForms
             this.setFilter.Width = 105;
             this.setFilter.Name = "setFilter";
             this.setFilter.TabIndex = 1;
+            this.setFilter.SelectedIndexChanged += new System.EventHandler(this.Filter_SelectedIndexChanged);
             //
             // classFilterLabel
             //
@@ -282,6 +287,7 @@ namespace Neurocle.WinForms
             this.classFilter.Width = 105;
             this.classFilter.Name = "classFilter";
             this.classFilter.TabIndex = 3;
+            this.classFilter.SelectedIndexChanged += new System.EventHandler(this.Filter_SelectedIndexChanged);
             //
             // annotationFilterLabel
             //
@@ -298,6 +304,7 @@ namespace Neurocle.WinForms
             this.annotationFilter.Width = 105;
             this.annotationFilter.Name = "annotationFilter";
             this.annotationFilter.TabIndex = 5;
+            this.annotationFilter.SelectedIndexChanged += new System.EventHandler(this.Filter_SelectedIndexChanged);
             //
             // retestFilterLabel
             //
@@ -314,6 +321,7 @@ namespace Neurocle.WinForms
             this.retestFilter.Width = 105;
             this.retestFilter.Name = "retestFilter";
             this.retestFilter.TabIndex = 7;
+            this.retestFilter.SelectedIndexChanged += new System.EventHandler(this.Filter_SelectedIndexChanged);
             //
             // filters controls
             //
@@ -336,14 +344,17 @@ namespace Neurocle.WinForms
             // clearRetestItem
             //
             this.clearRetestItem.Text = Strings.DatasetClearRetest;
+            this.clearRetestItem.Click += new System.EventHandler(this.ClearRetestItem_Click);
             //
             // clearClassItem
             //
             this.clearClassItem.Text = Strings.DatasetClearClass;
+            this.clearClassItem.Click += new System.EventHandler(this.ClearClassItem_Click);
             //
             // clearSetItem
             //
             this.clearSetItem.Text = Strings.DatasetClearSet;
+            this.clearSetItem.Click += new System.EventHandler(this.ClearSetItem_Click);
             //
             // list
             //
@@ -363,6 +374,13 @@ namespace Neurocle.WinForms
             this.list.TabIndex = 0;
             this.list.View = System.Windows.Forms.View.Details;
             this.list.VirtualMode = true;
+            this.list.RetrieveVirtualItem += new System.Windows.Forms.RetrieveVirtualItemEventHandler(this.List_RetrieveVirtualItem);
+            this.list.SelectedIndexChanged += new System.EventHandler(this.List_SelectedIndexChanged);
+            this.trainButton.Click += new System.EventHandler(this.TrainButton_Click);
+            this.testButton.Click += new System.EventHandler(this.TestButton_Click);
+            this.unassignedButton.Click += new System.EventHandler(this.UnassignedButton_Click);
+            this.notUsedButton.Click += new System.EventHandler(this.NotUsedButton_Click);
+            this.retestButton.Click += new System.EventHandler(this.RetestButton_Click);
             //
             // columns
             //

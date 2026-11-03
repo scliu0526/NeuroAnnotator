@@ -71,10 +71,13 @@ namespace Neurocle.WinForms
         public ImageBrowserControl()
         {
             InitializeComponent();
-            search.TextChanged += (sender, args) => RefreshList();
-            list.RetrieveVirtualItem += RetrieveVirtualItem;
-            list.SelectedIndexChanged += (sender, args) => ShowSelectionAsync();
-            list.ColumnClick += (sender, args) => ChangeSort(args.Column == 0 ? ImageListSortColumn.Sequence : args.Column == 1 ? ImageListSortColumn.FileName : args.Column == 2 ? ImageListSortColumn.Classes : ImageListSortColumn.AnnotationCount);
+        }
+
+        private void Search_TextChanged(object sender, EventArgs args) { RefreshList(); }
+        private void List_SelectedIndexChanged(object sender, EventArgs args) { ShowSelectionAsync(); }
+        private void List_ColumnClick(object sender, ColumnClickEventArgs args)
+        {
+            ChangeSort(args.Column == 0 ? ImageListSortColumn.Sequence : args.Column == 1 ? ImageListSortColumn.FileName : args.Column == 2 ? ImageListSortColumn.Classes : ImageListSortColumn.AnnotationCount);
         }
 
         /// <summary>將圖片資料轉成清單列並載入受管理圖片目錄。</summary>

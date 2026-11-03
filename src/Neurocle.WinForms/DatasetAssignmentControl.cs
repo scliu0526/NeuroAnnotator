@@ -21,41 +21,36 @@ namespace Neurocle.WinForms
         public DatasetAssignmentControl()
         {
             InitializeComponent();
-            WireRuntimeEvents();
         }
 
-        /// <summary>接線篩選、分配、Retest 及自動切分的使用者操作。</summary>
-        private void WireRuntimeEvents()
+        private void TrainPercent_ValueChanged(object sender, EventArgs args) { SynchronizePercentages(trainPercent, testPercent); }
+        private void TestPercent_ValueChanged(object sender, EventArgs args) { SynchronizePercentages(testPercent, trainPercent); }
+        private void Filter_SelectedIndexChanged(object sender, EventArgs args) { RefreshRows(); }
+        private void List_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs args) { args.Item = CreateItem(visibleRows[args.ItemIndex]); }
+        private void List_SelectedIndexChanged(object sender, EventArgs args) { UpdateSplitButtons(); }
+        private void TrainButton_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Train); }
+        private void TestButton_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Test); }
+        private void UnassignedButton_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned); }
+        private void NotUsedButton_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed); }
+        private void RetestButton_Click(object sender, EventArgs args) { RetestRequested?.Invoke(SelectedImageIds, true); }
+
+        private void SplitSelectedButton_Click(object sender, EventArgs args)
         {
-            trainPercent.ValueChanged += (sender, args) => SynchronizePercentages(trainPercent, testPercent);
-            testPercent.ValueChanged += (sender, args) => SynchronizePercentages(testPercent, trainPercent);
-            setFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
-            classFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
-            annotationFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
-            retestFilter.SelectedIndexChanged += (sender, args) => RefreshRows();
-            list.RetrieveVirtualItem += (sender, args) => args.Item = CreateItem(visibleRows[args.ItemIndex]);
-            list.SelectedIndexChanged += (sender, args) => UpdateSplitButtons();
-            trainButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Train);
-            testButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Test);
-            unassignedButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned);
-            notUsedButton.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed);
-            retestButton.Click += (sender, args) => RetestRequested?.Invoke(SelectedImageIds, true);
-            splitSelectedButton.Click += (sender, args) =>
-            {
-                int count = SelectedImageIds.Count(id => rows.Any(row => row.Image.Id == id && !row.Image.IsMissing));
-                if (count > 0 && MessageBox.Show(string.Format(Strings.DatasetSplitSelectedConfirm, count), Strings.DatasetSplitSelected, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
-                    AutoSplitSelectedRequested?.Invoke(SelectedImageIds, (int)trainPercent.Value);
-            };
-            splitAllButton.Click += (sender, args) =>
-            {
-                int count = rows.Count(row => !row.Image.IsMissing);
-                if (MessageBox.Show(string.Format(Strings.DatasetSplitAllConfirm, count), Strings.DatasetSplitAll, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
-                    AutoSplitAllRequested?.Invoke((int)trainPercent.Value);
-            };
-            clearRetestItem.Click += (sender, args) => RetestRequested?.Invoke(SelectedImageIds, false);
-            clearClassItem.Click += (sender, args) => ClearClassRequested?.Invoke(SelectedImageIds);
-            clearSetItem.Click += (sender, args) => DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned);
+            int count = SelectedImageIds.Count(id => rows.Any(row => row.Image.Id == id && !row.Image.IsMissing));
+            if (count > 0 && MessageBox.Show(string.Format(Strings.DatasetSplitSelectedConfirm, count), Strings.DatasetSplitSelected, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                AutoSplitSelectedRequested?.Invoke(SelectedImageIds, (int)trainPercent.Value);
         }
+
+        private void SplitAllButton_Click(object sender, EventArgs args)
+        {
+            int count = rows.Count(row => !row.Image.IsMissing);
+            if (MessageBox.Show(string.Format(Strings.DatasetSplitAllConfirm, count), Strings.DatasetSplitAll, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                AutoSplitAllRequested?.Invoke((int)trainPercent.Value);
+        }
+
+        private void ClearRetestItem_Click(object sender, EventArgs args) { RetestRequested?.Invoke(SelectedImageIds, false); }
+        private void ClearClassItem_Click(object sender, EventArgs args) { ClearClassRequested?.Invoke(SelectedImageIds); }
+        private void ClearSetItem_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned); }
 
         // 通知主視窗更新所選圖片的資料集狀態。
         public event Action<IReadOnlyList<string>, DatasetAssignmentStatus> DatasetRequested;
