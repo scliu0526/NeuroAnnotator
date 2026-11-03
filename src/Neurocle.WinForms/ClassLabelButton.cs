@@ -22,7 +22,12 @@ namespace Neurocle.WinForms
             Graphics graphics = args.Graphics;
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             Rectangle bounds = new Rectangle(1, 1, Width - 2, Height - 2);
-            using (var background = new SolidBrush(IsActive ? Color.FromArgb(32, SystemColors.Highlight) : BackColor)) graphics.FillRectangle(background, bounds);
+            Color backgroundColor = IsActive ? SystemColors.Control : BackColor;
+            using (var background = new SolidBrush(backgroundColor)) graphics.FillRectangle(background, ClientRectangle);
+            if (IsActive)
+            {
+                using (var selection = new SolidBrush(Color.FromArgb(32, SystemColors.Highlight))) graphics.FillRectangle(selection, bounds);
+            }
             if (IsActive)
             {
                 using (var accent = new SolidBrush(SystemColors.Highlight)) graphics.FillRectangle(accent, 0, 0, 3, Height);

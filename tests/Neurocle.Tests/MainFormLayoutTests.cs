@@ -748,6 +748,25 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Active_class_label_button_repaints_an_opaque_background_without_old_pixels()
+        {
+            using (var button = new ClassLabelButton { Text = "class1", ClassColor = Color.MediumPurple, IsActive = true, BackColor = Color.MediumPurple, Size = new Size(220, 34) })
+            using (var firstFrame = new Bitmap(220, 34))
+            using (var secondFrame = new Bitmap(220, 34))
+            using (Graphics firstGraphics = Graphics.FromImage(firstFrame))
+            using (Graphics secondGraphics = Graphics.FromImage(secondFrame))
+            {
+                firstGraphics.Clear(Color.Red);
+                secondGraphics.Clear(Color.Lime);
+                MethodInfo paint = typeof(ClassLabelButton).GetMethod("OnPaint", BindingFlags.Instance | BindingFlags.NonPublic);
+                paint.Invoke(button, new object[] { new PaintEventArgs(firstGraphics, button.ClientRectangle) });
+                paint.Invoke(button, new object[] { new PaintEventArgs(secondGraphics, button.ClientRectangle) });
+
+                Assert.AreEqual(firstFrame.GetPixel(5, 17).ToArgb(), secondFrame.GetPixel(5, 17).ToArgb(), "The selected row background must replace pixels left by the previously displayed control.");
+            }
+        }
+
+        [STATestMethod]
         public void Annotation_set_creation_dialog_shows_all_types_in_unselected_cards()
         {
             using (var dialog = new AnnotationSetCreationDialog())
