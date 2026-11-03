@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -307,6 +308,7 @@ namespace Neurocle.WinForms
             Invalidate();
         }
         // 取得或更新目前畫布顯示的 OBD 標註。
+        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public IReadOnlyList<ObdAnnotation> ObdAnnotations
         {
             get { return obdAnnotations; }
@@ -319,8 +321,10 @@ namespace Neurocle.WinForms
             }
         }
         // 取得或更新 OBD 類別顯示資料。
+        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public IReadOnlyDictionary<string, AnnotationClass> ObdClasses { get { return obdClasses; } set { obdClasses = value ?? new Dictionary<string, AnnotationClass>(); Invalidate(); } }
         // 取得或更新目前畫布顯示的 SEG 區域。
+        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public IReadOnlyList<SegRegion> SegRegions
         {
             get { return segRegions; }
@@ -333,6 +337,7 @@ namespace Neurocle.WinForms
             }
         }
         // 取得或更新 SEG 類別顯示資料。
+        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public IReadOnlyDictionary<string, AnnotationClass> SegClasses { get { return segClasses; } set { segClasses = value ?? new Dictionary<string, AnnotationClass>(); Invalidate(); } }
         // 通知外層 OBD 矩形已完成繪製。
         public event Action<Rectangle> ObdRectangleCreated;
