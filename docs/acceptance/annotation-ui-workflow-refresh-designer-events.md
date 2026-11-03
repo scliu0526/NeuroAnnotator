@@ -25,4 +25,6 @@
 - Visual Studio Designer 開啟 `MainForm` 與 `DatasetAssignmentControl`，主要版面可見；`MainForm` 的「匯入圖片」按鈕事件頁顯示 `Click → ImportImagesButton_Click`。
 - 本次 Visual Studio 2022 重載後，`DatasetAssignmentControl` 版面可見；「切分所選」按鈕的事件頁顯示 `Click → SplitSelectedButton_Click`，雙擊後跳至對應程式碼。
 - `ImageBrowserControl` Designer 版面可見；選取 `list` 後，事件頁顯示 `SelectedIndexChanged → List_SelectedIndexChanged`，雙擊事件值可跳至對應程式碼。
-- 執行期畫面曾在 1920×1080、96 DPI 確認；1366×768 與 150%／200% DPI 的桌面驗收仍待完成。缺少上述驗收前，Issue #115 維持開啟、PR 維持 Draft。
+- 2026-11-03 的流暢度修正 `31e7f2a` 將繪製預覽改為局部重繪、略過裁切區外的既有標註，並避免類別與工具控制項在狀態刷新時整批重建；最新 Release x64 建置、237 項非手動測試及 9 項手動效能門檻測試均通過，GitHub Actions `build-test-package` 通過。
+- 在隔離暫存專案以 1920×1080、96 DPI 實際切換長名稱類別並完成 SEG 筆刷標註；類別列無殘影、錯位或自身捲軸，筆刷完成後標註數量由 0 更新為 1，未出現 `CreateHandle`／`Dispose` 例外。驗收後已移除暫存專案。
+- 1366×768 與 150%／200% DPI 的桌面驗收仍待完成。缺少上述驗收前，Issue #115 維持開啟、PR 維持 Draft。
