@@ -166,6 +166,10 @@ namespace Neurocle.WinForms
             public bool CancellationRequested { get; set; }
             public bool RequiresConfirmation { get; set; }
 
+            /// <summary>
+            /// 將工作目前狀態複製為不可變快照。
+            /// </summary>
+            /// <returns>包含識別碼、要求、狀態、進度及結果的工作快照。</returns>
             public ImportJobSnapshot Snapshot()
             {
                 return new ImportJobSnapshot(Id, Request, Status, Progress, Result, ErrorMessage, RequiresConfirmation);
@@ -209,6 +213,14 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>
+        /// 將匯入要求加入 FIFO 佇列，必要時啟動工作執行緒。
+        /// </summary>
+        /// <param name="request">要排入佇列的圖片、資料夾或標註 JSON 要求。</param>
+        /// <returns>新工作在本佇列中的識別碼。</returns>
+        /// <exception cref="ArgumentNullException">要求為 null。</exception>
+        /// <exception cref="ObjectDisposedException">佇列已處置。</exception>
+        /// <exception cref="ImportQueueCapacityException">等待中或執行中的工作已達容量上限。</exception>
         public Guid Enqueue(ImportJobRequest request)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -233,6 +245,10 @@ namespace Neurocle.WinForms
             return job.Id;
         }
 
+        /// <summary>
+        /// 要求取消指定的等待中或執行中工作。
+        /// </summary>
+        /// <param name="jobId">要取消的工作識別碼；找不到或已結束時不執行動作。</param>
         public void Cancel(Guid jobId)
         {
             lock (gate)
@@ -247,6 +263,11 @@ namespace Neurocle.WinForms
             Publish();
         }
 
+        /// <summary>
+        /// 回覆目前暫停佇列的 JSON 匯入確認，並可指定重試要求。
+        /// </summary>
+        /// <param name="jobId">等待確認的工作識別碼。</param>
+        /// <param name="retryRequest">使用者確認後重試的要求；null 代表不重試並結束該工作。</param>
         public void ResolveConfirmation(Guid jobId, ImportJobRequest retryRequest)
         {
             lock (gate)
@@ -257,12 +278,18 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>
+        /// 移除所有已完成、失敗或取消的工作歷史。
+        /// </summary>
         public void ClearCompleted()
         {
             lock (gate) jobs.RemoveAll(job => job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled);
             Publish();
         }
 
+        /// <summary>
+        /// 要求取消所有等待中與執行中的工作。
+        /// </summary>
         public void CancelAll()
         {
             lock (gate)
@@ -276,11 +303,20 @@ namespace Neurocle.WinForms
             Publish();
         }
 
+        /// <summary>
+        /// 等待佇列停止執行，直到佇列閒置或逾時。
+        /// </summary>
+        /// <param name="timeout">最多等待的時間。</param>
+        /// <returns>佇列在期限內進入閒置時為 true；逾時則為 false。</returns>
+        /// <exception cref="ArgumentOutOfRangeException">逾時值小於 -1 毫秒。</exception>
         public bool WaitUntilIdle(TimeSpan timeout)
         {
             return idle.Wait(timeout);
         }
 
+        /// <summary>
+        /// 依 FIFO 順序執行工作，處理確認、取消、失敗及歷史裁剪。
+        /// </summary>
         private void ProcessQueue()
         {
             while (true)
@@ -399,17 +435,30 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>
+        /// 取得指定工作或佇列目前是否要求取消。
+        /// </summary>
+        /// <param name="job">要檢查的工作。</param>
+        /// <returns>工作已取消或佇列已處置時為 true。</returns>
         private bool IsCancellationRequested(Job job)
         {
             lock (gate) return job.CancellationRequested || disposed;
         }
 
+        /// <summary>
+        /// 更新指定工作的進度並發布佇列快照。
+        /// </summary>
+        /// <param name="job">進度所屬的工作。</param>
+        /// <param name="progress">最新的匯入進度。</param>
         private void Report(Job job, ImportJobProgress progress)
         {
             lock (gate) job.Progress = progress;
             Publish();
         }
 
+        /// <summary>
+        /// 將目前工作快照通知每個訂閱者；單一訂閱者失敗不影響其他訂閱者。
+        /// </summary>
         private void Publish()
         {
             Action<IReadOnlyList<ImportJobSnapshot>> handler = JobsChanged;
@@ -422,11 +471,18 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>
+        /// 確認佇列尚未處置。
+        /// </summary>
+        /// <exception cref="ObjectDisposedException">佇列已處置。</exception>
         private void ThrowIfDisposed()
         {
             if (disposed) throw new ObjectDisposedException(nameof(ImportJobQueue));
         }
 
+        /// <summary>
+        /// 在持有佇列鎖時裁剪超出保留上限的最舊終止工作。
+        /// </summary>
         private void TrimHistoryLocked()
         {
             while (jobs.Count(job => job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled) > MaxCompletedJobs)
@@ -437,11 +493,19 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>
+        /// 判斷工作例外是否表示專案或資料庫已無法繼續安全處理。
+        /// </summary>
+        /// <param name="exception">工作執行時擲出的例外。</param>
+        /// <returns>例外為物件已處置或 SQLite 錯誤時為 true。</returns>
         private static bool IsFatal(Exception exception)
         {
             return exception is ObjectDisposedException || exception.GetType().Name == "SqliteException";
         }
 
+        /// <summary>
+        /// 停止接受工作、取消佇列工作並釋放同步控制資源。
+        /// </summary>
         public void Dispose()
         {
             lock (gate)

@@ -10,19 +10,25 @@ namespace Neurocle.WinForms
         // 提供記錄用量查詢及資料夾開啟功能。
         private DiagnosticLog diagnosticLog;
 
-        /// <summary>初始化診斷資訊表單。</summary>
+        /// <summary>
+        /// 初始化診斷資訊表單。
+        /// </summary>
         internal DiagnosticsForm()
         {
             InitializeComponent();
         }
 
-        /// <summary>建立並設定此表單使用的診斷記錄器。</summary>
+        /// <summary>
+        /// 建立並設定此表單使用的診斷記錄器。
+        /// </summary>
         public DiagnosticsForm(DiagnosticLog diagnosticLog) : this()
         {
             this.diagnosticLog = diagnosticLog ?? throw new ArgumentNullException(nameof(diagnosticLog));
         }
 
-        /// <summary>查詢記錄檔總用量並更新畫面文字。</summary>
+        /// <summary>
+        /// 查詢記錄檔總用量並更新畫面文字。
+        /// </summary>
         private void RefreshUsage()
         {
             if (diagnosticLog == null) return;
@@ -30,7 +36,9 @@ namespace Neurocle.WinForms
             catch (DiagnosticLogException exception) { MessageBox.Show(this, DiagnosticLogMessages.GetFailureMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
-        /// <summary>開啟記錄檔目錄，並在成功後更新用量資訊。</summary>
+        /// <summary>
+        /// 開啟記錄檔目錄，並在成功後更新用量資訊。
+        /// </summary>
         private void OpenFolder()
         {
             if (diagnosticLog == null) return;
@@ -38,13 +46,21 @@ namespace Neurocle.WinForms
             catch (DiagnosticLogException exception) { MessageBox.Show(this, DiagnosticLogMessages.GetFailureMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
 
-        /// <summary>表單顯示時載入目前診斷記錄用量。</summary>
+        /// <summary>
+        /// 表單顯示時載入目前診斷記錄用量。
+        /// </summary>
+        /// <param name="sender">觸發此事件的控制項或視窗。</param>
+        /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         private void DiagnosticsForm_Shown(object sender, System.EventArgs args)
         {
             RefreshUsage();
         }
 
-        /// <summary>將開啟資料夾按鈕事件委派給記錄資料夾操作。</summary>
+        /// <summary>
+        /// 將開啟資料夾按鈕事件委派給記錄資料夾操作。
+        /// </summary>
+        /// <param name="sender">觸發此事件的控制項或視窗。</param>
+        /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         private void OpenFolder_Click(object sender, System.EventArgs args)
         {
             OpenFolder();

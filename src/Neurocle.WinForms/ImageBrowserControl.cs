@@ -32,7 +32,10 @@ namespace Neurocle.WinForms
         // 取得尚未篩選與排序的圖片列。
         internal IReadOnlyList<ImageListRow> Rows { get { return source; } }
 
-        /// <summary>將目前選取項目移動指定列數並確保目標列可見。</summary>
+        /// <summary>
+        /// 將目前選取項目移動指定列數並確保目標列可見。
+        /// </summary>
+        /// <param name="direction">選取或移動的方向。</param>
         internal void MoveSelection(int direction)
         {
             if (visible.Count == 0) return;
@@ -44,7 +47,10 @@ namespace Neurocle.WinForms
             list.EnsureVisible(target);
         }
 
-        /// <summary>依圖片識別碼選取清單中對應的圖片列。</summary>
+        /// <summary>
+        /// 依圖片識別碼選取清單中對應的圖片列。
+        /// </summary>
+        /// <param name="imageId">圖片的識別碼。</param>
         internal void SelectImage(string imageId)
         {
             int index = visible.Select((row, current) => new { row, current }).Where(item => item.row.Image.Id == imageId).Select(item => item.current).DefaultIfEmpty(-1).Single();
@@ -52,7 +58,10 @@ namespace Neurocle.WinForms
             if (index >= 0) list.SelectedIndices.Add(index);
         }
 
-        /// <summary>清除搜尋並取代目前選取，選取仍存在的指定圖片且確保第一張可見。</summary>
+        /// <summary>
+        /// 清除搜尋並取代目前選取，選取仍存在的指定圖片且確保第一張可見。
+        /// </summary>
+        /// <param name="imageIds">圖片識別碼清單。</param>
         internal void SelectImages(IReadOnlyCollection<string> imageIds)
         {
             if (imageIds == null || imageIds.Count == 0) return;
@@ -67,26 +76,53 @@ namespace Neurocle.WinForms
             if (indices.Length > 0) list.EnsureVisible(indices[0]);
         }
 
-        /// <summary>初始化搜尋欄、虛擬清單及選取排序事件。</summary>
+        /// <summary>
+        /// 初始化搜尋欄、虛擬清單及選取排序事件。
+        /// </summary>
         public ImageBrowserControl()
         {
             InitializeComponent();
         }
 
+        /// <summary>
+        /// 依搜尋欄內容重新篩選圖片清單。
+        /// </summary>
+        /// <param name="sender">內容已變更的搜尋欄。</param>
+        /// <param name="args">文字變更事件資料。</param>
         private void Search_TextChanged(object sender, EventArgs args) { RefreshList(); }
+
+        /// <summary>
+        /// 將目前圖片清單選取狀態通知外層控制項。
+        /// </summary>
+        /// <param name="sender">選取項目已變更的圖片清單。</param>
+        /// <param name="args">選取項目變更事件資料。</param>
         private void List_SelectedIndexChanged(object sender, EventArgs args) { ShowSelectionAsync(); }
+
+        /// <summary>
+        /// 依點擊欄位切換圖片清單的排序欄位與方向。
+        /// </summary>
+        /// <param name="sender">欄位標題被點擊的圖片清單。</param>
+        /// <param name="args">指出被點擊欄位索引的事件資料。</param>
         private void List_ColumnClick(object sender, ColumnClickEventArgs args)
         {
             ChangeSort(args.Column == 0 ? ImageListSortColumn.Sequence : args.Column == 1 ? ImageListSortColumn.FileName : args.Column == 2 ? ImageListSortColumn.Classes : ImageListSortColumn.AnnotationCount);
         }
 
-        /// <summary>將圖片資料轉成清單列並載入受管理圖片目錄。</summary>
+        /// <summary>
+        /// 將圖片資料轉成清單列並載入受管理圖片目錄。
+        /// </summary>
+        /// <param name="images">要載入或處理的圖片資料。</param>
+        /// <param name="managedImagesDirectory">圖片實際檔案所在的受管理目錄。</param>
         public void LoadImages(IReadOnlyList<ProjectImage> images, string managedImagesDirectory)
         {
             LoadRows((images ?? new ProjectImage[0]).Select(image => new ImageListRow(image, new string[0], 0, false)), managedImagesDirectory);
         }
 
-        /// <summary>載入完整圖片列並重設可見欄位與搜尋結果。</summary>
+        /// <summary>
+        /// 載入完整圖片列並重設可見欄位與搜尋結果。
+        /// </summary>
+        /// <param name="rows">要載入或篩選的資料列。</param>
+        /// <param name="managedImagesDirectory">圖片實際檔案所在的受管理目錄。</param>
         public void LoadRows(IEnumerable<ImageListRow> rows, string managedImagesDirectory)
         {
             source.Clear();
@@ -100,7 +136,10 @@ namespace Neurocle.WinForms
             finally { refreshing = false; }
         }
 
-        /// <summary>切換指定排序欄位的升降冪方向並更新清單。</summary>
+        /// <summary>
+        /// 切換指定排序欄位的升降冪方向並更新清單。
+        /// </summary>
+        /// <param name="requestedColumn">要求排序的欄位。</param>
         private void ChangeSort(ImageListSortColumn requestedColumn)
         {
             if (column == requestedColumn) direction = direction == ImageListSortDirection.Ascending ? ImageListSortDirection.Descending : ImageListSortDirection.Ascending;
@@ -112,7 +151,9 @@ namespace Neurocle.WinForms
             RefreshList();
         }
 
-        /// <summary>套用搜尋與排序，保留仍可見圖片的既有選取。</summary>
+        /// <summary>
+        /// 套用搜尋與排序，保留仍可見圖片的既有選取。
+        /// </summary>
         private void RefreshList()
         {
             var selectedIds = new HashSet<string>(list.SelectedIndices.Cast<int>().Select(index => visible[index].Image.Id), StringComparer.Ordinal);
@@ -124,7 +165,11 @@ namespace Neurocle.WinForms
             list.Invalidate();
         }
 
-        /// <summary>依可見列索引建立虛擬清單項目及其欄位文字。</summary>
+        /// <summary>
+        /// 依可見列索引建立虛擬清單項目及其欄位文字。
+        /// </summary>
+        /// <param name="sender">觸發此事件的控制項或視窗。</param>
+        /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         private void RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs args)
         {
             ImageListRow row = visible[args.ItemIndex];
@@ -134,7 +179,9 @@ namespace Neurocle.WinForms
             if (list.Columns.Contains(annotationCountColumn)) args.Item.SubItems.Add(row.AnnotationCount.ToString());
         }
 
-        /// <summary>通知主視窗第一個選取圖片及其受管理檔案路徑。</summary>
+        /// <summary>
+        /// 通知主視窗第一個選取圖片及其受管理檔案路徑。
+        /// </summary>
         private void ShowSelectionAsync()
         {
             if (refreshing || list.SelectedIndices.Count == 0) return;
@@ -146,7 +193,9 @@ namespace Neurocle.WinForms
     // 傳遞清單選取圖片及其受管理檔案路徑。
     internal sealed class ImageSelectedEventArgs : EventArgs
     {
-        /// <summary>建立圖片選取事件資料。</summary>
+        /// <summary>
+        /// 建立圖片選取事件資料。
+        /// </summary>
         public ImageSelectedEventArgs(ProjectImage image, string path)
         {
             Image = image;

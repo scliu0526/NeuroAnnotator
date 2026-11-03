@@ -17,23 +17,89 @@ namespace Neurocle.WinForms
         // 保存套用篩選條件後的可見資料集列。
         private readonly List<DatasetRow> visibleRows = new List<DatasetRow>();
 
-        /// <summary>初始化資料集控制項並接線執行期操作事件。</summary>
+        /// <summary>
+        /// 初始化資料集控制項並接線執行期操作事件。
+        /// </summary>
         public DatasetAssignmentControl()
         {
             InitializeComponent();
         }
 
+        /// <summary>
+        /// 同步訓練比例變更後的測試比例。
+        /// </summary>
+        /// <param name="sender">引發事件的比例欄位。</param>
+        /// <param name="args">數值變更事件資料。</param>
         private void TrainPercent_ValueChanged(object sender, EventArgs args) { SynchronizePercentages(trainPercent, testPercent); }
+
+        /// <summary>
+        /// 同步測試比例變更後的訓練比例。
+        /// </summary>
+        /// <param name="sender">引發事件的比例欄位。</param>
+        /// <param name="args">數值變更事件資料。</param>
         private void TestPercent_ValueChanged(object sender, EventArgs args) { SynchronizePercentages(testPercent, trainPercent); }
+
+        /// <summary>
+        /// 套用資料集、類別、標註或 Retest 篩選變更。
+        /// </summary>
+        /// <param name="sender">引發事件的篩選欄位。</param>
+        /// <param name="args">選取項目變更事件資料。</param>
         private void Filter_SelectedIndexChanged(object sender, EventArgs args) { RefreshRows(); }
+
+        /// <summary>
+        /// 提供虛擬清單目前索引所需的圖片列。
+        /// </summary>
+        /// <param name="sender">提出資料要求的虛擬清單。</param>
+        /// <param name="args">包含列索引並接收建立項目的事件資料。</param>
         private void List_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs args) { args.Item = CreateItem(visibleRows[args.ItemIndex]); }
+
+        /// <summary>
+        /// 依目前選取項目更新切分所選按鈕狀態。
+        /// </summary>
+        /// <param name="sender">選取項目變更的清單。</param>
+        /// <param name="args">選取項目變更事件資料。</param>
         private void List_SelectedIndexChanged(object sender, EventArgs args) { UpdateSplitButtons(); }
+
+        /// <summary>
+        /// 要求將所選圖片分配至訓練集。
+        /// </summary>
+        /// <param name="sender">引發事件的訓練集按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void TrainButton_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Train); }
+
+        /// <summary>
+        /// 要求將所選圖片分配至測試集。
+        /// </summary>
+        /// <param name="sender">引發事件的測試集按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void TestButton_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Test); }
+
+        /// <summary>
+        /// 要求將所選圖片設為未分配。
+        /// </summary>
+        /// <param name="sender">引發事件的未分配按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void UnassignedButton_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned); }
+
+        /// <summary>
+        /// 要求將所選圖片設為不使用。
+        /// </summary>
+        /// <param name="sender">引發事件的不使用按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void NotUsedButton_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.NotUsed); }
+
+        /// <summary>
+        /// 要求為所選圖片設定 Retest 旗標。
+        /// </summary>
+        /// <param name="sender">引發事件的 Retest 按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void RetestButton_Click(object sender, EventArgs args) { RetestRequested?.Invoke(SelectedImageIds, true); }
 
+        /// <summary>
+        /// 確認後依目前比例切分所選且仍可用的圖片。
+        /// </summary>
+        /// <param name="sender">引發事件的切分所選按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void SplitSelectedButton_Click(object sender, EventArgs args)
         {
             int count = SelectedImageIds.Count(id => rows.Any(row => row.Image.Id == id && !row.Image.IsMissing));
@@ -41,6 +107,11 @@ namespace Neurocle.WinForms
                 AutoSplitSelectedRequested?.Invoke(SelectedImageIds, (int)trainPercent.Value);
         }
 
+        /// <summary>
+        /// 確認後依目前比例切分全部仍可用的圖片。
+        /// </summary>
+        /// <param name="sender">引發事件的切分全部按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void SplitAllButton_Click(object sender, EventArgs args)
         {
             int count = rows.Count(row => !row.Image.IsMissing);
@@ -48,8 +119,25 @@ namespace Neurocle.WinForms
                 AutoSplitAllRequested?.Invoke((int)trainPercent.Value);
         }
 
+        /// <summary>
+        /// 要求清除所選圖片的 Retest 旗標。
+        /// </summary>
+        /// <param name="sender">引發事件的右鍵選單項目。</param>
+        /// <param name="args">選單點擊事件資料。</param>
         private void ClearRetestItem_Click(object sender, EventArgs args) { RetestRequested?.Invoke(SelectedImageIds, false); }
+
+        /// <summary>
+        /// 要求清除所選圖片的 CLA 類別。
+        /// </summary>
+        /// <param name="sender">引發事件的右鍵選單項目。</param>
+        /// <param name="args">選單點擊事件資料。</param>
         private void ClearClassItem_Click(object sender, EventArgs args) { ClearClassRequested?.Invoke(SelectedImageIds); }
+
+        /// <summary>
+        /// 要求將所選圖片的資料集狀態設為未分配。
+        /// </summary>
+        /// <param name="sender">引發事件的右鍵選單項目。</param>
+        /// <param name="args">選單點擊事件資料。</param>
         private void ClearSetItem_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned); }
 
         // 通知主視窗更新所選圖片的資料集狀態。
@@ -66,7 +154,11 @@ namespace Neurocle.WinForms
         // 取得目前已載入的全部資料集列。
         internal IReadOnlyList<DatasetRow> Rows { get { return rows; } }
 
-        /// <summary>同步訓練與測試比例，使兩者總和維持百分之百。</summary>
+        /// <summary>
+        /// 同步訓練與測試比例，使兩者總和維持百分之百。
+        /// </summary>
+        /// <param name="source">提供資料或數值的來源。</param>
+        /// <param name="target">要更新的目標控制項或值。</param>
         private void SynchronizePercentages(NumericUpDown source, NumericUpDown target)
         {
             if (synchronizingPercentages) return;
@@ -78,7 +170,11 @@ namespace Neurocle.WinForms
         // 取得目前清單選取的圖片識別碼。
         public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visibleRows[index].Image.Id).ToArray(); } }
 
-        /// <summary>載入資料集列並更新類別篩選及可選的標註數欄位。</summary>
+        /// <summary>
+        /// 載入資料集列並更新類別篩選及可選的標註數欄位。
+        /// </summary>
+        /// <param name="values">要載入的值集合。</param>
+        /// <param name="showAnnotationCount">是否顯示標註數量欄位。</param>
         public void LoadRows(IEnumerable<DatasetRow> values, bool showAnnotationCount = false)
         {
             if (showAnnotationCount && !list.Columns.Contains(annotationCountColumn)) list.Columns.Insert(5, annotationCountColumn);
@@ -93,7 +189,9 @@ namespace Neurocle.WinForms
             RefreshRows();
         }
 
-        /// <summary>依資料集、類別、標註及 Retest 篩選條件重建可見列。</summary>
+        /// <summary>
+        /// 依資料集、類別、標註及 Retest 篩選條件重建可見列。
+        /// </summary>
         private void RefreshRows()
         {
             if (list == null) return;
@@ -117,13 +215,19 @@ namespace Neurocle.WinForms
             UpdateSplitButtons();
         }
 
-        /// <summary>依目前清單選取狀態更新切分所選按鈕。</summary>
+        /// <summary>
+        /// 依目前清單選取狀態更新切分所選按鈕。
+        /// </summary>
         private void UpdateSplitButtons()
         {
             if (splitSelectedButton != null) splitSelectedButton.Enabled = list.SelectedIndices.Count > 0;
         }
 
-        /// <summary>將資料集列轉換為虛擬清單使用的顯示項目。</summary>
+        /// <summary>
+        /// 將資料集列轉換為虛擬清單使用的顯示項目。
+        /// </summary>
+        /// <param name="row">要轉換成清單項目的資料集資料列。</param>
+        /// <returns>建立的圖片或資料集清單項目。</returns>
         private ListViewItem CreateItem(DatasetRow row)
         {
             var item = new ListViewItem(row.Image.Sequence.ToString()) { Tag = row.Image.Id };
@@ -136,7 +240,11 @@ namespace Neurocle.WinForms
             return item;
         }
 
-        /// <summary>將資料集分配狀態轉成畫面顯示文字。</summary>
+        /// <summary>
+        /// 將資料集分配狀態轉成畫面顯示文字。
+        /// </summary>
+        /// <param name="status">要處理或顯示的狀態。</param>
+        /// <returns>轉換或取得的文字結果。</returns>
         private static string DatasetText(DatasetAssignmentStatus status)
         {
             if (status == DatasetAssignmentStatus.Train) return Strings.DatasetTrain;
@@ -149,7 +257,9 @@ namespace Neurocle.WinForms
     // 將圖片、資料集狀態及標註摘要合併為一列畫面資料。
     internal sealed class DatasetRow
     {
-        /// <summary>建立包含圖片、分配、類別及標註數量的資料列。</summary>
+        /// <summary>
+        /// 建立包含圖片、分配、類別及標註數量的資料列。
+        /// </summary>
         public DatasetRow(ProjectImage image, DatasetAssignment assignment, IReadOnlyList<string> classNames, int annotationCount)
         {
             Image = image; Assignment = assignment; ClassNames = classNames ?? throw new ArgumentNullException(nameof(classNames)); AnnotationCount = annotationCount;

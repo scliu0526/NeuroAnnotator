@@ -20,6 +20,10 @@ namespace Neurocle.WinForms
         public event Action<Guid> ViewImportedImagesRequested;
         public event Action ClearCompletedRequested;
 
+        /// <summary>
+        /// 更新工作清單與動態工作卡片，並同步各工作操作狀態。
+        /// </summary>
+        /// <param name="jobs">依佇列順序顯示的工作快照清單；null 代表空清單。</param>
         public void UpdateJobs(IReadOnlyList<ImportJobSnapshot> jobs)
         {
             if (IsDisposed || Disposing) return;
@@ -63,7 +67,12 @@ namespace Neurocle.WinForms
             clearCompletedButton.Enabled = currentJobs.Any(job => job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Failed || job.Status == ImportJobStatus.Canceled);
         }
 
-        /// <summary>更新指定工作的匯入圖片跳轉狀態。</summary>
+        /// <summary>
+        /// 更新指定工作的匯入圖片跳轉狀態。
+        /// </summary>
+        /// <param name="jobId">匯入工作的識別碼。</param>
+        /// <param name="enabled">是否啟用控制項。</param>
+        /// <param name="unavailableReason">功能停用時顯示的原因。</param>
         public void SetImportedImagesAvailability(Guid jobId, bool enabled, string unavailableReason)
         {
             ImportJobSnapshot job = currentJobs.FirstOrDefault(value => value.Id == jobId);
@@ -74,6 +83,11 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>
+        /// 取得工作清單顯示的匯入來源文字。
+        /// </summary>
+        /// <param name="request">提供圖片檔、資料夾或 JSON 來源的工作要求。</param>
+        /// <returns>適合顯示在清單中的來源摘要。</returns>
         private static string SourceText(ImportJobRequest request)
         {
             var imageRequest = request as ImageFilesImportJobRequest;
@@ -85,6 +99,11 @@ namespace Neurocle.WinForms
             return request.Kind.ToString();
         }
 
+        /// <summary>
+        /// 取得工作清單顯示的本地化狀態文字。
+        /// </summary>
+        /// <param name="status">要轉換為顯示文字的工作狀態。</param>
+        /// <returns>對應工作狀態的本地化名稱。</returns>
         private static string StatusText(ImportJobStatus status)
         {
             switch (status)
@@ -98,11 +117,19 @@ namespace Neurocle.WinForms
             }
         }
 
+        /// <summary>
+        /// 依選取的工作重新計算取消按鈕是否可用。
+        /// </summary>
+        /// <param name="sender">選取項目已變更的工作清單。</param>
+        /// <param name="args">選取項目變更事件資料。</param>
         private void JobsList_SelectedIndexChanged(object sender, EventArgs args)
         {
             UpdateCancelButton();
         }
 
+        /// <summary>
+        /// 依目前選取工作類型與狀態更新取消按鈕。
+        /// </summary>
         private void UpdateCancelButton()
         {
             if (jobsList.SelectedItems.Count == 0)
@@ -116,6 +143,11 @@ namespace Neurocle.WinForms
             cancelButton.Enabled = selected != null && (selected.Status == ImportJobStatus.Waiting || (!isJson && selected.Status == ImportJobStatus.Running));
         }
 
+        /// <summary>
+        /// 通知外層要求取消目前選取的工作。
+        /// </summary>
+        /// <param name="sender">引發事件的取消按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void CancelButton_Click(object sender, EventArgs args)
         {
             if (jobsList.SelectedItems.Count == 0) return;
@@ -123,12 +155,21 @@ namespace Neurocle.WinForms
             if (handler != null) handler((Guid)jobsList.SelectedItems[0].Tag);
         }
 
+        /// <summary>
+        /// 通知外層清除已完成、失敗及取消的工作。
+        /// </summary>
+        /// <param name="sender">引發事件的清除按鈕。</param>
+        /// <param name="args">按鈕點擊事件資料。</param>
         private void ClearCompletedButton_Click(object sender, EventArgs args)
         {
             Action handler = ClearCompletedRequested;
             if (handler != null) handler();
         }
 
+        /// <summary>
+        /// 將使用者關閉佇列視窗轉為隱藏，保留佇列供稍後重開。
+        /// </summary>
+        /// <param name="args">包含關閉原因及是否取消關閉的事件資料。</param>
         protected override void OnFormClosing(FormClosingEventArgs args)
         {
             if (args.CloseReason == CloseReason.UserClosing)

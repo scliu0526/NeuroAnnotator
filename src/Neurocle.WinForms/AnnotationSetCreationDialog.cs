@@ -17,7 +17,9 @@ namespace Neurocle.WinForms
         // 保存使用者目前選取的標註類型。
         private AnnotationSetKind? selectedType;
 
-        /// <summary>初始化標註類型卡片、文字及互動事件。</summary>
+        /// <summary>
+        /// 初始化標註類型卡片、文字及互動事件。
+        /// </summary>
         internal AnnotationSetCreationDialog()
         {
             InitializeComponent();
@@ -46,7 +48,12 @@ namespace Neurocle.WinForms
         // 取得名稱欄位目前的文字。
         internal string AnnotationSetName { get { return name.Text; } }
 
-        /// <summary>從嵌入式資源載入類型圖示並記錄其生命週期。</summary>
+        /// <summary>
+        /// 從嵌入式資源載入類型圖示並記錄其生命週期。
+        /// </summary>
+        /// <param name="resourceName">對應嵌入式圖片資源的名稱。</param>
+        /// <returns>載入的圖片資源。</returns>
+        /// <exception cref="InvalidOperationException">目前狀態不允許此操作。</exception>
         private Image LoadTypeIcon(string resourceName)
         {
             string manifestName = "Neurocle.WinForms.model_type." + resourceName;
@@ -62,7 +69,10 @@ namespace Neurocle.WinForms
             }
         }
 
-        /// <summary>更新目前選取的類型卡片並重新檢查建立按鈕狀態。</summary>
+        /// <summary>
+        /// 更新目前選取的類型卡片並重新檢查建立按鈕狀態。
+        /// </summary>
+        /// <param name="type">要處理的工具或資料類型。</param>
         private void SelectType(AnnotationSetKind type)
         {
             selectedType = type;
@@ -72,7 +82,11 @@ namespace Neurocle.WinForms
             UpdateCreateButton();
         }
 
-        /// <summary>依選取狀態更新單一卡片的底色與邊框。</summary>
+        /// <summary>
+        /// 依選取狀態更新單一卡片的底色與邊框。
+        /// </summary>
+        /// <param name="card">要更新的工作卡片。</param>
+        /// <param name="selected">目前選取的值或項目。</param>
         private void UpdateCard(Button card, bool selected)
         {
             card.BackColor = selected ? SystemColors.GradientActiveCaption : SystemColors.Window;
@@ -80,13 +94,18 @@ namespace Neurocle.WinForms
             card.FlatAppearance.BorderSize = selected ? 2 : 1;
         }
 
-        /// <summary>僅在已選取類型且名稱非空白時啟用建立按鈕。</summary>
+        /// <summary>
+        /// 僅在已選取類型且名稱非空白時啟用建立按鈕。
+        /// </summary>
         private void UpdateCreateButton()
         {
             createButton.Enabled = selectedType.HasValue && !string.IsNullOrWhiteSpace(name.Text);
         }
 
-        /// <summary>釋放表單元件及自行載入的圖示影像。</summary>
+        /// <summary>
+        /// 釋放表單元件及自行載入的圖示影像。
+        /// </summary>
+        /// <param name="disposing">指出是否正在處置元件的旗標。</param>
         protected override void Dispose(bool disposing)
         {
             if (disposing)
