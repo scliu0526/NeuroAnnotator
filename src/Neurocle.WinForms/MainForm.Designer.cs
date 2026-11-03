@@ -280,7 +280,7 @@ namespace Neurocle.WinForms
             this.annotationSidebar.Width = 180;
             this.annotationSidebar.Name = "annotationSidebar";
             this.annotationClasses.Dock = DockStyle.Fill;
-            this.annotationClasses.AutoScroll = true;
+            this.annotationClasses.AutoScroll = false;
             this.annotationClasses.FlowDirection = FlowDirection.TopDown;
             this.annotationClasses.WrapContents = false;
             this.annotationClasses.Name = "annotationClasses";

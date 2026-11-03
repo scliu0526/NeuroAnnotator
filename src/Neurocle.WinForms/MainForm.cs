@@ -1285,7 +1285,8 @@ namespace Neurocle.WinForms
                     ? selectedImageId != null && project.GetClaClassId(selected.Id, selectedImageId) == value.Id
                     : selected.Type == AnnotationSetType.Obd ? selectedObdClassId == value.Id : selectedSegClassId == value.Id;
                 Color classColor = AnnotationColorFormat.ToColor(value.Color);
-                var button = new ClassLabelButton { Text = value.Name, AutoSize = false, Width = 220, Height = 34, ClassColor = classColor, IsActive = activeClass, BackColor = activeClass ? classColor : SystemColors.Control, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false };
+                var button = new ClassLabelButton { Text = value.Name, AutoSize = false, Height = 34, ClassColor = classColor, IsActive = activeClass, BackColor = activeClass ? classColor : SystemColors.Control, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false };
+                button.Width = Math.Max(1, annotationClasses.ClientSize.Width - button.Margin.Horizontal);
                 button.AutoEllipsis = true;
                 annotationToolTips.SetToolTip(button, value.Name);
                 button.FlatAppearance.BorderSize = activeClass ? 3 : 1;

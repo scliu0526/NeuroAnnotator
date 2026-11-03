@@ -900,8 +900,12 @@ namespace Neurocle.Tests
                     sets.SelectedItem = AnnotationSet(sets, seg.Id);
                     System.Windows.Forms.Application.DoEvents();
                     Control[] segTools = tools.Controls.Cast<Control>().ToArray();
+                    FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
                     CollectionAssert.AreEquivalent(new[] { "segSelect", "segRectangle", "segEllipse", "segPolygon", "segBrush", "segLine", "segEraser" }, segTools.Select(control => control.Name).ToArray());
+                    Assert.IsFalse(tools.AutoScroll, "Annotation tools must wrap without their own scrollbars.");
+                    Assert.IsFalse(classes.AutoScroll, "Class labels must be shown without their own scrollbars.");
                     AssertControlsAreUsable(segTools, sidebar);
+                    AssertControlsAreUsable(classes.Controls.Cast<Control>(), classes);
                     AssertControlsAreUsable(new Control[] { Field<TrackBar>(form, "annotationOpacity") }, annotationHeader);
                     AssertControlsAreUsable(Descendants<TrackBar>(annotationHeader), annotationHeader);
                     ((Button)segTools.Single(control => control.Name == "segLine")).PerformClick();
