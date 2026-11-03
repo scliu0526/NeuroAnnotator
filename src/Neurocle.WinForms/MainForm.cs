@@ -2123,7 +2123,7 @@ namespace Neurocle.WinForms
         {
             if (project == null || importJobQueue == null || importQueueForm == null) return;
             ImportJobSnapshot job = importJobQueue.Jobs.FirstOrDefault(value => value.Id == jobId);
-            if (job == null || job.Result == null || job.Status != ImportJobStatus.Completed || job.Request is AnnotationJsonImportJobRequest) return;
+            if (!CanViewImportedImages(job)) return;
             var existingImageIds = new HashSet<string>(project.GetImages().Select(image => image.Id), StringComparer.Ordinal);
             string[] imageIds = job.Result.ImportedImageIds.Where(existingImageIds.Contains).ToArray();
             if (imageIds.Length == 0)
@@ -2136,14 +2136,28 @@ namespace Neurocle.WinForms
         }
 
         /// <summary>
-        /// 依目前專案圖片更新已完成匯入工作的跳轉可用性。
+        /// 判斷匯入工作是否包含可供批次跳轉的成功圖片。
+        /// </summary>
+        /// <param name="job">要檢查的匯入工作快照。</param>
+        /// <returns>圖片或資料夾工作已完成或部分取消且含成功圖片時為 true。</returns>
+        private static bool CanViewImportedImages(ImportJobSnapshot job)
+        {
+            return job != null
+                && job.Result != null
+                && !(job.Request is AnnotationJsonImportJobRequest)
+                && (job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Canceled)
+                && job.Result.ImportedImageIds.Count > 0;
+        }
+
+        /// <summary>
+        /// 依目前專案圖片更新已完成或部分取消匯入工作的跳轉可用性。
         /// </summary>
         /// <param name="jobs">要顯示的匯入工作快照。</param>
         private void RefreshImportedImageAvailability(IReadOnlyList<ImportJobSnapshot> jobs)
         {
             if (importQueueForm == null || importQueueForm.IsDisposed) return;
             var existingImageIds = new HashSet<string>(project == null ? new string[0] : project.GetImages().Select(image => image.Id), StringComparer.Ordinal);
-            foreach (ImportJobSnapshot job in (jobs ?? new ImportJobSnapshot[0]).Where(value => value.Status == ImportJobStatus.Completed && value.Result != null && !(value.Request is AnnotationJsonImportJobRequest)))
+            foreach (ImportJobSnapshot job in (jobs ?? new ImportJobSnapshot[0]).Where(CanViewImportedImages))
             {
                 bool hasExisting = job.Result.ImportedImageIds.Any(existingImageIds.Contains);
                 importQueueForm.SetImportedImagesAvailability(job.Id, hasExisting, hasExisting ? null : Strings.ImportedImagesUnavailable);

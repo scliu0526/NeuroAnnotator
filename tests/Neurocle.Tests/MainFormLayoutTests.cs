@@ -400,6 +400,85 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Canceled_image_import_card_can_request_viewing_successfully_imported_images()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                Guid jobId = Guid.NewGuid();
+                bool requested = false;
+                form.ViewImportedImagesRequested += id => requested = id == jobId;
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(jobId, new ImageFilesImportJobRequest(new[] { "one.png", "two.png" }), ImportJobStatus.Canceled, null, new ImportJobResult(true, new[] { "image-id" }, 0, 1), null)
+                });
+
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                Button view = Field<Button>(card, "viewImportedImagesButton");
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(view.Visible, "A canceled job with imported images must allow batch navigation.");
+                typeof(ImportJobCardControl).GetMethod("ViewImportedImagesButton_Click", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(card, new object[] { view, EventArgs.Empty });
+                Assert.IsTrue(requested);
+
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(jobId, new ImageFilesImportJobRequest(new[] { "one.png", "two.png" }), ImportJobStatus.Canceled, null, new ImportJobResult(true, new string[0], 0, 2), null)
+                });
+                card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                Assert.IsFalse(Field<Button>(card, "viewImportedImagesButton").Visible, "A canceled job without imported images must not offer batch navigation.");
+            }
+        }
+
+        [STATestMethod]
+        public void Canceled_image_import_job_navigates_to_its_successfully_imported_images()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "existing.png");
+            ProjectStore store = null;
+            ImportJobQueue queue = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 10);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    ImportJobQueue originalQueue = Field<ImportJobQueue>(form, "importJobQueue");
+                    queue = new ImportJobQueue((request, cancellationRequested, progress) => new ImportJobResult(true, new[] { image.Id }, 0, 1));
+                    SetField(form, "importJobQueue", queue);
+                    originalQueue.Dispose();
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+
+                    Guid jobId = queue.Enqueue(new ImageFilesImportJobRequest(new[] { imagePath, "not-imported.png" }));
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                    Invoke(form, "ShowImportQueue");
+                    ImportQueueForm queueForm = Field<ImportQueueForm>(form, "importQueueForm");
+                    ImportJobCardControl card = Field<FlowLayoutPanel>(queueForm, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                    Assert.IsTrue(Field<Button>(card, "viewImportedImagesButton").Visible);
+
+                    Invoke(form, "ViewImportedImages", jobId);
+
+                    CollectionAssert.AreEqual(new[] { image.Id }, form.ImageBrowser.SelectedImageIds.ToArray());
+                    Assert.AreSame(Field<TabPage>(form, "imagesPage"), Field<TabControl>(form, "pages").SelectedTab);
+                    form.Close();
+                    queue = null;
+                    store = null;
+                }
+            }
+            finally
+            {
+                queue?.Dispose();
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Image_browser_select_images_clears_filter_and_selects_only_requested_rows()
         {
             using (var browser = new ImageBrowserControl())
