@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Windows.Forms;
 using Neurocle.WinForms.Resources;
 
@@ -15,6 +16,15 @@ namespace Neurocle.WinForms
         public ImportJobCardControl()
         {
             InitializeComponent();
+            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime)
+            {
+                sourceLabel.Text = Strings.ImportImages + "：sample.png";
+                statusLabel.Text = Strings.ImportQueueWaiting;
+                progressLabel.Text = "0 / 1";
+                detailsButton.Visible = true;
+                cancelButton.Visible = true;
+                viewImportedImagesButton.Visible = true;
+            }
         }
 
         public event Action<Guid> CancelRequested;

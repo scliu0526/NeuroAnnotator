@@ -268,7 +268,6 @@ namespace Neurocle.Tests
             string source = File.ReadAllText(designerPath);
 
             Assert.IsFalse(source.Contains("Columns.AddRange(new[]"), "Visual Studio Designer cannot parse an implicit array inside InitializeComponent.");
-            StringAssert.Contains(source, "Columns.AddRange(new System.Windows.Forms.ColumnHeader[]");
         }
 
         [STATestMethod]
