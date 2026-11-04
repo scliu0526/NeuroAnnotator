@@ -29,6 +29,7 @@
 - 2026-11-03 的流暢度修正 `31e7f2a` 將繪製預覽改為局部重繪、略過裁切區外的既有標註，並避免類別與工具控制項在狀態刷新時整批重建；最新 Release x64 建置、237 項非手動測試及 9 項手動效能門檻測試均通過，GitHub Actions `build-test-package` 通過。
 - 加入 `ImportQueueForm` Designer 回歸測試後，最新 Release x64 建置、238 項非手動測試及 9 項手動效能門檻測試均通過。
 - `ImportJobCardControl` 在 Designer 設計時提供 sample source/status/progress 與操作按鈕內容，避免動態工作卡片在設計介面呈現為空白；執行時仍由 `UpdateJob` 更新實際工作資料。
+- 2026-11-04 重新建置後，以 Visual Studio 2022 實際重載 `ImportJobCardControl` Designer；卡片顯示完整 `匯入圖片：sample.png`、等待中、`0 / 1`、展開詳細、取消及查看匯入圖片。另將隱藏的 `detailsLabel` 在設計模式下設為零尺寸，避免遮蔽來源文字；Release x64 MSTest 247/247 通過，修正 commit `2967bf2`。
 - `4b8abfc` 的 GitHub Actions `build-test-package`（run `41749959976`）已完成 Restore、Build、Test、Package、封裝內容檢查與 artifact 上傳，全部成功。
 - 在隔離暫存專案以 1920×1080、96 DPI 實際切換長名稱類別並完成 SEG 筆刷標註；類別列無殘影、錯位或自身捲軸，筆刷完成後標註數量由 0 更新為 1，未出現 `CreateHandle`／`Dispose` 例外。驗收後已移除暫存專案。
 - 在 100% DPI 下將視窗縮至 1266×768（比 1366×768 更窄且同高度）後，標註工具、類別列、長名稱省略、上方控制項及中央畫布均完整可用，工具與類別區沒有自身捲軸；完成 SEG 筆刷標註後，類別與標註數量由 0 更新為 1，未見版面殘影或例外。驗收後已移除暫存專案。
