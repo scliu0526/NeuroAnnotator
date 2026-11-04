@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.ComponentModel.Design;
 using System.Windows.Forms;
 using Neurocle.WinForms.Resources;
 
@@ -21,7 +22,7 @@ namespace Neurocle.WinForms
         protected override void OnCreateControl()
         {
             base.OnCreateControl();
-            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime || (Site != null && Site.DesignMode))
+            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime || (Site != null && Site.DesignMode) || GetService(typeof(IDesignerHost)) != null)
             {
                 ConfigureDesignPreview();
             }
