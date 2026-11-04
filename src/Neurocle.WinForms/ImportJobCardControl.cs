@@ -16,15 +16,34 @@ namespace Neurocle.WinForms
         public ImportJobCardControl()
         {
             InitializeComponent();
-            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime)
+        }
+
+        protected override void OnCreateControl()
+        {
+            base.OnCreateControl();
+            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime || (Site != null && Site.DesignMode))
             {
-                sourceLabel.Text = Strings.ImportImages + "：sample.png";
-                statusLabel.Text = Strings.ImportQueueWaiting;
-                progressLabel.Text = "0 / 1";
-                detailsButton.Visible = true;
-                cancelButton.Visible = true;
-                viewImportedImagesButton.Visible = true;
+                ConfigureDesignPreview();
             }
+        }
+
+        private void ConfigureDesignPreview()
+        {
+            sourceLabel.Dock = DockStyle.None;
+            sourceLabel.Location = new System.Drawing.Point(8, 8);
+            sourceLabel.Size = new System.Drawing.Size(Math.Max(160, ClientSize.Width - 16), 24);
+            sourceLabel.Text = Strings.ImportImages + "：sample.png";
+            statusLabel.Location = new System.Drawing.Point(8, 36);
+            statusLabel.Text = Strings.ImportQueueWaiting;
+            progressLabel.Location = new System.Drawing.Point(120, 36);
+            progressLabel.Text = "0 / 1";
+            detailsLabel.Visible = false;
+            detailsButton.Visible = true;
+            detailsButton.Location = new System.Drawing.Point(Math.Max(8, ClientSize.Width - 170), 32);
+            cancelButton.Visible = true;
+            cancelButton.Location = new System.Drawing.Point(Math.Max(8, ClientSize.Width - 90), 32);
+            viewImportedImagesButton.Visible = true;
+            viewImportedImagesButton.Location = new System.Drawing.Point(8, 60);
         }
 
         public event Action<Guid> CancelRequested;

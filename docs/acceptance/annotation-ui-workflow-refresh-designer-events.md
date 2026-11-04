@@ -28,6 +28,7 @@
 - Visual Studio Designer 稽核發現 `ImportQueueForm` 的 `Columns.AddRange(new[] { ... })` 無法解析；改為明確的 `ColumnHeader[]` 後，`ImportQueueForm`、`ImportJobCardControl` 與 `ImportProgressForm` 均可正常開啟 Designer。另以回歸測試禁止 Designer 檔案再次使用該隱含陣列語法。
 - 2026-11-03 的流暢度修正 `31e7f2a` 將繪製預覽改為局部重繪、略過裁切區外的既有標註，並避免類別與工具控制項在狀態刷新時整批重建；最新 Release x64 建置、237 項非手動測試及 9 項手動效能門檻測試均通過，GitHub Actions `build-test-package` 通過。
 - 加入 `ImportQueueForm` Designer 回歸測試後，最新 Release x64 建置、238 項非手動測試及 9 項手動效能門檻測試均通過。
+- `ImportJobCardControl` 在 Designer 設計時提供 sample source/status/progress 與操作按鈕內容，避免動態工作卡片在設計介面呈現為空白；執行時仍由 `UpdateJob` 更新實際工作資料。
 - 在隔離暫存專案以 1920×1080、96 DPI 實際切換長名稱類別並完成 SEG 筆刷標註；類別列無殘影、錯位或自身捲軸，筆刷完成後標註數量由 0 更新為 1，未出現 `CreateHandle`／`Dispose` 例外。驗收後已移除暫存專案。
 - 在 100% DPI 下將視窗縮至 1266×768（比 1366×768 更窄且同高度）後，標註工具、類別列、長名稱省略、上方控制項及中央畫布均完整可用，工具與類別區沒有自身捲軸；完成 SEG 筆刷標註後，類別與標註數量由 0 更新為 1，未見版面殘影或例外。驗收後已移除暫存專案。
 - 150%／200% DPI 的桌面驗收仍待完成。缺少上述驗收前，Issue #115 維持開啟、PR 維持 Draft。
