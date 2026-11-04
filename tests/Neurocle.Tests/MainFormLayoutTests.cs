@@ -261,6 +261,16 @@ namespace Neurocle.Tests
             }
         }
 
+        [TestMethod]
+        public void Import_queue_designer_uses_an_explicit_column_header_array()
+        {
+            string designerPath = Path.Combine(FindRepositoryRoot(), "src", "Neurocle.WinForms", "ImportQueueForm.Designer.cs");
+            string source = File.ReadAllText(designerPath);
+
+            Assert.IsFalse(source.Contains("Columns.AddRange(new[]"), "Visual Studio Designer cannot parse an implicit array inside InitializeComponent.");
+            StringAssert.Contains(source, "Columns.AddRange(new System.Windows.Forms.ColumnHeader[]");
+        }
+
         [STATestMethod]
         public void Auxiliary_form_designer_controls_load_without_runtime_dependencies()
         {
@@ -4528,6 +4538,14 @@ namespace Neurocle.Tests
                 yield return child;
                 foreach (Control descendant in GetDescendants(child)) yield return descendant;
             }
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Neurocle.sln"))) directory = directory.Parent;
+            Assert.IsNotNull(directory, "Could not locate the repository root from the test output directory.");
+            return directory.FullName;
         }
 
         private static T Field<T>(object target, string fieldName)

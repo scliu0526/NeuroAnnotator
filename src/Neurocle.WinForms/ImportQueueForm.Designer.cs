@@ -30,7 +30,7 @@ namespace Neurocle.WinForms
             this.clearCompletedButton = new System.Windows.Forms.Button();
             this.cardsPanel = new System.Windows.Forms.FlowLayoutPanel();
             this.SuspendLayout();
-            this.jobsList.Columns.AddRange(new[] { this.sourceColumn, this.statusColumn, this.progressColumn });
+            this.jobsList.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] { this.sourceColumn, this.statusColumn, this.progressColumn });
             this.jobsList.Dock = System.Windows.Forms.DockStyle.Fill;
             this.jobsList.FullRowSelect = true;
             this.jobsList.HideSelection = false;
