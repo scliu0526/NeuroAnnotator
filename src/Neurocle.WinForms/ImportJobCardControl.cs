@@ -22,15 +22,36 @@ namespace Neurocle.WinForms
         protected override void OnCreateControl()
         {
             base.OnCreateControl();
-            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime || (Site != null && Site.DesignMode) || GetService(typeof(IDesignerHost)) != null)
+            if (IsDesignPreview())
             {
                 ConfigureDesignPreview();
             }
         }
 
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (IsDesignPreview())
+            {
+                TextRenderer.DrawText(e.Graphics, "匯入圖片：sample.png", Font, new System.Drawing.Point(8, 8), ForeColor, BackColor, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+            }
+        }
+
+        private bool IsDesignPreview()
+        {
+            return LicenseManager.UsageMode == LicenseUsageMode.Designtime
+                || (Site != null && Site.DesignMode)
+                || GetService(typeof(IDesignerHost)) != null;
+        }
+
         private void ConfigureDesignPreview()
         {
             sourceLabel.Dock = DockStyle.None;
+            sourceLabel.BackColor = System.Drawing.Color.Transparent;
+            sourceLabel.ForeColor = System.Drawing.SystemColors.ControlText;
+            detailsLabel.Dock = DockStyle.None;
+            detailsLabel.Size = System.Drawing.Size.Empty;
+            detailsLabel.Visible = false;
             sourceLabel.Location = new System.Drawing.Point(8, 8);
             sourceLabel.Size = new System.Drawing.Size(Math.Max(160, ClientSize.Width - 16), 24);
             sourceLabel.Text = "匯入圖片：sample.png";
@@ -74,6 +95,10 @@ namespace Neurocle.WinForms
                 : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
             detailsLabel.Text = value.ErrorMessage ?? string.Empty;
             detailsLabel.Visible = detailsVisible && detailsLabel.Text.Length > 0;
+            detailsLabel.Dock = detailsLabel.Visible ? DockStyle.Top : DockStyle.None;
+            detailsLabel.Size = detailsLabel.Visible
+                ? new System.Drawing.Size(ClientSize.Width, 36)
+                : System.Drawing.Size.Empty;
             detailsButton.Text = detailsVisible ? Strings.HideDetails : Strings.ShowDetails;
             cancelButton.Enabled = value.Status == ImportJobStatus.Waiting || (value.Status == ImportJobStatus.Running && !(value.Request is AnnotationJsonImportJobRequest));
             bool canView = (value.Status == ImportJobStatus.Completed || value.Status == ImportJobStatus.Canceled)

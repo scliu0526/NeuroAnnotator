@@ -30,7 +30,9 @@ namespace Neurocle.WinForms
             toolTip = new ToolTip(components);
             SuspendLayout();
             sourceLabel.AutoEllipsis = true;
+            sourceLabel.BackColor = System.Drawing.Color.Transparent;
             sourceLabel.Dock = DockStyle.None;
+            sourceLabel.ForeColor = System.Drawing.SystemColors.ControlText;
             sourceLabel.Location = new Point(8, 8);
             sourceLabel.Size = new Size(230, 24);
             sourceLabel.Name = "sourceLabel";
@@ -45,8 +47,10 @@ namespace Neurocle.WinForms
             progressLabel.Location = new Point(120, 36);
             progressLabel.Text = "0 / 1";
             detailsLabel.AutoEllipsis = true;
-            detailsLabel.Dock = DockStyle.Top;
+            detailsLabel.Dock = DockStyle.None;
             detailsLabel.Height = 36;
+            detailsLabel.Location = new Point(0, 0);
+            detailsLabel.Size = new Size(0, 0);
             detailsLabel.Name = "detailsLabel";
             detailsLabel.Visible = false;
             detailsButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
