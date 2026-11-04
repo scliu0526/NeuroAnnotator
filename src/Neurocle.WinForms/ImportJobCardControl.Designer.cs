@@ -34,7 +34,8 @@ namespace Neurocle.WinForms
             sourceLabel.Location = new Point(8, 8);
             sourceLabel.Size = new Size(230, 24);
             sourceLabel.Name = "sourceLabel";
-            sourceLabel.Text = Strings.ImportImages + "：sample.png";
+            sourceLabel.Text = "匯入圖片：sample.png";
+            sourceLabel.TextAlign = ContentAlignment.MiddleLeft;
             statusLabel.AutoSize = true;
             statusLabel.Name = "statusLabel";
             statusLabel.Location = new Point(8, 36);

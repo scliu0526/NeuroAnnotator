@@ -33,7 +33,8 @@ namespace Neurocle.WinForms
             sourceLabel.Dock = DockStyle.None;
             sourceLabel.Location = new System.Drawing.Point(8, 8);
             sourceLabel.Size = new System.Drawing.Size(Math.Max(160, ClientSize.Width - 16), 24);
-            sourceLabel.Text = Strings.ImportImages + "：sample.png";
+            sourceLabel.Text = "匯入圖片：sample.png";
+            sourceLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             sourceLabel.Visible = true;
             sourceLabel.BringToFront();
             statusLabel.Location = new System.Drawing.Point(8, 36);
