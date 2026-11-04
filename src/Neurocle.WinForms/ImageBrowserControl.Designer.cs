@@ -27,6 +27,7 @@ namespace Neurocle.WinForms
             this.search.Dock = System.Windows.Forms.DockStyle.Top;
             this.search.Name = "search";
             this.search.TabIndex = 1;
+            this.search.TextChanged += new System.EventHandler(this.Search_TextChanged);
             //
             // list
             //
@@ -47,6 +48,9 @@ namespace Neurocle.WinForms
             this.list.TabIndex = 0;
             this.list.View = System.Windows.Forms.View.Details;
             this.list.VirtualMode = true;
+            this.list.RetrieveVirtualItem += new System.Windows.Forms.RetrieveVirtualItemEventHandler(this.RetrieveVirtualItem);
+            this.list.SelectedIndexChanged += new System.EventHandler(this.List_SelectedIndexChanged);
+            this.list.ColumnClick += new System.Windows.Forms.ColumnClickEventHandler(this.List_ColumnClick);
             //
             // annotationCountColumn
             //

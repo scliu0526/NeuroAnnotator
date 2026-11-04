@@ -7,10 +7,13 @@ namespace Neurocle.Application.Projects
     // 提供自動分配資料集時供規劃器使用的圖片、類別及可用狀態。
     public sealed class DatasetSplitCandidate
     {
-        /// <summary>建立單張圖片的切分候選資料。</summary>
+        /// <summary>
+        /// 建立單張圖片的切分候選資料。
+        /// </summary>
         /// <param name="imageId">圖片識別碼。</param>
         /// <param name="classIds">圖片目前具有標註的類別識別碼。</param>
         /// <param name="isAvailable">圖片檔案目前是否存在且可讀取。</param>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
         public DatasetSplitCandidate(string imageId, IReadOnlyList<string> classIds, bool isAvailable)
         {
             ImageId = imageId ?? throw new ArgumentNullException(nameof(imageId));
@@ -28,7 +31,9 @@ namespace Neurocle.Application.Projects
     // 保存自動切分後的訓練圖片、測試圖片及未達成條件的警告。
     public sealed class DatasetSplitPlan
     {
-        /// <summary>建立資料集切分結果。</summary>
+        /// <summary>
+        /// 建立資料集切分結果。
+        /// </summary>
         /// <param name="trainImageIds">分配至訓練集的圖片識別碼。</param>
         /// <param name="testImageIds">分配至測試集的圖片識別碼。</param>
         /// <param name="warnings">切分限制未能完全滿足時產生的警告代碼。</param>
@@ -47,7 +52,9 @@ namespace Neurocle.Application.Projects
     // 依圖片類別分布建立隨機切分，並在可行時保留每類至少十張訓練圖片。
     public static class DatasetSplitPlanner
     {
-        /// <summary>依指定比例建立切分結果；至少三張可用圖片時，測試集目標數量不低於三張。</summary>
+        /// <summary>
+        /// 依指定比例建立切分結果；至少三張可用圖片時，測試集目標數量不低於三張。
+        /// </summary>
         /// <param name="values">納入切分評估的圖片候選。</param>
         /// <param name="trainPercent">希望分配至訓練集的百分比，範圍為 1 至 99。</param>
         /// <param name="next">提供排序隨機鍵的函式；每次以 Int32.MaxValue 作為上限呼叫。</param>
@@ -110,7 +117,12 @@ namespace Neurocle.Application.Projects
         // 保存單一類別的總數、已選數及待檢查候選圖片。
         private sealed class ClassBucket
         {
-            /// <summary>建立一個類別的切分統計桶。</summary>
+            /// <summary>
+            /// 建立一個類別的切分統計桶。
+            /// </summary>
+            /// <param name="classId">類別識別碼。</param>
+            /// <param name="total">項目總數。</param>
+            /// <param name="candidates">供切分規劃的候選圖片。</param>
             public ClassBucket(string classId, int total, IEnumerable<DatasetSplitCandidate> candidates)
             {
                 ClassId = classId; Total = total; Candidates = new Queue<DatasetSplitCandidate>(candidates);
@@ -128,7 +140,12 @@ namespace Neurocle.Application.Projects
         // 依類別目前選取比例、總量及識別碼建立穩定排序。
         private sealed class ClassBucketComparer : IComparer<ClassBucket>
         {
-            /// <summary>比較兩個類別的測試集選取比例，並以固定欄位打破平手。</summary>
+            /// <summary>
+            /// 比較兩個類別的測試集選取比例，並以固定欄位打破平手。
+            /// </summary>
+            /// <param name="left">排序比較中的第一個類別分桶。</param>
+            /// <param name="right">排序比較中的第二個類別分桶。</param>
+            /// <returns>依排序規則回傳負數、零或正數。</returns>
             public int Compare(ClassBucket left, ClassBucket right)
             {
                 if (ReferenceEquals(left, right)) return 0;

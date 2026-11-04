@@ -52,7 +52,28 @@
   <data name="ImportProgressTitle" xml:space="preserve"><value>正在匯入圖片</value></data>
   <data name="ImportInProgress" xml:space="preserve"><value>正在匯入；可按取消停止後續檔案。</value></data>
   <data name="ImportProgressCounts" xml:space="preserve"><value>{0} / {1}   成功: {2} 失敗: {3}</value></data>
+  <data name="ImportQueueTitle" xml:space="preserve"><value>匯入佇列</value></data>
+  <data name="ImportQueueSource" xml:space="preserve"><value>來源</value></data>
+  <data name="ImportQueueStatus" xml:space="preserve"><value>狀態</value></data>
+  <data name="ImportQueueProgressColumn" xml:space="preserve"><value>進度</value></data>
+  <data name="ImportQueueFileCount" xml:space="preserve"><value>{0} 個圖片檔案</value></data>
+  <data name="ImportQueueProgress" xml:space="preserve"><value>{0} / {1}</value></data>
+  <data name="ImportQueueResultSummary" xml:space="preserve"><value>成功 {0}，失敗 {1}，未完成 {2}</value></data>
+  <data name="ImportQueueFolderRecursive" xml:space="preserve"><value> (含子資料夾)</value></data>
+  <data name="ImportQueueWaiting" xml:space="preserve"><value>等待中</value></data>
+  <data name="ImportQueueRunning" xml:space="preserve"><value>執行中</value></data>
+  <data name="ImportQueueCompleted" xml:space="preserve"><value>已完成</value></data>
+  <data name="ImportQueueFailed" xml:space="preserve"><value>失敗</value></data>
+  <data name="ImportQueueCanceled" xml:space="preserve"><value>已取消</value></data>
+  <data name="ImportQueueCapacityReached" xml:space="preserve"><value>匯入佇列已達十筆等待中或執行中的上限。</value></data>
+  <data name="OpenImportQueue" xml:space="preserve"><value>開啟匯入佇列</value></data>
+  <data name="ImportQueueClosePrompt" xml:space="preserve"><value>目前有 {0} 筆執行中、{1} 筆等待中的匯入工作。要取消可取消工作並等待安全完成後關閉嗎？</value></data>
   <data name="Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="ClearCompleted" xml:space="preserve"><value>清除已結束</value></data>
+  <data name="ShowDetails" xml:space="preserve"><value>展開詳細</value></data>
+  <data name="HideDetails" xml:space="preserve"><value>收合詳細</value></data>
+  <data name="ViewImportedImages" xml:space="preserve"><value>查看匯入圖片</value></data>
+  <data name="ImportedImagesUnavailable" xml:space="preserve"><value>該批匯入的圖片已全部刪除</value></data>
   <data name="ImportReportSummary" xml:space="preserve"><value>已匯入：{0}&#13;&#10;失敗：{1}&#13;&#10;未完成：{2}</value></data>
   <data name="ImportReportUnknownCount" xml:space="preserve"><value>無法確定</value></data>
   <data name="ImportScanCancelled" xml:space="preserve"><value>資料夾掃描已取消；尚未掃描的項目數無法確定。</value></data>
@@ -119,6 +140,16 @@
   <data name="DatasetSplitWarning" xml:space="preserve"><value>資料集切分警告</value></data>
   <data name="DatasetSplitCannotMeet" xml:space="preserve"><value>無法同時滿足訓練每類至少 10 張或測試集至少 3 張的條件；已依可行結果切分。</value></data>
   <data name="DatasetAutoSplitConfirm" xml:space="preserve"><value>這會覆寫所有可用圖片的資料集分配。是否繼續？</value></data>
+  <data name="DatasetRandomSplitTitle" xml:space="preserve"><value>隨機切分</value></data>
+  <data name="DatasetRandomSplitDescription" xml:space="preserve"><value>依比例分配圖片至各資料集</value></data>
+  <data name="DatasetManualSplitTitle" xml:space="preserve"><value>手動分配</value></data>
+  <data name="DatasetManualSplitDescription" xml:space="preserve"><value>將選取圖片指定至資料集</value></data>
+  <data name="DatasetRetestTitle" xml:space="preserve"><value>資料集 Retest</value></data>
+  <data name="DatasetRetestDescription" xml:space="preserve"><value>將選取圖片設為 Retest</value></data>
+  <data name="DatasetSplitSelected" xml:space="preserve"><value>切分所選</value></data>
+  <data name="DatasetSplitAll" xml:space="preserve"><value>切分全部</value></data>
+  <data name="DatasetSplitSelectedConfirm" xml:space="preserve"><value>這會重新分配目前選取的 {0} 張圖片，其他圖片不變。是否繼續？</value></data>
+  <data name="DatasetSplitAllConfirm" xml:space="preserve"><value>這會重新分配全部 {0} 張可用圖片。是否繼續？</value></data>
   <data name="ExportPage" xml:space="preserve"><value>完成與匯出</value></data>
   <data name="ExportSelectedImages" xml:space="preserve"><value>匯出選取圖片 ZIP</value></data>
   <data name="ExportAllImages" xml:space="preserve"><value>匯出全部圖片 ZIP</value></data>

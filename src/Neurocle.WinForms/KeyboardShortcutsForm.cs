@@ -8,7 +8,9 @@ namespace Neurocle.WinForms
         // 取得顯示快捷鍵、動作及適用範圍的清單。
         internal ListView Shortcuts { get { return shortcutsList; } }
 
-        /// <summary>初始化快捷鍵清單並填入各操作的適用範圍。</summary>
+        /// <summary>
+        /// 初始化快捷鍵清單並填入各操作的適用範圍。
+        /// </summary>
         internal KeyboardShortcutsForm()
         {
             InitializeComponent();
@@ -33,7 +35,12 @@ namespace Neurocle.WinForms
             Controls.Add(Shortcuts);
         }
 
-        /// <summary>新增一列快捷鍵、動作及適用範圍到清單。</summary>
+        /// <summary>
+        /// 新增一列快捷鍵、動作及適用範圍到清單。
+        /// </summary>
+        /// <param name="key">要處理的按鍵。</param>
+        /// <param name="action">要執行的操作。</param>
+        /// <param name="scope">快捷鍵適用範圍。</param>
         private void Add(string key, string action, string scope)
         {
             var row = new ListViewItem(key);

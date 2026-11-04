@@ -12,7 +12,9 @@ namespace Neurocle.Application.Projects
         // 解析接受的 rgba(...) 色彩文字格式。
         private static readonly Regex Rgba = new Regex(@"^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d+(?:\.\d+)?)\s*\)$", RegexOptions.CultureInvariant);
 
-        /// <summary>驗證並轉換色彩字串，保留自訂色彩標記且將透明度正規化為 1。</summary>
+        /// <summary>
+        /// 驗證並轉換色彩字串，保留自訂色彩標記且將透明度正規化為 1。
+        /// </summary>
         /// <param name="value">rgba(...) 或 #RRGGBB 色彩字串，可帶 -custom 後綴。</param>
         /// <returns>正規化後的 rgba(R, G, B, 1) 字串。</returns>
         /// <exception cref="ArgumentException">輸入為空白或不是支援的色彩格式。</exception>
@@ -38,7 +40,9 @@ namespace Neurocle.Application.Projects
             return string.Format("rgba({0}, {1}, {2}, 1){3}", color.R, color.G, color.B, custom ? "-custom" : "");
         }
 
-        /// <summary>將支援的色彩字串轉換為不透明的 RGB 顏色。</summary>
+        /// <summary>
+        /// 將支援的色彩字串轉換為不透明的 RGB 顏色。
+        /// </summary>
         /// <param name="value">rgba(...) 或 #RRGGBB 色彩字串，可帶 -custom 後綴。</param>
         /// <returns>對應的 System.Drawing.Color。</returns>
         public static Color ToColor(string value)
@@ -84,7 +88,9 @@ namespace Neurocle.Application.Projects
     // 表示一份具名稱、識別碼及標註型別的標註集。
     public sealed class AnnotationSet
     {
-        /// <summary>建立標註集摘要。</summary>
+        /// <summary>
+        /// 建立標註集摘要。
+        /// </summary>
         /// <param name="id">標註集的不可變識別碼。</param>
         /// <param name="name">使用者指定的標註集名稱。</param>
         /// <param name="type">標註集所使用的型別。</param>
@@ -102,7 +108,9 @@ namespace Neurocle.Application.Projects
     // 表示標註集中的類別名稱與顯示顏色。
     public sealed class AnnotationClass
     {
-        /// <summary>建立類別摘要。</summary>
+        /// <summary>
+        /// 建立類別摘要。
+        /// </summary>
         /// <param name="id">類別識別碼。</param>
         /// <param name="annotationSetId">所屬標註集識別碼。</param>
         /// <param name="name">類別名稱。</param>
@@ -121,7 +129,9 @@ namespace Neurocle.Application.Projects
     // 表示帶有類別、圖片位置與繪製順序的軸對齊矩形標註。
     public sealed class ObdAnnotation
     {
-        /// <summary>建立矩形標註摘要。</summary>
+        /// <summary>
+        /// 建立矩形標註摘要。
+        /// </summary>
         /// <param name="id">標註識別碼。</param>
         /// <param name="annotationSetId">所屬標註集識別碼。</param>
         /// <param name="imageId">所屬圖片識別碼。</param>
@@ -173,7 +183,9 @@ namespace Neurocle.Application.Projects
     // 以整數原圖座標表示的 SEG 路徑點。
     public sealed class SegPoint
     {
-        /// <summary>建立路徑點。</summary>
+        /// <summary>
+        /// 建立路徑點。
+        /// </summary>
         /// <param name="x">原圖 X 座標。</param>
         /// <param name="y">原圖 Y 座標。</param>
         public SegPoint(int x, int y) { X = x; Y = y; }
@@ -186,7 +198,9 @@ namespace Neurocle.Application.Projects
     // 表示帶類別、幾何資料及繪製順序的 SEG 區域。
     public sealed class SegRegion
     {
-        /// <summary>建立 SEG 區域摘要；矩形以左上角和尺寸表示，橢圓以中心和半徑表示。</summary>
+        /// <summary>
+        /// 建立 SEG 區域摘要；矩形以左上角和尺寸表示，橢圓以中心和半徑表示。
+        /// </summary>
         /// <param name="id">區域識別碼。</param>
         /// <param name="annotationSetId">所屬標註集識別碼。</param>
         /// <param name="imageId">所屬圖片識別碼。</param>
@@ -234,7 +248,9 @@ namespace Neurocle.Application.Projects
     // 以可識別的失敗原因回報單張圖片匯入失敗。
     public sealed class ImageImportException : Exception
     {
-        /// <summary>建立圖片匯入失敗例外。</summary>
+        /// <summary>
+        /// 建立圖片匯入失敗例外。
+        /// </summary>
         /// <param name="failure">匯入失敗原因。</param>
         public ImageImportException(ImageImportFailure failure) : base(failure.ToString())
         {
@@ -261,7 +277,9 @@ namespace Neurocle.Application.Projects
     // 以可識別的失敗原因回報圖片重新連結失敗。
     public sealed class ImageRelinkException : Exception
     {
-        /// <summary>建立圖片重新連結失敗例外。</summary>
+        /// <summary>
+        /// 建立圖片重新連結失敗例外。
+        /// </summary>
         /// <param name="failure">重新連結失敗原因。</param>
         public ImageRelinkException(ImageRelinkFailure failure) : base(failure.ToString())
         {
@@ -275,7 +293,9 @@ namespace Neurocle.Application.Projects
     // 表示一份可供檢視或還原的專案備份。
     public sealed class ProjectBackup
     {
-        /// <summary>建立備份摘要。</summary>
+        /// <summary>
+        /// 建立備份摘要。
+        /// </summary>
         /// <param name="path">備份檔案路徑。</param>
         /// <param name="createdUtc">備份建立時間，使用 UTC。</param>
         public ProjectBackup(string path, DateTime createdUtc)
@@ -293,7 +313,9 @@ namespace Neurocle.Application.Projects
     // 表示專案資料庫無法開啟，並附帶可供復原的備份資訊。
     public sealed class ProjectOpenException : Exception
     {
-        /// <summary>建立專案開啟失敗例外。</summary>
+        /// <summary>
+        /// 建立專案開啟失敗例外。
+        /// </summary>
         /// <param name="projectPath">無法開啟的專案路徑。</param>
         /// <param name="backups">可供使用者選擇還原的備份。</param>
         /// <param name="innerException">資料庫開啟失敗的原始例外。</param>
@@ -313,7 +335,9 @@ namespace Neurocle.Application.Projects
     // 表示備份還原失敗，但原專案已重新開啟的結果。
     public sealed class ProjectRestoreException : Exception
     {
-        /// <summary>建立還原失敗但已恢復原專案工作階段的例外。</summary>
+        /// <summary>
+        /// 建立還原失敗但已恢復原專案工作階段的例外。
+        /// </summary>
         /// <param name="recoveredSession">重新開啟的原專案工作階段。</param>
         /// <param name="innerException">備份還原失敗的原始例外。</param>
         public ProjectRestoreException(IProjectSession recoveredSession, Exception innerException)
@@ -329,7 +353,9 @@ namespace Neurocle.Application.Projects
     // 指出單一圖片匯入失敗檔案及其原因。
     public sealed class ImageImportFailureDetail
     {
-        /// <summary>建立單一檔案的匯入失敗摘要。</summary>
+        /// <summary>
+        /// 建立單一檔案的匯入失敗摘要。
+        /// </summary>
         /// <param name="filePath">無法匯入的檔案路徑。</param>
         /// <param name="failure">該檔案的匯入失敗原因。</param>
         public ImageImportFailureDetail(string filePath, ImageImportFailure failure)
@@ -347,7 +373,9 @@ namespace Neurocle.Application.Projects
     // 彙整圖片匯入成功、失敗及掃描取消後未處理的結果。
     public sealed class ImageImportReport
     {
-        /// <summary>建立圖片匯入報告。</summary>
+        /// <summary>
+        /// 建立圖片匯入報告。
+        /// </summary>
         /// <param name="imported">成功加入專案的圖片。</param>
         /// <param name="failures">未能匯入的檔案及失敗原因。</param>
         /// <param name="unprocessedCount">取消時尚未處理的檔案數量。</param>
@@ -373,7 +401,9 @@ namespace Neurocle.Application.Projects
     // 表示可回報給匯入進度介面的累計處理數量。
     public sealed class ImageImportProgress
     {
-        /// <summary>建立圖片匯入進度快照。</summary>
+        /// <summary>
+        /// 建立圖片匯入進度快照。
+        /// </summary>
         /// <param name="processedCount">已處理檔案數量。</param>
         /// <param name="totalCount">預計處理檔案總數。</param>
         /// <param name="successfulCount">成功匯入檔案數量。</param>
@@ -401,131 +431,189 @@ namespace Neurocle.Application.Projects
     {
         // 取得此工作階段所開啟的專案檔案路徑。
         string ProjectPath { get; }
-        /// <summary>將目前尚未提交的專案狀態寫入持久儲存。</summary>
+        /// <summary>
+        /// 將目前尚未提交的專案狀態寫入持久儲存。
+        /// </summary>
         void Save();
-        /// <summary>將專案另存至新路徑並回傳新專案工作階段。</summary>
+        /// <summary>
+        /// 將專案另存至新路徑並回傳新專案工作階段。
+        /// </summary>
         /// <param name="targetPath">新專案檔案路徑。</param>
         /// <returns>指向另存後專案的工作階段。</returns>
         IProjectSession SaveAs(string targetPath);
-        /// <summary>匯入檔案集合，並回傳成功匯入的圖片。</summary>
+        /// <summary>
+        /// 匯入檔案集合，並回傳成功匯入的圖片。
+        /// </summary>
         /// <param name="filePaths">欲匯入的圖片檔案路徑。</param>
         /// <returns>成功加入專案的圖片。</returns>
         IReadOnlyList<ProjectImage> ImportFiles(IEnumerable<string> filePaths);
-        /// <summary>匯入檔案並回報逐檔結果；取消旗標在檔案處理期間檢查。</summary>
+        /// <summary>
+        /// 匯入檔案並回報逐檔結果；取消旗標在檔案處理期間檢查。
+        /// </summary>
         /// <param name="filePaths">欲匯入的圖片檔案路徑。</param>
         /// <param name="cancellationRequested">回傳 true 時取消尚未完成的匯入。</param>
         /// <returns>包含成功、失敗與未處理數量的匯入報告。</returns>
         ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested);
-        /// <summary>匯入檔案、回報逐檔結果，並於處理進度變更時通知呼叫端。</summary>
+        /// <summary>
+        /// 匯入檔案、回報逐檔結果，並於處理進度變更時通知呼叫端。
+        /// </summary>
         /// <param name="filePaths">欲匯入的圖片檔案路徑。</param>
         /// <param name="cancellationRequested">回傳 true 時取消尚未完成的匯入。</param>
         /// <param name="progress">接收目前已處理數量的回呼。</param>
         /// <returns>包含成功、失敗與未處理數量的匯入報告。</returns>
         ImageImportReport ImportFilesWithReport(IEnumerable<string> filePaths, Func<bool> cancellationRequested, Action<ImageImportProgress> progress);
-        /// <summary>掃描指定目錄並匯入圖片，可選擇是否遞迴子目錄。</summary>
+        /// <summary>
+        /// 掃描指定目錄並匯入圖片，可選擇是否遞迴子目錄。
+        /// </summary>
         /// <param name="directoryPath">待掃描目錄。</param>
         /// <param name="includeSubdirectories">是否包含子目錄。</param>
         /// <param name="cancellationRequested">回傳 true 時取消後續掃描或匯入。</param>
         /// <returns>包含成功、失敗與未處理數量的匯入報告。</returns>
         ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested);
-        /// <summary>掃描目錄並匯入圖片，於進度變更時通知呼叫端。</summary>
+        /// <summary>
+        /// 掃描目錄並匯入圖片，於進度變更時通知呼叫端。
+        /// </summary>
         /// <param name="directoryPath">待掃描目錄。</param>
         /// <param name="includeSubdirectories">是否包含子目錄。</param>
         /// <param name="cancellationRequested">回傳 true 時取消後續掃描或匯入。</param>
         /// <param name="progress">接收目前處理進度的回呼。</param>
         /// <returns>包含成功、失敗與未處理數量的匯入報告。</returns>
         ImageImportReport ImportDirectory(string directoryPath, bool includeSubdirectories, Func<bool> cancellationRequested, Action<ImageImportProgress> progress);
-        /// <summary>依 JSON 匯入並建立標註集。</summary>
+        /// <summary>
+        /// 依 JSON 匯入並建立標註集。
+        /// </summary>
         /// <param name="json">待匯入的標註 JSON 內容。</param>
         /// <param name="annotationSetName">新標註集名稱。</param>
         /// <param name="allowUnknownFields">是否允許並忽略格式中未知欄位。</param>
         /// <returns>新建立的標註集摘要。</returns>
         AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields);
-        /// <summary>將指定標註集匯出至 JSON 檔案。</summary>
+        /// <summary>
+        /// 將指定標註集匯出至 JSON 檔案。
+        /// </summary>
         /// <param name="annotationSetId">要匯出的標註集識別碼。</param>
         /// <param name="outputPath">輸出檔案路徑。</param>
         /// <returns>實際寫入的輸出路徑。</returns>
         string ExportAnnotationJson(string annotationSetId, string outputPath);
-        /// <summary>將選取圖片以 ZIP 封存檔匯出，不含標註 JSON。</summary>
+        /// <summary>
+        /// 將選取圖片以 ZIP 封存檔匯出，不含標註 JSON。
+        /// </summary>
         /// <param name="outputPath">ZIP 輸出檔案路徑。</param>
         /// <param name="imageIds">要匯出的圖片識別碼。</param>
         /// <returns>實際寫入的 ZIP 路徑。</returns>
         string ExportImagesZip(string outputPath, IEnumerable<string> imageIds);
-        /// <summary>取得專案中的全部圖片，包含目前檔案缺失的項目。</summary>
+        /// <summary>
+        /// 取得專案中的全部圖片，包含目前檔案缺失的項目。
+        /// </summary>
         /// <returns>依專案順序排列的圖片資料。</returns>
         IReadOnlyList<ProjectImage> GetImages();
-        /// <summary>取得目前缺少受管理圖片檔案的項目。</summary>
+        /// <summary>
+        /// 取得目前缺少受管理圖片檔案的項目。
+        /// </summary>
         /// <returns>缺失圖片清單。</returns>
         IReadOnlyList<ProjectImage> GetMissingImages();
-        /// <summary>以內容相同的來源檔案重新連結缺失圖片。</summary>
+        /// <summary>
+        /// 以內容相同的來源檔案重新連結缺失圖片。
+        /// </summary>
         /// <param name="imageId">要重新連結的圖片識別碼。</param>
         /// <param name="sourcePath">候選來源檔案路徑。</param>
         void RelinkImage(string imageId, string sourcePath);
-        /// <summary>永久刪除指定圖片及專案中依附於圖片的資料。</summary>
+        /// <summary>
+        /// 永久刪除指定圖片及專案中依附於圖片的資料。
+        /// </summary>
         /// <param name="imageIds">要刪除的圖片識別碼。</param>
         void DeleteImages(IEnumerable<string> imageIds);
-        /// <summary>取得可用專案備份清單。</summary>
+        /// <summary>
+        /// 取得可用專案備份清單。
+        /// </summary>
         /// <returns>依建立時間排列的備份摘要。</returns>
         IReadOnlyList<ProjectBackup> GetBackups();
-        /// <summary>以指定備份取代目前專案並回傳還原後的工作階段。</summary>
+        /// <summary>
+        /// 以指定備份取代目前專案並回傳還原後的工作階段。
+        /// </summary>
         /// <param name="backupPath">備份檔案路徑。</param>
         /// <returns>還原後專案的工作階段。</returns>
         IProjectSession RestoreBackup(string backupPath);
-        /// <summary>建立指定型別與名稱的標註集。</summary>
+        /// <summary>
+        /// 建立指定型別與名稱的標註集。
+        /// </summary>
         /// <param name="name">新標註集名稱。</param>
         /// <param name="type">新標註集型別。</param>
         /// <returns>新建立的標註集。</returns>
         AnnotationSet CreateAnnotationSet(string name, AnnotationSetType type);
-        /// <summary>取得專案中的標註集清單。</summary>
+        /// <summary>
+        /// 取得專案中的標註集清單。
+        /// </summary>
         /// <returns>標註集摘要清單。</returns>
         IReadOnlyList<AnnotationSet> GetAnnotationSets();
-        /// <summary>變更指定標註集的名稱。</summary>
+        /// <summary>
+        /// 變更指定標註集的名稱。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <param name="name">新的標註集名稱。</param>
         void RenameAnnotationSet(string annotationSetId, string name);
-        /// <summary>只有確認名稱符合目前名稱時才永久刪除標註集及其資料。</summary>
+        /// <summary>
+        /// 只有確認名稱符合目前名稱時才永久刪除標註集及其資料。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <param name="confirmationName">使用者輸入的確認名稱。</param>
         /// <returns>確認成功並刪除時回傳 true。</returns>
         bool DeleteAnnotationSet(string annotationSetId, string confirmationName);
-        /// <summary>取得指定標註集的全部類別。</summary>
+        /// <summary>
+        /// 取得指定標註集的全部類別。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>類別清單。</returns>
         IReadOnlyList<AnnotationClass> GetClasses(string annotationSetId);
-        /// <summary>在標註集中新增類別。</summary>
+        /// <summary>
+        /// 在標註集中新增類別。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <param name="name">新類別名稱。</param>
         /// <param name="color">新類別顏色。</param>
         /// <returns>新建立的類別。</returns>
         AnnotationClass AddClass(string annotationSetId, string name, string color);
-        /// <summary>變更指定類別的名稱。</summary>
+        /// <summary>
+        /// 變更指定類別的名稱。
+        /// </summary>
         /// <param name="classId">類別識別碼。</param>
         /// <param name="name">新的類別名稱。</param>
         void RenameClass(string classId, string name);
-        /// <summary>變更指定類別的顯示顏色。</summary>
+        /// <summary>
+        /// 變更指定類別的顯示顏色。
+        /// </summary>
         /// <param name="classId">類別識別碼。</param>
         /// <param name="color">新的顏色字串。</param>
         void ChangeClassColor(string classId, string color);
-        /// <summary>刪除指定類別及其標註；每個標註集必須至少保留一個類別。</summary>
+        /// <summary>
+        /// 刪除指定類別及其標註；每個標註集必須至少保留一個類別。
+        /// </summary>
         /// <param name="classId">類別識別碼。</param>
         /// <exception cref="InvalidOperationException">刪除後會使標註集沒有任何類別。</exception>
         void DeleteClass(string classId);
-        /// <summary>設定指定圖片在 CLA 標註集中的分類類別。</summary>
+        /// <summary>
+        /// 設定指定圖片在 CLA 標註集中的分類類別。
+        /// </summary>
         /// <param name="annotationSetId">CLA 標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <param name="classId">類別識別碼；依實作契約可用 null 清除分類。</param>
         void SetClaClass(string annotationSetId, string imageId, string classId);
-        /// <summary>取得指定圖片目前的 CLA 類別識別碼。</summary>
+        /// <summary>
+        /// 取得指定圖片目前的 CLA 類別識別碼。
+        /// </summary>
         /// <param name="annotationSetId">CLA 標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <returns>目前類別識別碼；尚未分類時為 null。</returns>
         string GetClaClassId(string annotationSetId, string imageId);
-        /// <summary>取得指定圖片的 OBD 矩形標註。</summary>
+        /// <summary>
+        /// 取得指定圖片的 OBD 矩形標註。
+        /// </summary>
         /// <param name="annotationSetId">OBD 標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <returns>依繪製順序排列的矩形標註。</returns>
         IReadOnlyList<ObdAnnotation> GetObdAnnotations(string annotationSetId, string imageId);
-        /// <summary>在圖片上新增 OBD 矩形標註。</summary>
+        /// <summary>
+        /// 在圖片上新增 OBD 矩形標註。
+        /// </summary>
         /// <param name="annotationSetId">OBD 標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <param name="classId">類別識別碼。</param>
@@ -535,13 +623,17 @@ namespace Neurocle.Application.Projects
         /// <param name="height">矩形高度。</param>
         /// <returns>新建立的 OBD 標註。</returns>
         ObdAnnotation AddObdAnnotation(string annotationSetId, string imageId, string classId, int x, int y, int width, int height);
-        /// <summary>將 OBD 標註複製至多張圖片，並回傳建立的複本。</summary>
+        /// <summary>
+        /// 將 OBD 標註複製至多張圖片，並回傳建立的複本。
+        /// </summary>
         /// <param name="annotationSetId">OBD 標註集識別碼。</param>
         /// <param name="imageIds">複製目標圖片識別碼。</param>
         /// <param name="annotations">作為複製來源的標註。</param>
         /// <returns>新建立的標註複本。</returns>
         IReadOnlyList<ObdAnnotation> AddObdAnnotationCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<ObdAnnotation> annotations);
-        /// <summary>更新單一 OBD 標註的類別及矩形位置。</summary>
+        /// <summary>
+        /// 更新單一 OBD 標註的類別及矩形位置。
+        /// </summary>
         /// <param name="annotationId">標註識別碼。</param>
         /// <param name="classId">新的類別識別碼。</param>
         /// <param name="x">矩形左上角 X 座標。</param>
@@ -549,27 +641,39 @@ namespace Neurocle.Application.Projects
         /// <param name="width">矩形寬度。</param>
         /// <param name="height">矩形高度。</param>
         void UpdateObdAnnotation(string annotationId, string classId, int x, int y, int width, int height);
-        /// <summary>批次更新多個 OBD 標註。</summary>
+        /// <summary>
+        /// 批次更新多個 OBD 標註。
+        /// </summary>
         /// <param name="annotations">包含新值的標註集合。</param>
         void UpdateObdAnnotations(IEnumerable<ObdAnnotation> annotations);
-        /// <summary>刪除單一 OBD 標註。</summary>
+        /// <summary>
+        /// 刪除單一 OBD 標註。
+        /// </summary>
         /// <param name="annotationId">標註識別碼。</param>
         void DeleteObdAnnotation(string annotationId);
-        /// <summary>批次刪除多個 OBD 標註。</summary>
+        /// <summary>
+        /// 批次刪除多個 OBD 標註。
+        /// </summary>
         /// <param name="annotationIds">欲刪除的標註識別碼。</param>
         void DeleteObdAnnotations(IEnumerable<string> annotationIds);
-        /// <summary>取得指定圖片的 SEG 區域。</summary>
+        /// <summary>
+        /// 取得指定圖片的 SEG 區域。
+        /// </summary>
         /// <param name="annotationSetId">SEG 標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <returns>依繪製順序排列的 SEG 區域。</returns>
         IReadOnlyList<SegRegion> GetSegRegions(string annotationSetId, string imageId);
-        /// <summary>將 SEG 區域複製至多張圖片，並回傳建立的複本。</summary>
+        /// <summary>
+        /// 將 SEG 區域複製至多張圖片，並回傳建立的複本。
+        /// </summary>
         /// <param name="annotationSetId">SEG 標註集識別碼。</param>
         /// <param name="imageIds">複製目標圖片識別碼。</param>
         /// <param name="regions">作為複製來源的區域。</param>
         /// <returns>新建立的區域複本。</returns>
         IReadOnlyList<SegRegion> AddSegRegionCopies(string annotationSetId, IEnumerable<string> imageIds, IEnumerable<SegRegion> regions);
-        /// <summary>以指定基本幾何在圖片上新增 SEG 區域。</summary>
+        /// <summary>
+        /// 以指定基本幾何在圖片上新增 SEG 區域。
+        /// </summary>
         /// <param name="annotationSetId">SEG 標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <param name="classId">區域類別識別碼。</param>
@@ -580,7 +684,9 @@ namespace Neurocle.Application.Projects
         /// <param name="height">高度或垂直半徑。</param>
         /// <returns>新建立的 SEG 區域。</returns>
         SegRegion AddSegRegion(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height);
-        /// <summary>依路徑點與筆畫寬度新增 SEG 路徑區域。</summary>
+        /// <summary>
+        /// 依路徑點與筆畫寬度新增 SEG 路徑區域。
+        /// </summary>
         /// <param name="annotationSetId">SEG 標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <param name="classId">區域類別識別碼。</param>
@@ -589,59 +695,93 @@ namespace Neurocle.Application.Projects
         /// <param name="strokeWidth">筆畫寬度。</param>
         /// <returns>新建立的 SEG 區域。</returns>
         SegRegion AddSegPath(string annotationSetId, string imageId, string classId, SegRegionType type, IReadOnlyList<SegPoint> points, int strokeWidth);
-        /// <summary>依指定筆畫從同類別 SEG 區域中擦除覆蓋範圍。</summary>
+        /// <summary>
+        /// 依指定筆畫從同類別 SEG 區域中擦除覆蓋範圍。
+        /// </summary>
         /// <param name="annotationSetId">SEG 標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <param name="classId">要擦除的區域類別識別碼。</param>
         /// <param name="points">橡皮擦路徑點。</param>
         /// <param name="strokeWidth">橡皮擦筆畫寬度。</param>
         void EraseSegPath(string annotationSetId, string imageId, string classId, IReadOnlyList<SegPoint> points, int strokeWidth);
-        /// <summary>批次更新 SEG 區域的幾何及類別資料。</summary>
+        /// <summary>
+        /// 依指定 SEG 幾何從目前類別區域中擦除覆蓋範圍。
+        /// </summary>
+        void EraseSegGeometry(string annotationSetId, string imageId, string classId, SegRegionType type, int x, int y, int width, int height, IReadOnlyList<SegPoint> points, int strokeWidth);
+        /// <summary>
+        /// 批次更新 SEG 區域的幾何及類別資料。
+        /// </summary>
         /// <param name="regions">包含更新值的區域集合。</param>
         void UpdateSegRegions(IEnumerable<SegRegion> regions);
-        /// <summary>批次刪除 SEG 區域。</summary>
+        /// <summary>
+        /// 批次刪除 SEG 區域。
+        /// </summary>
         /// <param name="regionIds">欲刪除的區域識別碼。</param>
         void DeleteSegRegions(IEnumerable<string> regionIds);
-        /// <summary>取得指定標註集在所有圖片上的資料集分配與 Retest 狀態。</summary>
+        /// <summary>
+        /// 取得指定標註集在所有圖片上的資料集分配與 Retest 狀態。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>圖片分配狀態清單。</returns>
         IReadOnlyList<DatasetAssignment> GetDatasetAssignments(string annotationSetId);
-        /// <summary>取得指定標註集各圖片的類別與標註數量摘要。</summary>
+        /// <summary>
+        /// 取得指定標註集各圖片的類別與標註數量摘要。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>每張圖片的標註摘要。</returns>
         IReadOnlyList<ImageAnnotationSummary> GetImageAnnotationSummaries(string annotationSetId);
-        /// <summary>將多張圖片設為指定資料集狀態。</summary>
+        /// <summary>
+        /// 將多張圖片設為指定資料集狀態。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <param name="imageIds">要更新狀態的圖片識別碼。</param>
         /// <param name="status">目標資料集狀態。</param>
         void SetDatasetAssignments(string annotationSetId, IEnumerable<string> imageIds, DatasetAssignmentStatus status);
-        /// <summary>設定多張圖片是否為 Retest。</summary>
+        /// <summary>
+        /// 設定多張圖片是否為 Retest。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <param name="imageIds">要更新旗標的圖片識別碼。</param>
         /// <param name="retest">要設定的 Retest 值。</param>
         void SetRetest(string annotationSetId, IEnumerable<string> imageIds, bool retest);
-        /// <summary>清除指定圖片在標註集中的標註資料。</summary>
+        /// <summary>
+        /// 清除指定圖片在標註集中的標註資料。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <param name="imageIds">要清除標註的圖片識別碼。</param>
         void ClearAnnotations(string annotationSetId, IEnumerable<string> imageIds);
-        /// <summary>依標註類別分布套用訓練集與測試集分配，保留 Retest 旗標並回傳規劃警告。</summary>
+        /// <summary>
+        /// 依標註類別分布套用訓練集與測試集分配，保留 Retest 旗標並回傳規劃警告。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <param name="trainPercent">目標訓練集百分比。</param>
         /// <returns>實際產生的切分結果及警告。</returns>
         DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent);
-        /// <summary>復原標註集最近一次可復原的已完成操作。</summary>
+        /// <summary>
+        /// 依指定圖片範圍自動分配資料集。
+        /// </summary>
+        DatasetSplitPlan AutoSplitDataset(string annotationSetId, int trainPercent, IReadOnlyCollection<string> imageIds);
+        /// <summary>
+        /// 復原標註集最近一次可復原的已完成操作。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>成功復原時回傳 true。</returns>
         bool Undo(string annotationSetId);
-        /// <summary>重做標註集最近一次已復原的操作。</summary>
+        /// <summary>
+        /// 重做標註集最近一次已復原的操作。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>成功重做時回傳 true。</returns>
         bool Redo(string annotationSetId);
-        /// <summary>指出標註集目前是否有可復原的操作。</summary>
+        /// <summary>
+        /// 指出標註集目前是否有可復原的操作。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>有可復原操作時回傳 true。</returns>
         bool CanUndo(string annotationSetId);
-        /// <summary>指出標註集目前是否有可重做的操作。</summary>
+        /// <summary>
+        /// 指出標註集目前是否有可重做的操作。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>有可重做操作時回傳 true。</returns>
         bool CanRedo(string annotationSetId);
@@ -663,7 +803,9 @@ namespace Neurocle.Application.Projects
     // 表示圖片在指定標註集中的資料集狀態及 Retest 旗標。
     public sealed class DatasetAssignment
     {
-        /// <summary>建立圖片的資料集分配摘要。</summary>
+        /// <summary>
+        /// 建立圖片的資料集分配摘要。
+        /// </summary>
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <param name="imageId">圖片識別碼。</param>
         /// <param name="status">資料集分配狀態。</param>
@@ -689,10 +831,13 @@ namespace Neurocle.Application.Projects
     // 表示一張圖片在指定標註集中的類別與標註數量摘要。
     public sealed class ImageAnnotationSummary
     {
-        /// <summary>建立圖片標註摘要。</summary>
+        /// <summary>
+        /// 建立圖片標註摘要。
+        /// </summary>
         /// <param name="imageId">圖片識別碼。</param>
         /// <param name="classIds">圖片上實際使用的類別識別碼。</param>
         /// <param name="annotationCount">圖片目前的標註數量。</param>
+        /// <exception cref="ArgumentNullException">必要參數為 null。</exception>
         public ImageAnnotationSummary(string imageId, IReadOnlyList<string> classIds, int annotationCount)
         {
             ImageId = imageId;
@@ -711,7 +856,9 @@ namespace Neurocle.Application.Projects
     // 表示專案中的受管理圖片及其來源、尺寸與可用狀態。
     public sealed class ProjectImage
     {
-        /// <summary>建立圖片資料摘要。</summary>
+        /// <summary>
+        /// 建立圖片資料摘要。
+        /// </summary>
         /// <param name="id">圖片不可變識別碼。</param>
         /// <param name="originalFileName">匯入時來源檔名。</param>
         /// <param name="managedFileName">專案目前使用的受管理檔名。</param>
@@ -753,15 +900,21 @@ namespace Neurocle.Application.Projects
     // 建立、開啟或從備份還原專案的生命週期操作契約。
     public interface IProjectLifecycle
     {
-        /// <summary>建立新專案資料庫及受管理圖片目錄。</summary>
+        /// <summary>
+        /// 建立新專案資料庫及受管理圖片目錄。
+        /// </summary>
         /// <param name="projectPath">新專案檔案路徑。</param>
         /// <returns>新專案的工作階段。</returns>
         IProjectSession Create(string projectPath);
-        /// <summary>開啟既有專案並建立工作階段。</summary>
+        /// <summary>
+        /// 開啟既有專案並建立工作階段。
+        /// </summary>
         /// <param name="projectPath">既有專案檔案路徑。</param>
         /// <returns>已開啟專案的工作階段。</returns>
         IProjectSession Open(string projectPath);
-        /// <summary>使用指定備份還原專案，並建立還原後的工作階段。</summary>
+        /// <summary>
+        /// 使用指定備份還原專案，並建立還原後的工作階段。
+        /// </summary>
         /// <param name="projectPath">目標專案檔案路徑。</param>
         /// <param name="backupPath">備份檔案路徑。</param>
         /// <returns>還原後專案的工作階段。</returns>

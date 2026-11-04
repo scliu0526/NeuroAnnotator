@@ -31,8 +31,12 @@ namespace Neurocle.WinForms
             this.saveProjectMenuItem = new ToolStripMenuItem(Strings.SaveProject);
             this.saveProjectAsMenuItem = new ToolStripMenuItem(Strings.SaveProjectAs);
             this.importImagesMenuItem = new ToolStripMenuItem(Strings.ImportImages);
+            this.importImagesMenuItem.Enabled = false;
             this.importFolderMenuItem = new ToolStripMenuItem(Strings.ImportFolder);
+            this.importFolderMenuItem.Enabled = false;
             this.importAnnotationMenuItem = new ToolStripMenuItem(Strings.ImportAnnotationJson);
+            this.importQueueMenuItem = new ToolStripMenuItem(Strings.OpenImportQueue);
+            this.importQueueMenuItem.Enabled = false;
             this.missingImagesMenuItem = new ToolStripMenuItem(Strings.ManageMissingImages);
             this.backupsMenuItem = new ToolStripMenuItem(Strings.ManageBackups);
             this.diagnosticsMenuItem = new ToolStripMenuItem(Strings.Diagnostics);
@@ -59,6 +63,7 @@ namespace Neurocle.WinForms
             this.newSet = new Button();
             this.renameSet = new Button();
             this.deleteSet = new Button();
+            this.importAnnotationButton = new Button();
             this.addClass = new Button();
             this.obdSelect = new Button();
             this.obdRectangle = new Button();
@@ -80,6 +85,8 @@ namespace Neurocle.WinForms
             this.fit = new Button();
             this.zoom = new ComboBox();
             this.imageFit = new Button();
+            this.importImagesButton = new Button();
+            this.importFolderButton = new Button();
             this.imageZoom = new ComboBox();
             this.annotationZoomText = new Label();
             this.imageZoomText = new Label();
@@ -108,9 +115,7 @@ namespace Neurocle.WinForms
                 this.openProjectMenuItem,
                 this.saveProjectMenuItem,
                 this.saveProjectAsMenuItem,
-                this.importImagesMenuItem,
-                this.importFolderMenuItem,
-                this.importAnnotationMenuItem,
+                this.importQueueMenuItem,
                 this.missingImagesMenuItem,
                 this.backupsMenuItem,
                 this.diagnosticsMenuItem
@@ -156,6 +161,16 @@ namespace Neurocle.WinForms
             this.imageFit.AutoSize = true;
             this.imageFit.Name = "imageFit";
             this.imageFit.Text = Strings.FitToWindow;
+            this.importImagesButton.AutoSize = true;
+            this.importImagesButton.Enabled = false;
+            this.importImagesButton.Name = "importImagesButton";
+            this.importImagesButton.Text = Strings.ImportImages;
+            this.importImagesButton.UseVisualStyleBackColor = true;
+            this.importFolderButton.AutoSize = true;
+            this.importFolderButton.Enabled = false;
+            this.importFolderButton.Name = "importFolderButton";
+            this.importFolderButton.Text = Strings.ImportFolder;
+            this.importFolderButton.UseVisualStyleBackColor = true;
             this.imageZoom.DropDownStyle = ComboBoxStyle.DropDownList;
             this.imageZoom.Name = "imageZoom";
             this.imageZoom.Width = 100;
@@ -168,7 +183,7 @@ namespace Neurocle.WinForms
             this.deleteAllImagesButton.AutoSize = true;
             this.deleteAllImagesButton.Name = "deleteAllImages";
             this.deleteAllImagesButton.Text = Strings.DeleteAllImages;
-            this.imageControls.Controls.AddRange(new Control[] { this.imageFit, this.imageZoom, this.imageZoomText, this.deleteSelectedImagesButton, this.deleteAllImagesButton });
+            this.imageControls.Controls.AddRange(new Control[] { this.importImagesButton, this.importFolderButton, this.imageFit, this.imageZoom, this.imageZoomText, this.deleteSelectedImagesButton, this.deleteAllImagesButton });
             this.imageHeader.Controls.Add(this.imageControls);
             this.imagesPage.Controls.Add(this.imageCanvasHost);
             this.imagesPage.Controls.Add(this.imageHeader);
@@ -194,6 +209,11 @@ namespace Neurocle.WinForms
             this.deleteSet.AutoSize = true;
             this.deleteSet.Name = "deleteSet";
             this.deleteSet.Text = Strings.DeleteAnnotationSet;
+            this.importAnnotationButton.AutoSize = true;
+            this.importAnnotationButton.Enabled = false;
+            this.importAnnotationButton.Name = "importAnnotationButton";
+            this.importAnnotationButton.Text = Strings.ImportAnnotationJson;
+            this.importAnnotationButton.UseVisualStyleBackColor = true;
             this.annotationOpacity.Minimum = 0;
             this.annotationOpacity.Maximum = 100;
             this.annotationOpacity.Value = 40;
@@ -255,12 +275,12 @@ namespace Neurocle.WinForms
             this.annotationZoomText.AutoSize = true;
             this.annotationZoomText.Name = "annotationZoomText";
             this.annotationZoomText.Margin = new Padding(8, 6, 0, 0);
-            this.annotationHeader.Controls.AddRange(new Control[] { this.annotationSets, this.newSet, this.renameSet, this.deleteSet, this.segOpacityLabel, this.annotationOpacity, this.annotationOpacityValue, this.showAnnotations, this.segWidths, this.fit, this.zoom, this.annotationZoomText });
+            this.annotationHeader.Controls.AddRange(new Control[] { this.annotationSets, this.newSet, this.renameSet, this.deleteSet, this.importAnnotationButton, this.segOpacityLabel, this.annotationOpacity, this.annotationOpacityValue, this.showAnnotations, this.segWidths, this.fit, this.zoom, this.annotationZoomText });
             this.annotationSidebar.Dock = DockStyle.Right;
             this.annotationSidebar.Width = 180;
             this.annotationSidebar.Name = "annotationSidebar";
             this.annotationClasses.Dock = DockStyle.Fill;
-            this.annotationClasses.AutoScroll = true;
+            this.annotationClasses.AutoScroll = false;
             this.annotationClasses.FlowDirection = FlowDirection.TopDown;
             this.annotationClasses.WrapContents = false;
             this.annotationClasses.Name = "annotationClasses";
@@ -325,6 +345,57 @@ namespace Neurocle.WinForms
             this.exportPage.Controls.Add(this.exportAll);
             this.exportPage.Controls.Add(this.exportJson);
             this.pages.TabPages.AddRange(new TabPage[] { this.imagesPage, this.annotationPage, this.datasetPage, this.exportPage });
+            this.newProjectMenuItem.Click += new System.EventHandler(this.NewProjectMenuItem_Click);
+            this.openProjectMenuItem.Click += new System.EventHandler(this.OpenProjectMenuItem_Click);
+            this.saveProjectMenuItem.Click += new System.EventHandler(this.SaveProjectMenuItem_Click);
+            this.saveProjectAsMenuItem.Click += new System.EventHandler(this.SaveProjectAsMenuItem_Click);
+            this.importQueueMenuItem.Click += new System.EventHandler(this.ImportQueueMenuItem_Click);
+            this.missingImagesMenuItem.Click += new System.EventHandler(this.MissingImagesMenuItem_Click);
+            this.backupsMenuItem.Click += new System.EventHandler(this.BackupsMenuItem_Click);
+            this.diagnosticsMenuItem.Click += new System.EventHandler(this.DiagnosticsMenuItem_Click);
+            this.shortcutsMenuItem.Click += new System.EventHandler(this.ShortcutsMenuItem_Click);
+            this.importImagesButton.Click += new System.EventHandler(this.ImportImagesButton_Click);
+            this.importFolderButton.Click += new System.EventHandler(this.ImportFolderButton_Click);
+            this.importAnnotationButton.Click += new System.EventHandler(this.ImportAnnotationButton_Click);
+            this.deleteSelectedImagesButton.Click += new System.EventHandler(this.DeleteSelectedImagesButton_Click);
+            this.deleteAllImagesButton.Click += new System.EventHandler(this.DeleteAllImagesButton_Click);
+            this.annotationSets.SelectedIndexChanged += new System.EventHandler(this.AnnotationSets_SelectedIndexChanged);
+            this.datasetAnnotationSets.SelectedIndexChanged += new System.EventHandler(this.DatasetAnnotationSets_SelectedIndexChanged);
+            this.newSet.Click += new System.EventHandler(this.NewSet_Click);
+            this.renameSet.Click += new System.EventHandler(this.RenameSet_Click);
+            this.deleteSet.Click += new System.EventHandler(this.DeleteSet_Click);
+            this.addClass.Click += new System.EventHandler(this.AddClass_Click);
+            this.obdSelect.Click += new System.EventHandler(this.ObdSelect_Click);
+            this.obdRectangle.Click += new System.EventHandler(this.ObdRectangle_Click);
+            this.segRectangle.Click += new System.EventHandler(this.SegRectangle_Click);
+            this.segEllipse.Click += new System.EventHandler(this.SegEllipse_Click);
+            this.segPolygon.Click += new System.EventHandler(this.SegPolygon_Click);
+            this.segBrush.Click += new System.EventHandler(this.SegBrush_Click);
+            this.segLine.Click += new System.EventHandler(this.SegLine_Click);
+            this.segEraser.Click += new System.EventHandler(this.SegEraser_Click);
+            this.segSelect.Click += new System.EventHandler(this.SegSelect_Click);
+            this.segStrokeWidth.ValueChanged += new System.EventHandler(this.SegStrokeWidth_ValueChanged);
+            this.segStrokeWidthSlider.ValueChanged += new System.EventHandler(this.SegStrokeWidthSlider_ValueChanged);
+            this.annotationOpacity.ValueChanged += new System.EventHandler(this.AnnotationOpacity_ValueChanged);
+            this.annotationOpacityValue.ValueChanged += new System.EventHandler(this.AnnotationOpacityValue_ValueChanged);
+            this.showAnnotations.CheckedChanged += new System.EventHandler(this.ShowAnnotations_CheckedChanged);
+            this.fit.Click += new System.EventHandler(this.Fit_Click);
+            this.imageFit.Click += new System.EventHandler(this.ImageFit_Click);
+            this.zoom.SelectedIndexChanged += new System.EventHandler(this.Zoom_SelectedIndexChanged);
+            this.imageZoom.SelectedIndexChanged += new System.EventHandler(this.ImageZoom_SelectedIndexChanged);
+            this.exportJson.Click += new System.EventHandler(this.ExportJson_Click);
+            this.exportSelected.Click += new System.EventHandler(this.ExportSelected_Click);
+            this.exportAll.Click += new System.EventHandler(this.ExportAll_Click);
+            this.pages.SelectedIndexChanged += new System.EventHandler(this.Pages_SelectedIndexChanged);
+            this.annotationPage.Resize += new System.EventHandler(this.AnnotationPage_Resize);
+            this.annotationHeader.SizeChanged += new System.EventHandler(this.AnnotationHeader_SizeChanged);
+            this.FormClosing += new FormClosingEventHandler(this.MainForm_FormClosing);
+            this.FormClosed += new FormClosedEventHandler(this.MainForm_FormClosed);
+            this.KeyDown += new KeyEventHandler(this.MainForm_AnnotationShortcutKeyDown);
+            this.KeyDown += new KeyEventHandler(this.MainForm_ToolShortcutKeyDown);
+            this.KeyDown += new KeyEventHandler(this.MainForm_AnnotationNudgeKeyDown);
+            this.KeyUp += new KeyEventHandler(this.MainForm_AnnotationNudgeKeyUp);
+            this.KeyDown += new KeyEventHandler(this.MainForm_GlobalShortcutKeyDown);
 
             this.MainMenuStrip = this.menu;
             this.Controls.Add(this.pages);

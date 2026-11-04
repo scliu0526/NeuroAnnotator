@@ -54,6 +54,19 @@
     <Compile Include="WinFormsAssembly.cs" />
     <Compile Include="DiagnosticLog.cs" />
     <Compile Include="DiagnosticLogMessages.cs" />
+    <Compile Include="ImportJobQueue.cs" />
+    <Compile Include="ImportQueueForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ImportQueueForm.Designer.cs">
+      <DependentUpon>ImportQueueForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="ImportJobCardControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="ImportJobCardControl.Designer.cs">
+      <DependentUpon>ImportJobCardControl.cs</DependentUpon>
+    </Compile>
     <Compile Include="DiagnosticsForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -108,6 +121,7 @@
     <Compile Include="DatasetAssignmentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="ClassLabelButton.cs" />
     <Compile Include="DatasetAssignmentControl.Designer.cs">
       <DependentUpon>DatasetAssignmentControl.cs</DependentUpon>
     </Compile>

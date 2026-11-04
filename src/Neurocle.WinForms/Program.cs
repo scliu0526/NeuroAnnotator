@@ -7,7 +7,9 @@ namespace Neurocle.WinForms
     // 設定 WinForms 執行環境並啟動主視窗。
     internal static class Program
     {
-        /// <summary>設定視覺樣式、建立診斷記錄器並執行主視窗訊息迴圈。</summary>
+        /// <summary>
+        /// 設定視覺樣式、建立診斷記錄器並執行主視窗訊息迴圈。
+        /// </summary>
         [STAThread]
         private static void Main()
         {

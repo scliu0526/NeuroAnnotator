@@ -38,7 +38,28 @@ namespace Neurocle.WinForms.Resources
         internal static string ImportProgressTitle { get { return ResourceManager.GetString("ImportProgressTitle", CultureInfo.CurrentUICulture); } }
         internal static string ImportInProgress { get { return ResourceManager.GetString("ImportInProgress", CultureInfo.CurrentUICulture); } }
         internal static string ImportProgressCounts { get { return ResourceManager.GetString("ImportProgressCounts", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueTitle { get { return ResourceManager.GetString("ImportQueueTitle", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueSource { get { return ResourceManager.GetString("ImportQueueSource", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueStatus { get { return ResourceManager.GetString("ImportQueueStatus", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueProgressColumn { get { return ResourceManager.GetString("ImportQueueProgressColumn", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueFileCount { get { return ResourceManager.GetString("ImportQueueFileCount", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueProgress { get { return ResourceManager.GetString("ImportQueueProgress", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueFolderRecursive { get { return ResourceManager.GetString("ImportQueueFolderRecursive", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueResultSummary { get { return ResourceManager.GetString("ImportQueueResultSummary", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueWaiting { get { return ResourceManager.GetString("ImportQueueWaiting", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueRunning { get { return ResourceManager.GetString("ImportQueueRunning", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueCompleted { get { return ResourceManager.GetString("ImportQueueCompleted", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueFailed { get { return ResourceManager.GetString("ImportQueueFailed", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueCanceled { get { return ResourceManager.GetString("ImportQueueCanceled", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueCapacityReached { get { return ResourceManager.GetString("ImportQueueCapacityReached", CultureInfo.CurrentUICulture); } }
+        internal static string OpenImportQueue { get { return ResourceManager.GetString("OpenImportQueue", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueClosePrompt { get { return ResourceManager.GetString("ImportQueueClosePrompt", CultureInfo.CurrentUICulture); } }
         internal static string Cancel { get { return ResourceManager.GetString("Cancel", CultureInfo.CurrentUICulture); } }
+        internal static string ClearCompleted { get { return ResourceManager.GetString("ClearCompleted", CultureInfo.CurrentUICulture); } }
+        internal static string ShowDetails { get { return ResourceManager.GetString("ShowDetails", CultureInfo.CurrentUICulture); } }
+        internal static string HideDetails { get { return ResourceManager.GetString("HideDetails", CultureInfo.CurrentUICulture); } }
+        internal static string ViewImportedImages { get { return ResourceManager.GetString("ViewImportedImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportedImagesUnavailable { get { return ResourceManager.GetString("ImportedImagesUnavailable", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportSummary { get { return ResourceManager.GetString("ImportReportSummary", CultureInfo.CurrentUICulture); } }
         internal static string ImportReportUnknownCount { get { return ResourceManager.GetString("ImportReportUnknownCount", CultureInfo.CurrentUICulture); } }
         internal static string ImportScanCancelled { get { return ResourceManager.GetString("ImportScanCancelled", CultureInfo.CurrentUICulture); } }
@@ -105,6 +126,16 @@ namespace Neurocle.WinForms.Resources
         internal static string DatasetSplitWarning { get { return ResourceManager.GetString("DatasetSplitWarning", CultureInfo.CurrentUICulture); } }
         internal static string DatasetSplitCannotMeet { get { return ResourceManager.GetString("DatasetSplitCannotMeet", CultureInfo.CurrentUICulture); } }
         internal static string DatasetAutoSplitConfirm { get { return ResourceManager.GetString("DatasetAutoSplitConfirm", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRandomSplitTitle { get { return ResourceManager.GetString("DatasetRandomSplitTitle", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRandomSplitDescription { get { return ResourceManager.GetString("DatasetRandomSplitDescription", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetManualSplitTitle { get { return ResourceManager.GetString("DatasetManualSplitTitle", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetManualSplitDescription { get { return ResourceManager.GetString("DatasetManualSplitDescription", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRetestTitle { get { return ResourceManager.GetString("DatasetRetestTitle", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetRetestDescription { get { return ResourceManager.GetString("DatasetRetestDescription", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitSelected { get { return ResourceManager.GetString("DatasetSplitSelected", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitAll { get { return ResourceManager.GetString("DatasetSplitAll", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitSelectedConfirm { get { return ResourceManager.GetString("DatasetSplitSelectedConfirm", CultureInfo.CurrentUICulture); } }
+        internal static string DatasetSplitAllConfirm { get { return ResourceManager.GetString("DatasetSplitAllConfirm", CultureInfo.CurrentUICulture); } }
         internal static string ExportPage { get { return ResourceManager.GetString("ExportPage", CultureInfo.CurrentUICulture); } }
         internal static string ExportSelectedImages { get { return ResourceManager.GetString("ExportSelectedImages", CultureInfo.CurrentUICulture); } }
         internal static string ExportAllImages { get { return ResourceManager.GetString("ExportAllImages", CultureInfo.CurrentUICulture); } }

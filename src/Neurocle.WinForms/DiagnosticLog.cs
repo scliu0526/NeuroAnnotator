@@ -32,7 +32,9 @@ namespace Neurocle.WinForms
     // 將診斷記錄檔操作失敗轉成可由畫面辨識的例外。
     public sealed class DiagnosticLogException : Exception
     {
-        /// <summary>包裝原始記錄檔例外並分類失敗原因。</summary>
+        /// <summary>
+        /// 包裝原始記錄檔例外並分類失敗原因。
+        /// </summary>
         public DiagnosticLogException(Exception innerException)
             : base(innerException.Message, innerException)
         {
@@ -42,7 +44,11 @@ namespace Neurocle.WinForms
         // 取得檔案操作失敗的分類。
         public DiagnosticLogFailure Failure { get; }
 
-        /// <summary>依原始例外類型分類存取、路徑或一般 IO 失敗。</summary>
+        /// <summary>
+        /// 依原始例外類型分類存取、路徑或一般 IO 失敗。
+        /// </summary>
+        /// <param name="exception">發生的例外資訊。</param>
+        /// <returns>診斷記錄失敗資訊。</returns>
         private static DiagnosticLogFailure GetFailure(Exception exception)
         {
             if (exception is UnauthorizedAccessException) return DiagnosticLogFailure.AccessDenied;
@@ -70,7 +76,9 @@ namespace Neurocle.WinForms
         // 提供可替換的本機時間來源，讓記錄檔日期可受控。
         private readonly Func<DateTime> localNow;
 
-        /// <summary>建立指定目錄的診斷記錄器及本機時間來源。</summary>
+        /// <summary>
+        /// 建立指定目錄的診斷記錄器及本機時間來源。
+        /// </summary>
         public DiagnosticLog(string directory, Func<DateTime> localNow = null)
         {
             if (string.IsNullOrWhiteSpace(directory)) throw new ArgumentException("A log directory is required.", nameof(directory));
@@ -81,13 +89,20 @@ namespace Neurocle.WinForms
         // 取得診斷記錄檔所在目錄。
         public string DirectoryPath { get { return directory; } }
 
-        /// <summary>建立使用本機應用程式資料目錄的預設診斷記錄器。</summary>
+        /// <summary>
+        /// 建立使用本機應用程式資料目錄的預設診斷記錄器。
+        /// </summary>
+        /// <returns>建立的診斷記錄器。</returns>
         public static DiagnosticLog CreateDefault()
         {
             return new DiagnosticLog(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Neurocle", "Logs"));
         }
 
-        /// <summary>以 UTC 時間及事件名稱附加一行記錄，並保留檔案 IO 原因。</summary>
+        /// <summary>
+        /// 以 UTC 時間及事件名稱附加一行記錄，並保留檔案 IO 原因。
+        /// </summary>
+        /// <param name="diagnosticEvent">要記錄的診斷事件。</param>
+        /// <exception cref="DiagnosticLogException">執行條件不符合此操作要求。</exception>
         public void Write(DiagnosticEvent diagnosticEvent)
         {
             DateTime now = localNow();
@@ -103,7 +118,11 @@ namespace Neurocle.WinForms
             }
         }
 
-        /// <summary>加總記錄目錄中每日 log 檔的位元組數。</summary>
+        /// <summary>
+        /// 加總記錄目錄中每日 log 檔的位元組數。
+        /// </summary>
+        /// <returns>計算後的長整數結果。</returns>
+        /// <exception cref="DiagnosticLogException">執行條件不符合此操作要求。</exception>
         public long GetUsageBytes()
         {
             try
@@ -119,7 +138,10 @@ namespace Neurocle.WinForms
             }
         }
 
-        /// <summary>建立記錄目錄並以系統檔案總管開啟。</summary>
+        /// <summary>
+        /// 建立記錄目錄並以系統檔案總管開啟。
+        /// </summary>
+        /// <exception cref="DiagnosticLogException">執行條件不符合此操作要求。</exception>
         public void OpenFolder()
         {
             try

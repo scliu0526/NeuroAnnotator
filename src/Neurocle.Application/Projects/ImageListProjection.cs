@@ -29,7 +29,9 @@ namespace Neurocle.Application.Projects
     // 將圖片資料依搜尋字串與清單欄位轉換為排序後的顯示集合。
     public static class ImageListProjection
     {
-        /// <summary>篩選圖片並排序；僅 Sequence 使用序號，其餘欄位以原始檔名自然排序；檔名比對不區分大小寫。</summary>
+        /// <summary>
+        /// 篩選圖片並排序；僅 Sequence 使用序號，其餘欄位以原始檔名自然排序；檔名比對不區分大小寫。
+        /// </summary>
         /// <param name="images">待顯示的圖片集合。</param>
         /// <param name="searchText">要在原始檔名中搜尋的文字；空白值不篩選。</param>
         /// <param name="column">選取的排序欄位。</param>
@@ -47,7 +49,9 @@ namespace Neurocle.Application.Projects
             return (direction == ImageListSortDirection.Ascending ? ordered : ordered.Reverse()).ToList();
         }
 
-        /// <summary>篩選並排序包含類別與標註摘要的圖片列。</summary>
+        /// <summary>
+        /// 篩選並排序包含類別與標註摘要的圖片列。
+        /// </summary>
         /// <param name="rows">待顯示的圖片列集合。</param>
         /// <param name="searchText">要在原始檔名中搜尋的文字；空白值不篩選。</param>
         /// <param name="column">選取的排序欄位。</param>
@@ -84,7 +88,9 @@ namespace Neurocle.Application.Projects
             // 共用的自然檔名比較器實例。
             public static readonly NaturalFileNameComparer Instance = new NaturalFileNameComparer();
 
-            /// <summary>以不區分字母大小寫的字元順序及數字值比較兩個檔名。</summary>
+            /// <summary>
+            /// 以不區分字母大小寫的字元順序及數字值比較兩個檔名。
+            /// </summary>
             /// <param name="left">排序中的第一個檔名。</param>
             /// <param name="right">排序中的第二個檔名。</param>
             /// <returns>依排序先後回傳負數、零或正數。</returns>
@@ -127,7 +133,9 @@ namespace Neurocle.Application.Projects
     // 供圖片清單呈現的圖片、類別及標註數量摘要。
     public sealed class ImageListRow
     {
-        /// <summary>建立圖片清單顯示列，並將類別名稱去重後排序。</summary>
+        /// <summary>
+        /// 建立圖片清單顯示列，並將類別名稱去重後排序。
+        /// </summary>
         /// <param name="image">對應的圖片資料。</param>
         /// <param name="classNames">圖片上已使用的類別名稱。</param>
         /// <param name="annotationCount">圖片目前的標註數量。</param>

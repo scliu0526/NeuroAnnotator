@@ -6,6 +6,8 @@ using System.IO.Compression;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Clipper2Lib;
@@ -588,6 +590,64 @@ namespace Neurocle.Tests
                     Assert.AreEqual(2, progress.Last().SuccessfulCount);
                     Assert.AreEqual(1, progress.Last().FailedCount);
                 }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
+        public void Report_import_waits_for_an_active_edit_transaction_and_then_succeeds()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "concurrent.bmp");
+            var editStarted = new ManualResetEventSlim();
+            var releaseEdit = new ManualResetEventSlim();
+            try
+            {
+                CreateBitmap(source, Color.Red);
+                using (ProjectStore store = ProjectStore.Create(path))
+                {
+                    Task edit = Task.Run(() => store.CompleteOperation((connection, transaction) =>
+                    {
+                        using (SqliteCommand command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "UPDATE ProjectInfo SET CreatedUtc = CreatedUtc;";
+                            command.ExecuteNonQuery();
+                        }
+                        editStarted.Set();
+                        Assert.IsTrue(releaseEdit.Wait(TimeSpan.FromSeconds(5)));
+                    }));
+                    Assert.IsTrue(editStarted.Wait(TimeSpan.FromSeconds(5)));
+
+                    Task<ImageImportReport> import = Task.Run(() => store.ImportFilesWithReport(new[] { source }, null));
+
+                    Assert.IsFalse(import.Wait(TimeSpan.FromMilliseconds(100)));
+                    releaseEdit.Set();
+                    Assert.IsTrue(Task.WaitAll(new Task[] { edit, import }, TimeSpan.FromSeconds(5)));
+                    Assert.AreEqual(1, import.Result.Imported.Count);
+                    Assert.AreEqual(0, import.Result.Failures.Count);
+                    Assert.AreEqual(1, store.GetImages().Count);
+                }
+            }
+            finally
+            {
+                releaseEdit.Set();
+                editStarted.Dispose();
+                releaseEdit.Dispose();
+                DeleteTemporaryProject(path);
+            }
+        }
+
+        [TestMethod]
+        public void Report_import_rejects_a_disposed_project_session()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                ProjectStore store = ProjectStore.Create(path);
+                store.Dispose();
+
+                Assert.ThrowsException<ObjectDisposedException>(() => store.ImportFilesWithReport(new[] { "unused.png" }, null));
             }
             finally { DeleteTemporaryProject(path); }
         }
@@ -1600,6 +1660,33 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Seg_geometry_erase_is_class_scoped_and_undoable()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("geometry erase", AnnotationSetType.Seg);
+                    AnnotationClass target = store.GetClasses(set.Id).Single();
+                    AnnotationClass other = store.AddClass(set.Id, "other", "#00ff00");
+                    store.AddSegRegion(set.Id, image.Id, target.Id, SegRegionType.Rect, 10, 10, 40, 40);
+                    store.AddSegRegion(set.Id, image.Id, other.Id, SegRegionType.Rect, 10, 10, 40, 40);
+                    store.EraseSegGeometry(set.Id, image.Id, target.Id, SegRegionType.Rect, 20, 20, 10, 10, null, 0);
+                    SegRegion remaining = store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == target.Id);
+                    Assert.IsTrue(SegGeometryPrototype.Area(new Paths64 { new Path64(remaining.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }) < 1600d);
+                    Assert.AreEqual(SegRegionType.Rect, store.GetSegRegions(set.Id, image.Id).Single(value => value.ClassId == other.Id).Type);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.AreEqual(2, store.GetSegRegions(set.Id, image.Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Single_point_brush_and_eraser_use_round_strokes_and_roundtrip_through_json()
         {
             string path = TemporaryProjectPath();
@@ -2559,6 +2646,36 @@ namespace Neurocle.Tests
                     AssertDatasetAssignments(before, store.GetDatasetAssignments(set.Id));
                     Assert.IsTrue(store.Redo(set.Id));
                     AssertDatasetAssignments(assignments, store.GetDatasetAssignments(set.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Auto_split_selected_only_updates_selected_images_and_keeps_outside_state()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(Enumerable.Range(1, 4).Select(index => source)).ToArray();
+                    AnnotationSet set = store.CreateAnnotationSet("selected split", AnnotationSetType.Cla);
+                    store.SetDatasetAssignments(set.Id, new[] { images[2].Id }, DatasetAssignmentStatus.NotUsed);
+                    store.SetRetest(set.Id, new[] { images[0].Id }, true);
+                    DatasetAssignment[] before = store.GetDatasetAssignments(set.Id).ToArray();
+                    Func<int, int> original = ProjectStore.NextRandom;
+                    try { ProjectStore.NextRandom = maximum => 0; store.AutoSplitDataset(set.Id, 80, new[] { images[0].Id, images[1].Id }); }
+                    finally { ProjectStore.NextRandom = original; }
+                    DatasetAssignment[] after = store.GetDatasetAssignments(set.Id).ToArray();
+                    Assert.IsTrue(after.Single(value => value.ImageId == images[0].Id).Retest);
+                    Assert.AreEqual(DatasetAssignmentStatus.NotUsed, after.Single(value => value.ImageId == images[2].Id).Status);
+                    Assert.AreEqual(DatasetAssignmentStatus.Unassigned, after.Single(value => value.ImageId == images[3].Id).Status);
+                    Assert.IsTrue(after.Where(value => value.ImageId == images[0].Id || value.ImageId == images[1].Id).All(value => value.Status == DatasetAssignmentStatus.Train || value.Status == DatasetAssignmentStatus.Test));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    AssertDatasetAssignments(before, store.GetDatasetAssignments(set.Id));
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }

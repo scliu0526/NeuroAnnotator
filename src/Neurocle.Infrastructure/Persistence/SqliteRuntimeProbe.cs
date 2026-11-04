@@ -5,7 +5,10 @@ namespace Neurocle.Infrastructure.Persistence
     // 確認目前部署環境是否能使用 SQLite 原生執行階段。
     public static class SqliteRuntimeProbe
     {
-        /// <summary>以記憶體資料庫執行最小查詢，確認 SQLite 可正常開啟及讀取。</summary>
+        /// <summary>
+        /// 以記憶體資料庫執行最小查詢，確認 SQLite 可正常開啟及讀取。
+        /// </summary>
+        /// <returns>回傳目前 SQLite 執行環境是否能開啟記憶體資料庫。</returns>
         public static bool CanOpenInMemoryDatabase()
         {
             using (var connection = new SqliteConnection("Data Source=:memory:"))
