@@ -34,10 +34,14 @@ namespace Neurocle.WinForms
             sourceLabel.Location = new System.Drawing.Point(8, 8);
             sourceLabel.Size = new System.Drawing.Size(Math.Max(160, ClientSize.Width - 16), 24);
             sourceLabel.Text = Strings.ImportImages + "：sample.png";
+            sourceLabel.Visible = true;
+            sourceLabel.BringToFront();
             statusLabel.Location = new System.Drawing.Point(8, 36);
             statusLabel.Text = Strings.ImportQueueWaiting;
+            statusLabel.BringToFront();
             progressLabel.Location = new System.Drawing.Point(120, 36);
             progressLabel.Text = "0 / 1";
+            progressLabel.BringToFront();
             detailsLabel.Visible = false;
             detailsButton.Visible = true;
             detailsButton.Location = new System.Drawing.Point(Math.Max(8, ClientSize.Width - 170), 32);

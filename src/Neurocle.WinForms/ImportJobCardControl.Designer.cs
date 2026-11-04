@@ -84,6 +84,9 @@ namespace Neurocle.WinForms
             Size = new Size(420, 96);
             ResumeLayout(false);
             PerformLayout();
+            sourceLabel.BringToFront();
+            statusLabel.BringToFront();
+            progressLabel.BringToFront();
         }
 
         protected override void Dispose(bool disposing)
