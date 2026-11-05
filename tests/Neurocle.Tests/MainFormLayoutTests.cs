@@ -2710,6 +2710,63 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Line_preview_uses_round_caps_like_the_completed_stroke()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(100, 100),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Line,
+                    SegStrokeWidth = 20,
+                    PreviewColor = Color.White
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    foreach (int width in new[] { 10, 20, 30 })
+                    foreach (int zoomPercent in new[] { 100, 150, 200 })
+                    foreach (Keys modifiers in new[] { Keys.None, Keys.Control })
+                    {
+                        canvas.DiscardUnfinishedShape();
+                        canvas.SegStrokeWidth = width;
+                        canvas.ModifierKeysProvider = () => modifiers;
+                        canvas.SetZoomPercent(zoomPercent);
+                        double zoom = zoomPercent / 100d;
+                        int startX = (int)Math.Round(50d + (40d - 50d) * zoom);
+                        int endX = (int)Math.Round(50d + (60d - 50d) * zoom);
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, startX, 50, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, endX, 50, 0));
+                        SetField(canvas, "hasToolCursor", false);
+
+                        using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+                        {
+                            canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                            int left = Enumerable.Range(0, rendered.Width).First(x => rendered.GetPixel(x, 50).ToArgb() != Color.Black.ToArgb());
+                            int right = Enumerable.Range(0, rendered.Width).Reverse().First(x => rendered.GetPixel(x, 50).ToArgb() != Color.Black.ToArgb());
+                            Assert.IsTrue(left < startX, "The line preview must extend with a round start cap for width {0}, zoom {1}%, modifiers {2} (left={3}, start={4}).", width, zoomPercent, modifiers, left, startX);
+                            Assert.IsTrue(right > endX, "The line preview must extend with a round end cap for width {0}, zoom {1}%, modifiers {2} (right={3}, end={4}).", width, zoomPercent, modifiers, right, endX);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Preview_color_tracks_the_class_used_by_the_current_annotation_tool()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
