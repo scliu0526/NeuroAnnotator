@@ -95,8 +95,14 @@ namespace Neurocle.WinForms
             progressLabel.Text = value.Result == null
                 ? value.Status == ImportJobStatus.Waiting ? Strings.ImportQueueWaiting : value.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, value.Progress.ProcessedCount, value.Progress.TotalCount)
                 : value.Result.OutputPath != null ? Path.GetFileName(value.Result.OutputPath) : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
-            int progress = value.Result != null ? 100 : value.Progress == null || value.Progress.TotalCount <= 0 ? 0 : Math.Max(0, Math.Min(100, (int)Math.Round(value.Progress.ProcessedCount * 100d / value.Progress.TotalCount)));
-            progressBar.Value = progress;
+            bool progressUnknown = value.Status == ImportJobStatus.Running && (value.Progress == null || value.Progress.TotalCount <= 0);
+            progressBar.Style = progressUnknown ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous;
+            int progress = value.Status == ImportJobStatus.Completed
+                ? 100
+                : value.Status == ImportJobStatus.Waiting || value.Progress == null || value.Progress.TotalCount <= 0
+                    ? 0
+                    : Math.Max(0, Math.Min(100, (int)Math.Round(value.Progress.ProcessedCount * 100d / value.Progress.TotalCount)));
+            if (!progressUnknown) progressBar.Value = progress;
             toolTip.SetToolTip(sourceLabel, SourceText(value.Request));
             detailsLabel.Text = value.ErrorMessage ?? string.Empty;
             toolTip.SetToolTip(detailsLabel, detailsLabel.Text);

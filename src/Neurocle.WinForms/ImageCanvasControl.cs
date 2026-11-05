@@ -1375,10 +1375,10 @@ namespace Neurocle.WinForms
             {
                 InvalidateStrokePreview(segPath[segPath.Count - 1], previousSegCursor, segCursor, 3f, oldCursorBounds);
             }
-            else if (hasToolCursor)
+            else if (hadToolCursor || hasToolCursor)
             {
-                Rectangle newCursorBounds = GetToolCursorBounds(toolCursor);
-                Invalidate(hadToolCursor ? Rectangle.Union(oldCursorBounds, newCursorBounds) : newCursorBounds);
+                Rectangle cursorBounds = hasToolCursor ? GetToolCursorBounds(toolCursor) : Rectangle.Empty;
+                Invalidate(hadToolCursor && hasToolCursor ? Rectangle.Union(oldCursorBounds, cursorBounds) : hadToolCursor ? oldCursorBounds : cursorBounds);
             }
             base.OnMouseMove(args);
         }

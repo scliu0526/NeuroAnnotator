@@ -396,6 +396,76 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Import_queue_updates_each_existing_card_without_resetting_other_progress()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                Guid completedId = Guid.NewGuid();
+                Guid runningId = Guid.NewGuid();
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(completedId, new ImageFilesImportJobRequest(new[] { "done.png" }), ImportJobStatus.Completed, new ImportJobProgress(4, 4, 4, 0), new ImportJobResult(false, new[] { "done" }), null),
+                    new ImportJobSnapshot(runningId, new ImageFilesImportJobRequest(new[] { "running.png" }), ImportJobStatus.Running, new ImportJobProgress(1, 4, 1, 0), null, null)
+                });
+
+                FlowLayoutPanel cards = Field<FlowLayoutPanel>(form, "cardsPanel");
+                ImportJobCardControl completedCard = cards.Controls.OfType<ImportJobCardControl>().Single(card => card.JobId == completedId);
+                ImportJobCardControl runningCard = cards.Controls.OfType<ImportJobCardControl>().Single(card => card.JobId == runningId);
+
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(completedId, new ImageFilesImportJobRequest(new[] { "done.png" }), ImportJobStatus.Completed, new ImportJobProgress(4, 4, 4, 0), new ImportJobResult(false, new[] { "done" }), null),
+                    new ImportJobSnapshot(runningId, new ImageFilesImportJobRequest(new[] { "running.png" }), ImportJobStatus.Running, new ImportJobProgress(2, 4, 2, 0), null, null)
+                });
+
+                Assert.AreSame(completedCard, cards.Controls.OfType<ImportJobCardControl>().Single(card => card.JobId == completedId), "Updating another job must not restart a completed card's progress animation.");
+                Assert.AreSame(runningCard, cards.Controls.OfType<ImportJobCardControl>().Single(card => card.JobId == runningId), "A running job must update its existing card.");
+                Assert.AreEqual(100, Field<ProgressBar>(completedCard, "progressBar").Value);
+                Assert.AreEqual(50, Field<ProgressBar>(runningCard, "progressBar").Value);
+            }
+        }
+
+        [STATestMethod]
+        public void Canceled_job_preserves_its_last_known_percentage()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "one.png", "two.png", "three.png", "four.png" }), ImportJobStatus.Canceled, new ImportJobProgress(1, 4, 1, 0), new ImportJobResult(true, new[] { "one" }, 0, 3), null)
+                });
+
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                Assert.AreEqual(25, Field<ProgressBar>(card, "progressBar").Value);
+            }
+        }
+
+        [STATestMethod]
+        public void Import_card_switches_from_unknown_scan_to_actual_percentage_when_total_is_known()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                Guid jobId = Guid.NewGuid();
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(jobId, new FolderImportJobRequest("folder", true), ImportJobStatus.Running, null, null, null)
+                });
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                ProgressBar progress = Field<ProgressBar>(card, "progressBar");
+                Assert.AreEqual(ProgressBarStyle.Marquee, progress.Style, "A scan without a known total must not show a fabricated percentage.");
+
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(jobId, new FolderImportJobRequest("folder", true), ImportJobStatus.Running, new ImportJobProgress(1, 4, 1, 0), null, null)
+                });
+
+                Assert.AreSame(card, Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single());
+                Assert.AreEqual(ProgressBarStyle.Continuous, progress.Style);
+                Assert.AreEqual(25, progress.Value);
+            }
+        }
+
+        [STATestMethod]
         public void Completed_import_card_keeps_view_button_clear_of_progress_bar()
         {
             using (var form = new ImportQueueForm())
@@ -2775,6 +2845,70 @@ namespace Neurocle.Tests
                     Assert.IsTrue(created.HasValue, "A click outside the image must still create a clamped annotation.");
                     Assert.AreEqual(0, created.Value.X);
                     Assert.AreEqual(0, created.Value.Y);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Annotation_cursor_invalidates_its_old_pixels_when_pointer_leaves_image_or_enters_thumbnail()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 400);
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(200, 200),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Rect
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+                    ImageCanvasControl.CanvasThumbnailLayout layout;
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(400, 400), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+
+                    Point oldCursor = new Point(20, 180);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, oldCursor.X, oldCursor.Y, 0));
+                    var invalidated = new List<Rectangle>();
+                    canvas.Invalidated += (sender, args) => invalidated.Add(args.InvalidRect);
+
+                    Point thumbnail = Point.Round(new PointF(layout.ImageBounds.Left + layout.ImageBounds.Width / 2f, layout.ImageBounds.Top + layout.ImageBounds.Height / 2f));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, thumbnail.X, thumbnail.Y, 0));
+
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
+                    Assert.IsTrue(invalidated.Any(area => area.Contains(oldCursor)), "Entering the thumbnail must erase the previously drawn annotation cursor.");
+                }
+
+                CreateFilledImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(200, 200),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Rect
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+
+                    Point oldCursor = new Point(100, 100);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, oldCursor.X, oldCursor.Y, 0));
+                    var invalidated = new List<Rectangle>();
+                    canvas.Invalidated += (sender, args) => invalidated.Add(args.InvalidRect);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 10, 10, 0));
+
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
+                    Assert.IsTrue(invalidated.Any(area => area.Contains(oldCursor)), "Leaving the image must erase the previously drawn annotation cursor.");
                 }
             }
             finally

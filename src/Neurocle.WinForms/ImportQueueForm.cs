@@ -53,16 +53,24 @@ namespace Neurocle.WinForms
             }
             jobsList.EndUpdate();
             cardsPanel.SuspendLayout();
-            foreach (Control card in cardsPanel.Controls.Cast<Control>().ToArray()) card.Dispose();
-            cardsPanel.Controls.Clear();
+            var cardsById = cardsPanel.Controls.OfType<ImportJobCardControl>().ToDictionary(card => card.JobId);
+            var currentIds = new HashSet<Guid>(currentJobs.Select(job => job.Id));
+            foreach (ImportJobCardControl card in cardsById.Values.Where(card => !currentIds.Contains(card.JobId)).ToArray()) card.Dispose();
+            int cardIndex = 0;
             foreach (ImportJobSnapshot job in currentJobs)
             {
-                var card = new ImportJobCardControl { Width = Math.Max(420, cardsPanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8) };
+                ImportJobCardControl card;
+                if (!cardsById.TryGetValue(job.Id, out card))
+                {
+                    card = new ImportJobCardControl();
+                    card.CancelRequested += id => { if (CancelRequested != null) CancelRequested(id); };
+                    card.ViewImportedImagesRequested += id => { if (ViewImportedImagesRequested != null) ViewImportedImagesRequested(id); };
+                    card.OpenExportRequested += path => { if (OpenExportRequested != null) OpenExportRequested(path); };
+                    cardsPanel.Controls.Add(card);
+                }
+                card.Width = Math.Max(420, cardsPanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8);
                 card.UpdateJob(job);
-                card.CancelRequested += id => { if (CancelRequested != null) CancelRequested(id); };
-                card.ViewImportedImagesRequested += id => { if (ViewImportedImagesRequested != null) ViewImportedImagesRequested(id); };
-                card.OpenExportRequested += path => { if (OpenExportRequested != null) OpenExportRequested(path); };
-                cardsPanel.Controls.Add(card);
+                cardsPanel.Controls.SetChildIndex(card, cardIndex++);
             }
             cardsPanel.ResumeLayout();
             UpdateCancelButton();
