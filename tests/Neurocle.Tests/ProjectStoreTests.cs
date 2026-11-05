@@ -2445,6 +2445,32 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Json_import_into_obd_and_seg_selected_sets_preserves_model_and_geometry()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "sample.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet obd = store.CreateAnnotationSet("obd", AnnotationSetType.Obd);
+                    string obdJson = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":2,\"width\":3,\"height\":4}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    store.ImportAnnotationJsonIntoSet(obdJson, obd.Id, true, true, false, false, false, false);
+                    Assert.AreEqual(1, store.GetObdAnnotations(obd.Id, image.Id).Count);
+
+                    AnnotationSet seg = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
+                    string segJson = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[1,2],[3,4]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                    store.ImportAnnotationJsonIntoSet(segJson, seg.Id, true, true, false, false, false, false);
+                    Assert.AreEqual(1, store.GetSegRegions(seg.Id, image.Id).Count);
+                    Assert.AreEqual(SegRegionType.PolyLine, store.GetSegRegions(seg.Id, image.Id).Single().Type);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Json_annotation_import_preserves_seg_path_points()
         {
             string path = TemporaryProjectPath();

@@ -442,7 +442,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (!allowUnknownFields && imported.UnknownFields.Count > 0) throw new JsonAnnotationImportException("JSON contains unknown fields.");
             AnnotationSet target = GetAnnotationSets().SingleOrDefault(value => value.Id == annotationSetId);
             if (target == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
-            if (target.Type != AnnotationSetType.Cla || imported.Type != AnnotationSetType.Cla) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
+            if (target.Type != imported.Type) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
             ProjectImage[] images = GetImages().ToArray();
             var imageByName = images.GroupBy(image => image.OriginalFileName, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
             foreach (ImportedImage item in imported.Data)
@@ -462,10 +462,16 @@ namespace Neurocle.Infrastructure.Persistence
                 newClasses.Add(created);
             }
             var assignments = GetDatasetAssignments(target.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
+            string existingCountSql = target.Type == AnnotationSetType.Cla
+                ? "SELECT COUNT(*) FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;"
+                : target.Type == AnnotationSetType.Obd
+                    ? "SELECT COUNT(*) FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;"
+                    : "SELECT COUNT(*) FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;";
             var importable = imported.Data
                 .Select(item => new { Item = item, ImageId = imageByName[item.FileName][0].Id })
-                .Where(value => replaceAnnotations || (importDataset && replaceDataset) || Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", value.ImageId))) == 0)
+                .Where(value => replaceAnnotations || (importDataset && replaceDataset) || Convert.ToInt32(ExecuteScalar(connection, existingCountSql, new SqliteParameter("$set", target.Id), new SqliteParameter("$image", value.ImageId))) == 0)
                 .ToArray();
+            var nextZOrders = importable.ToDictionary(value => value.ImageId, value => replaceAnnotations ? 0 : (target.Type == AnnotationSetType.Obd ? GetObdAnnotations(target.Id, value.ImageId).Select(annotation => annotation.ZOrder).DefaultIfEmpty(-1).Max() : GetSegRegions(target.Id, value.ImageId).Select(region => region.ZOrder).DefaultIfEmpty(-1).Max()) + 1, StringComparer.Ordinal);
             CompleteOperation((db, transaction) =>
             {
                 if (importClasses) foreach (AnnotationClass value in newClasses) Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
@@ -477,8 +483,28 @@ namespace Neurocle.Infrastructure.Persistence
                     DatasetAssignmentStatus status = item.Set == "train" ? DatasetAssignmentStatus.Train : item.Set == "test" ? DatasetAssignmentStatus.Test : item.Set == "not_used" ? DatasetAssignmentStatus.NotUsed : DatasetAssignmentStatus.Unassigned;
                     bool retest = assignments.ContainsKey(imageId) && assignments[imageId].Retest;
                     if (importDataset && (replaceDataset || !assignments.ContainsKey(imageId) || assignments[imageId].Status == DatasetAssignmentStatus.Unassigned)) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
-                    if (replaceAnnotations && importAnnotations) Execute(db, transaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageId));
-                    if (importAnnotations && item.ClassLabel != "") Execute(db, transaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classByName[item.ClassLabel].Id));
+                    if (!importAnnotations) continue;
+                    if (replaceAnnotations)
+                    {
+                        string table = target.Type == AnnotationSetType.Cla ? "ClaAnnotation" : target.Type == AnnotationSetType.Obd ? "ObdAnnotation" : "SegRegion";
+                        Execute(db, transaction, "DELETE FROM " + table + " WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageId));
+                    }
+                    if (target.Type == AnnotationSetType.Cla)
+                    {
+                        if (item.ClassLabel != "") Execute(db, transaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classByName[item.ClassLabel].Id));
+                    }
+                    else
+                    {
+                        foreach (ImportedRegion region in item.Regions)
+                        {
+                            string classId = classByName[region.ClassName].Id;
+                            if (target.Type == AnnotationSetType.Obd)
+                            {
+                                Execute(db, transaction, "INSERT INTO ObdAnnotation (Id, AnnotationSetId, ImageId, ClassId, X, Y, Width, Height, ZOrder) VALUES ($id, $set, $image, $class, $x, $y, $width, $height, $order);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId), new SqliteParameter("$x", region.X), new SqliteParameter("$y", region.Y), new SqliteParameter("$width", region.Width), new SqliteParameter("$height", region.Height), new SqliteParameter("$order", nextZOrders[imageId]++));
+                            }
+                            else InsertImportedSegRegion(db, transaction, target.Id, imageId, classId, region, nextZOrders[imageId]++);
+                        }
+                    }
                 }
             });
         }
