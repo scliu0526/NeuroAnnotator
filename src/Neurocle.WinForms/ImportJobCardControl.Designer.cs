@@ -11,7 +11,8 @@ namespace Neurocle.WinForms
         private Label sourceLabel;
         private Label statusLabel;
         private Label progressLabel;
-        private Label detailsLabel;
+        private ProgressBar progressBar;
+        private TextBox detailsLabel;
         private Button detailsButton;
         private Button cancelButton;
         private Button viewImportedImagesButton;
@@ -23,7 +24,8 @@ namespace Neurocle.WinForms
             sourceLabel = new Label();
             statusLabel = new Label();
             progressLabel = new Label();
-            detailsLabel = new Label();
+            progressBar = new ProgressBar();
+            detailsLabel = new TextBox();
             detailsButton = new Button();
             cancelButton = new Button();
             viewImportedImagesButton = new Button();
@@ -46,9 +48,18 @@ namespace Neurocle.WinForms
             progressLabel.Name = "progressLabel";
             progressLabel.Location = new Point(120, 36);
             progressLabel.Text = "0 / 1";
-            detailsLabel.AutoEllipsis = true;
+            progressBar.Location = new Point(8, 60);
+            progressBar.Size = new Size(230, 12);
+            progressBar.Minimum = 0;
+            progressBar.Maximum = 100;
+            progressBar.Name = "progressBar";
+            progressBar.Style = ProgressBarStyle.Continuous;
+            detailsLabel.ReadOnly = true;
+            detailsLabel.Multiline = true;
+            detailsLabel.ScrollBars = ScrollBars.Vertical;
+            detailsLabel.WordWrap = true;
             detailsLabel.Dock = DockStyle.None;
-            detailsLabel.Height = 36;
+            detailsLabel.Height = 52;
             detailsLabel.Location = new Point(0, 0);
             detailsLabel.Size = new Size(0, 0);
             detailsLabel.Name = "detailsLabel";
@@ -81,17 +92,19 @@ namespace Neurocle.WinForms
             Controls.Add(viewImportedImagesButton);
             Controls.Add(detailsButton);
             Controls.Add(progressLabel);
+            Controls.Add(progressBar);
             Controls.Add(statusLabel);
             Controls.Add(sourceLabel);
             Margin = new Padding(4);
-            MinimumSize = new Size(420, 88);
+            MinimumSize = new Size(420, 104);
             Name = "ImportJobCardControl";
-            Size = new Size(420, 96);
+            Size = new Size(420, 112);
             ResumeLayout(false);
             PerformLayout();
             sourceLabel.BringToFront();
             statusLabel.BringToFront();
             progressLabel.BringToFront();
+            progressBar.BringToFront();
         }
 
         protected override void Dispose(bool disposing)

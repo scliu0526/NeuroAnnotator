@@ -56,7 +56,7 @@ namespace Neurocle.WinForms
             cardsPanel.Controls.Clear();
             foreach (ImportJobSnapshot job in currentJobs)
             {
-                var card = new ImportJobCardControl { Width = Math.Max(380, cardsPanel.ClientSize.Width - 24) };
+                var card = new ImportJobCardControl { Width = Math.Max(420, cardsPanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8) };
                 card.UpdateJob(job);
                 card.CancelRequested += id => { if (CancelRequested != null) CancelRequested(id); };
                 card.ViewImportedImagesRequested += id => { if (ViewImportedImagesRequested != null) ViewImportedImagesRequested(id); };

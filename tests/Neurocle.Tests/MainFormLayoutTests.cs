@@ -377,6 +377,12 @@ namespace Neurocle.Tests
                 Assert.AreEqual("成功 1，失敗 1，未完成 0", jobs.Items[3].SubItems[2].Text);
                 Assert.AreEqual(4, cards.Controls.Count);
                 Assert.AreEqual("1 / 2", jobs.Items[1].SubItems[2].Text);
+                ProgressBar runningProgress = Field<ProgressBar>(cards.Controls[1], "progressBar");
+                ProgressBar completedProgress = Field<ProgressBar>(cards.Controls[2], "progressBar");
+                Assert.AreEqual(50, runningProgress.Value);
+                Assert.AreEqual(100, completedProgress.Value);
+                Assert.AreEqual(520, form.ClientSize.Width);
+                Assert.AreEqual(FormBorderStyle.FixedSingle, form.FormBorderStyle);
                 jobs.Items[2].Selected = true;
                 Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
             }

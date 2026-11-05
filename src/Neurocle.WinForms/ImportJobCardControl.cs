@@ -93,11 +93,15 @@ namespace Neurocle.WinForms
             progressLabel.Text = value.Result == null
                 ? value.Status == ImportJobStatus.Waiting ? Strings.ImportQueueWaiting : value.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, value.Progress.ProcessedCount, value.Progress.TotalCount)
                 : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
+            int progress = value.Result != null ? 100 : value.Progress == null || value.Progress.TotalCount <= 0 ? 0 : Math.Max(0, Math.Min(100, (int)Math.Round(value.Progress.ProcessedCount * 100d / value.Progress.TotalCount)));
+            progressBar.Value = progress;
+            toolTip.SetToolTip(sourceLabel, SourceText(value.Request));
             detailsLabel.Text = value.ErrorMessage ?? string.Empty;
+            toolTip.SetToolTip(detailsLabel, detailsLabel.Text);
             detailsLabel.Visible = detailsVisible && detailsLabel.Text.Length > 0;
             detailsLabel.Dock = detailsLabel.Visible ? DockStyle.Top : DockStyle.None;
             detailsLabel.Size = detailsLabel.Visible
-                ? new System.Drawing.Size(ClientSize.Width, 36)
+                ? new System.Drawing.Size(ClientSize.Width, 52)
                 : System.Drawing.Size.Empty;
             detailsButton.Text = detailsVisible ? Strings.HideDetails : Strings.ShowDetails;
             cancelButton.Enabled = value.Status == ImportJobStatus.Waiting || (value.Status == ImportJobStatus.Running && !(value.Request is AnnotationJsonImportJobRequest));
