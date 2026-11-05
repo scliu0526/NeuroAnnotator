@@ -18,6 +18,7 @@ namespace Neurocle.WinForms
 
         public event Action<Guid> CancelRequested;
         public event Action<Guid> ViewImportedImagesRequested;
+        public event Action<string> OpenExportRequested;
         public event Action ClearCompletedRequested;
 
         /// <summary>
@@ -60,6 +61,7 @@ namespace Neurocle.WinForms
                 card.UpdateJob(job);
                 card.CancelRequested += id => { if (CancelRequested != null) CancelRequested(id); };
                 card.ViewImportedImagesRequested += id => { if (ViewImportedImagesRequested != null) ViewImportedImagesRequested(id); };
+                card.OpenExportRequested += path => { if (OpenExportRequested != null) OpenExportRequested(path); };
                 cardsPanel.Controls.Add(card);
             }
             cardsPanel.ResumeLayout();
@@ -96,6 +98,8 @@ namespace Neurocle.WinForms
             if (folderRequest != null) return folderRequest.DirectoryPath + (folderRequest.IncludeSubdirectories ? Strings.ImportQueueFolderRecursive : string.Empty);
             var jsonRequest = request as AnnotationJsonImportJobRequest;
             if (jsonRequest != null) return Path.GetFileName(jsonRequest.FilePath);
+            var jsonExport = request as JsonExportJobRequest;
+            if (jsonExport != null) return Path.GetFileName(jsonExport.OutputPath);
             return request.Kind.ToString();
         }
 

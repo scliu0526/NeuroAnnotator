@@ -16,6 +16,7 @@ namespace Neurocle.WinForms
         private Button detailsButton;
         private Button cancelButton;
         private Button viewImportedImagesButton;
+        private Button openExportButton;
         private ToolTip toolTip;
 
         private void InitializeComponent()
@@ -29,6 +30,7 @@ namespace Neurocle.WinForms
             detailsButton = new Button();
             cancelButton = new Button();
             viewImportedImagesButton = new Button();
+            openExportButton = new Button();
             toolTip = new ToolTip(components);
             SuspendLayout();
             sourceLabel.AutoEllipsis = true;
@@ -85,11 +87,19 @@ namespace Neurocle.WinForms
             viewImportedImagesButton.Text = Strings.ViewImportedImages;
             viewImportedImagesButton.Visible = true;
             viewImportedImagesButton.Click += ViewImportedImagesButton_Click;
+            openExportButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            openExportButton.AutoSize = true;
+            openExportButton.Location = new Point(8, 78);
+            openExportButton.Name = "openExportButton";
+            openExportButton.Text = "開啟輸出";
+            openExportButton.Visible = false;
+            openExportButton.Click += OpenExportButton_Click;
             AutoScaleMode = AutoScaleMode.Font;
             BorderStyle = BorderStyle.FixedSingle;
             Controls.Add(detailsLabel);
             Controls.Add(cancelButton);
             Controls.Add(viewImportedImagesButton);
+            Controls.Add(openExportButton);
             Controls.Add(detailsButton);
             Controls.Add(progressLabel);
             Controls.Add(progressBar);

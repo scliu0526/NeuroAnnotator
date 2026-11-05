@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.ComponentModel.Design;
+using System.IO;
 using System.Windows.Forms;
 using Neurocle.WinForms.Resources;
 
@@ -75,6 +76,7 @@ namespace Neurocle.WinForms
 
         public event Action<Guid> CancelRequested;
         public event Action<Guid> ViewImportedImagesRequested;
+        public event Action<string> OpenExportRequested;
 
         /// <summary>
         /// 取得目前卡片所代表的工作識別碼。
@@ -92,7 +94,7 @@ namespace Neurocle.WinForms
             statusLabel.Text = StatusText(value.Status);
             progressLabel.Text = value.Result == null
                 ? value.Status == ImportJobStatus.Waiting ? Strings.ImportQueueWaiting : value.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, value.Progress.ProcessedCount, value.Progress.TotalCount)
-                : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
+                : value.Result.OutputPath != null ? Path.GetFileName(value.Result.OutputPath) : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
             int progress = value.Result != null ? 100 : value.Progress == null || value.Progress.TotalCount <= 0 ? 0 : Math.Max(0, Math.Min(100, (int)Math.Round(value.Progress.ProcessedCount * 100d / value.Progress.TotalCount)));
             progressBar.Value = progress;
             toolTip.SetToolTip(sourceLabel, SourceText(value.Request));
@@ -111,7 +113,11 @@ namespace Neurocle.WinForms
                 && value.Result.ImportedImageIds.Count > 0;
             viewImportedImagesButton.Visible = canView;
             viewImportedImagesButton.Enabled = canView;
+            bool canOpenExport = value.Request is JsonExportJobRequest && value.Status == ImportJobStatus.Completed && value.Result != null && !String.IsNullOrWhiteSpace(value.Result.OutputPath) && File.Exists(value.Result.OutputPath);
+            openExportButton.Visible = value.Request is JsonExportJobRequest;
+            openExportButton.Enabled = canOpenExport;
             toolTip.SetToolTip(viewImportedImagesButton, string.Empty);
+            toolTip.SetToolTip(openExportButton, canOpenExport ? value.Result.OutputPath : "輸出檔案不存在");
         }
 
         /// <summary>
@@ -145,6 +151,11 @@ namespace Neurocle.WinForms
             if (job != null && ViewImportedImagesRequested != null) ViewImportedImagesRequested(job.Id);
         }
 
+        private void OpenExportButton_Click(object sender, EventArgs args)
+        {
+            if (job?.Result?.OutputPath != null && OpenExportRequested != null) OpenExportRequested(job.Result.OutputPath);
+        }
+
         /// <summary>
         /// 更新本次匯入圖片的跳轉可用性及停用原因。
         /// </summary>
@@ -169,6 +180,8 @@ namespace Neurocle.WinForms
             if (folderRequest != null) return folderRequest.DirectoryPath + (folderRequest.IncludeSubdirectories ? Strings.ImportQueueFolderRecursive : string.Empty);
             var jsonRequest = request as AnnotationJsonImportJobRequest;
             if (jsonRequest != null) return jsonRequest.FilePath;
+            var jsonExport = request as JsonExportJobRequest;
+            if (jsonExport != null) return jsonExport.OutputPath;
             return request.Kind.ToString();
         }
 
@@ -182,6 +195,7 @@ namespace Neurocle.WinForms
             if (request is ImageFilesImportJobRequest) return Strings.ImportImages;
             if (request is FolderImportJobRequest) return Strings.ImportFolder;
             if (request is AnnotationJsonImportJobRequest) return Strings.ImportAnnotationJson;
+            if (request is JsonExportJobRequest) return Strings.ExportAnnotationJson;
             return request.Kind.ToString();
         }
 

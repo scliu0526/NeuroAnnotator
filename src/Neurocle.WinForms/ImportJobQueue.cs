@@ -170,7 +170,7 @@ namespace Neurocle.WinForms
 
     internal sealed class ImportJobResult
     {
-        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false, bool requiresConfirmation = false, string confirmationMessage = null)
+        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false, bool requiresConfirmation = false, string confirmationMessage = null, string outputPath = null)
         {
             WasCanceled = wasCanceled;
             ImportedImageIds = Array.AsReadOnly((importedImageIds ?? new string[0]).ToArray());
@@ -179,6 +179,7 @@ namespace Neurocle.WinForms
             WasCanceledDuringScan = wasCanceledDuringScan;
             RequiresConfirmation = requiresConfirmation;
             ConfirmationMessage = confirmationMessage;
+            OutputPath = outputPath;
         }
 
         public bool WasCanceled { get; }
@@ -188,6 +189,7 @@ namespace Neurocle.WinForms
         public bool WasCanceledDuringScan { get; }
         public bool RequiresConfirmation { get; }
         public string ConfirmationMessage { get; }
+        public string OutputPath { get; }
     }
 
     internal sealed class ImportJobSnapshot

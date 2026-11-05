@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -1598,30 +1599,16 @@ namespace Neurocle.WinForms
         /// 非同步匯出目前專案標註 JSON。
         /// </summary>
         /// <returns>代表非同步操作的工作。</returns>
-        private async Task ExportAnnotationJsonAsync()
+        private Task ExportAnnotationJsonAsync()
         {
             AnnotationSet set = annotationSets.SelectedItem as AnnotationSet;
-            if (project == null || set == null) return;
+            if (project == null || set == null || importJobQueue == null) return Task.CompletedTask;
             using (var dialog = new SaveFileDialog { DefaultExt = "json", AddExtension = true, Filter = Strings.AnnotationJsonFileFilter, OverwritePrompt = false, FileName = set.Name })
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                IProjectSession session = project;
-                exportInProgress = true;
-                Enabled = false;
-                UseWaitCursor = true;
-                try
-                {
-                    await Task.Run(() => session.ExportAnnotationJson(set.Id, dialog.FileName));
-                    WriteDiagnostic(DiagnosticEvent.AnnotationJsonExported);
-                }
-                catch (Exception exception)
-                {
-                    WriteDiagnostic(DiagnosticEvent.OperationFailed);
-                    Enabled = true;
-                    MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-                finally { UseWaitCursor = false; Enabled = true; exportInProgress = false; }
+                if (dialog.ShowDialog(this) != DialogResult.OK) return Task.CompletedTask;
+                TryEnqueueImportJob(new JsonExportJobRequest(set.Id, dialog.FileName));
             }
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -2114,6 +2101,15 @@ namespace Neurocle.WinForms
         /// <exception cref="InvalidOperationException">目前狀態不允許此操作。</exception>
         private static ImportJobResult ExecuteImportJob(IProjectSession session, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress)
         {
+            var jsonExport = request as JsonExportJobRequest;
+            if (jsonExport != null)
+            {
+                if (cancellationRequested()) return new ImportJobResult(true, new string[0]);
+                progress(new ImportJobProgress(0, 1, 0, 0));
+                string output = session.ExportAnnotationJson(jsonExport.AnnotationSetId, jsonExport.OutputPath);
+                progress(new ImportJobProgress(1, 1, 1, 0));
+                return new ImportJobResult(false, new string[0], outputPath: output);
+            }
             ImageImportReport report;
             var imageRequest = request as ImageFilesImportJobRequest;
             if (imageRequest != null)
@@ -2189,6 +2185,11 @@ namespace Neurocle.WinForms
                     else WriteDiagnostic(DiagnosticEvent.OperationFailed);
                     if (job.Status == ImportJobStatus.Completed) RefreshAnnotationSets();
                 }
+                else if (job.Request is JsonExportJobRequest)
+                {
+                    if (job.Status == ImportJobStatus.Completed) WriteDiagnostic(DiagnosticEvent.AnnotationJsonExported);
+                    else WriteDiagnostic(DiagnosticEvent.OperationFailed);
+                }
                 else
                 {
                     if (job.Status == ImportJobStatus.Completed || job.Status == ImportJobStatus.Canceled) WriteDiagnostic(DiagnosticEvent.ImageImportCompleted);
@@ -2212,6 +2213,12 @@ namespace Neurocle.WinForms
         /// 切換圖片頁並選取指定匯入工作仍存在的圖片。
         /// </summary>
         /// <param name="jobId">匯入工作的識別碼。</param>
+        private void OpenExportedFile(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+            Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + path + "\"") { UseShellExecute = true });
+        }
+
         private void ViewImportedImages(Guid jobId)
         {
             if (project == null || importJobQueue == null || importQueueForm == null) return;
@@ -2298,6 +2305,7 @@ namespace Neurocle.WinForms
                 importQueueForm.CancelRequested += id => importJobQueue?.Cancel(id);
                 importQueueForm.ClearCompletedRequested += () => importJobQueue?.ClearCompleted();
                 importQueueForm.ViewImportedImagesRequested += ViewImportedImages;
+                importQueueForm.OpenExportRequested += OpenExportedFile;
             }
             importQueueForm.UpdateJobs(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
             RefreshImportedImageAvailability(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);

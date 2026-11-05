@@ -632,6 +632,34 @@ namespace Neurocle.Tests
             }
         }
 
+        [TestMethod]
+        public void Json_export_request_runs_through_main_form_executor_with_progress_and_unique_output()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "image.png");
+            try
+            {
+                using (var bitmap = new Bitmap(10, 10)) bitmap.Save(imagePath, ImageFormat.Png);
+                using (ProjectStore store = ProjectStore.Create(projectPath))
+                {
+                    store.ImportFiles(new[] { imagePath });
+                    AnnotationSet set = store.CreateAnnotationSet("labels", Neurocle.Application.Projects.AnnotationSetType.Cla);
+                    string requested = Path.Combine(directory, "labels.json");
+                    var progress = new List<ImportJobProgress>();
+                    ImportJobResult first = ExecuteMainFormImport(store, new JsonExportJobRequest(set.Id, requested), () => false, progress.Add);
+                    ImportJobResult second = ExecuteMainFormImport(store, new JsonExportJobRequest(set.Id, requested), () => false, value => { });
+                    Assert.IsFalse(first.WasCanceled);
+                    Assert.AreEqual(2, progress.Count);
+                    Assert.IsTrue(File.Exists(first.OutputPath));
+                    Assert.IsTrue(File.Exists(second.OutputPath));
+                    Assert.AreNotEqual(first.OutputPath, second.OutputPath);
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
         private static ImportJobResult ImportImages(ProjectStore store, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress, Action<ImageImportProgress> afterProgress = null)
         {
             return ImportImportJob(store, request, cancellationRequested, progress, afterProgress);
