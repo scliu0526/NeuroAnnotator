@@ -706,6 +706,12 @@ namespace Neurocle.Tests
                 Assert.AreEqual(2, manualActions.ColumnCount);
                 Assert.AreEqual(2, manualActions.RowCount);
                 Assert.AreEqual(4, manualActions.Controls.Count);
+                TableLayoutPanel splitPercentages = Field<TableLayoutPanel>(datasetAssignments, "splitPercentages");
+                Assert.AreEqual(4, splitPercentages.ColumnCount);
+                Assert.AreEqual(4, splitPercentages.Controls.Count);
+                TableLayoutPanel splitActions = Field<TableLayoutPanel>(datasetAssignments, "splitActions");
+                Assert.AreEqual(2, splitActions.ColumnCount);
+                Assert.AreEqual(2, splitActions.Controls.Count);
                 Assert.AreEqual("隨機切分", Field<Label>(datasetAssignments, "randomSplitLabel").Text);
                 Assert.AreEqual("手動分配", Field<Label>(datasetAssignments, "manualSplitLabel").Text);
                 Assert.AreEqual("資料集 Retest", Field<Label>(datasetAssignments, "retestSectionLabel").Text);

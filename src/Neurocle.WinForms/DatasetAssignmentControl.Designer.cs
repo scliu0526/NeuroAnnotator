@@ -47,6 +47,8 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.Label manualSplitDescription;
         private System.Windows.Forms.Label retestDescription;
         private System.Windows.Forms.TableLayoutPanel manualActions;
+        private System.Windows.Forms.TableLayoutPanel splitPercentages;
+        private System.Windows.Forms.TableLayoutPanel splitActions;
 
         protected override void Dispose(bool disposing)
         {
@@ -96,6 +98,8 @@ namespace Neurocle.WinForms
             this.manualSplitDescription = new System.Windows.Forms.Label();
             this.retestDescription = new System.Windows.Forms.Label();
             this.manualActions = new System.Windows.Forms.TableLayoutPanel();
+            this.splitPercentages = new System.Windows.Forms.TableLayoutPanel();
+            this.splitActions = new System.Windows.Forms.TableLayoutPanel();
             this.clearRetestItem = new System.Windows.Forms.ToolStripMenuItem();
             this.clearClassItem = new System.Windows.Forms.ToolStripMenuItem();
             this.clearSetItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -186,6 +190,23 @@ namespace Neurocle.WinForms
             this.testPercent.Name = "testPercent";
             this.testPercent.TabIndex = 8;
             this.testPercent.ValueChanged += new System.EventHandler(this.TestPercent_ValueChanged);
+            // splitPercentages
+            //
+            this.splitPercentages.AutoSize = true;
+            this.splitPercentages.ColumnCount = 4;
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 25F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 25F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 25F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 25F));
+            this.splitPercentages.RowCount = 1;
+            this.splitPercentages.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.splitPercentages.Controls.Add(this.trainLabel, 0, 0);
+            this.splitPercentages.Controls.Add(this.trainPercent, 1, 0);
+            this.splitPercentages.Controls.Add(this.testLabel, 2, 0);
+            this.splitPercentages.Controls.Add(this.testPercent, 3, 0);
+            this.splitPercentages.Dock = System.Windows.Forms.DockStyle.Top;
+            this.splitPercentages.Name = "splitPercentages";
+            this.splitPercentages.TabIndex = 6;
             //
             // splitSelectedButton
             //
@@ -203,6 +224,19 @@ namespace Neurocle.WinForms
             this.splitAllButton.Text = Strings.DatasetSplitAll;
             this.splitAllButton.UseVisualStyleBackColor = true;
             this.splitAllButton.Click += new System.EventHandler(this.SplitAllButton_Click);
+            // splitActions
+            //
+            this.splitActions.AutoSize = true;
+            this.splitActions.ColumnCount = 2;
+            this.splitActions.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.splitActions.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.splitActions.RowCount = 1;
+            this.splitActions.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.splitActions.Controls.Add(this.splitSelectedButton, 0, 0);
+            this.splitActions.Controls.Add(this.splitAllButton, 1, 0);
+            this.splitActions.Dock = System.Windows.Forms.DockStyle.Top;
+            this.splitActions.Name = "splitActions";
+            this.splitActions.TabIndex = 9;
             this.randomSplitLabel.AutoSize = true;
             this.randomSplitLabel.Text = Strings.DatasetRandomSplitTitle;
             this.randomSplitLabel.Margin = new System.Windows.Forms.Padding(4, 8, 4, 2);
@@ -235,12 +269,8 @@ namespace Neurocle.WinForms
             //
             this.actions.Controls.Add(this.randomSplitLabel);
             this.actions.Controls.Add(this.randomSplitDescription);
-            this.actions.Controls.Add(this.trainLabel);
-            this.actions.Controls.Add(this.trainPercent);
-            this.actions.Controls.Add(this.testLabel);
-            this.actions.Controls.Add(this.testPercent);
-            this.actions.Controls.Add(this.splitSelectedButton);
-            this.actions.Controls.Add(this.splitAllButton);
+            this.actions.Controls.Add(this.splitPercentages);
+            this.actions.Controls.Add(this.splitActions);
             this.actions.Controls.Add(this.manualSplitLabel);
             this.actions.Controls.Add(this.manualSplitDescription);
             this.actions.Controls.Add(this.manualActions);
