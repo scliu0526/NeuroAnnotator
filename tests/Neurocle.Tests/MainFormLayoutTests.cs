@@ -351,7 +351,11 @@ namespace Neurocle.Tests
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importFolder));
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "annotationHeader").Controls.Contains(importAnnotation));
                 ToolStripMenuItem projectMenu = Field<ToolStripMenuItem>(form, "projectMenu");
-                Assert.IsTrue(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importQueueMenuItem")));
+                Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importQueueMenuItem")));
+                Assert.IsTrue(Field<ToolStripMenuItem>(form, "jobMenu").DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importQueueMenuItem")));
+                Assert.IsTrue(Field<ToolStripMenuItem>(form, "manageMenu").DropDownItems.Contains(Field<ToolStripMenuItem>(form, "missingImagesMenuItem")));
+                Assert.IsTrue(Field<ToolStripMenuItem>(form, "manageMenu").DropDownItems.Contains(Field<ToolStripMenuItem>(form, "backupsMenuItem")));
+                Assert.IsTrue(Field<ToolStripMenuItem>(form, "manageMenu").DropDownItems.Contains(Field<ToolStripMenuItem>(form, "diagnosticsMenuItem")));
                 Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importImagesMenuItem")));
                 Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importFolderMenuItem")));
                 Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importAnnotationMenuItem")));

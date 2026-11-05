@@ -28,6 +28,8 @@ namespace Neurocle.WinForms
         private Label toastMessage;
         private Timer toastTimer;
         private ToolStripMenuItem projectMenu;
+        private ToolStripMenuItem jobMenu;
+        private ToolStripMenuItem manageMenu;
         private ImageBrowserControl imageBrowser;
         // 保存圖片瀏覽頁使用的畫布。
         private ImageCanvasControl imageCanvas;
