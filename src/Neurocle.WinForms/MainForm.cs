@@ -1501,32 +1501,42 @@ namespace Neurocle.WinForms
                 bool importAnnotations;
                 bool importClasses;
                 bool importDataset;
-                if (!ShowAnnotationImportPreview(json, out importAnnotations, out importClasses, out importDataset)) return;
+                bool replaceAnnotations;
+                bool replaceDataset;
+                if (!ShowAnnotationImportPreview(json, out importAnnotations, out importClasses, out importDataset, out replaceAnnotations, out replaceDataset)) return;
                 if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
-                TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, importAnnotations, importClasses, importDataset, false));
+                TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, importAnnotations, importClasses, importDataset, replaceAnnotations, replaceDataset, false));
             }
         }
 
-        private bool ShowAnnotationImportPreview(string json, out bool importAnnotations, out bool importClasses, out bool importDataset)
+        private bool ShowAnnotationImportPreview(string json, out bool importAnnotations, out bool importClasses, out bool importDataset, out bool replaceAnnotations, out bool replaceDataset)
         {
             importAnnotations = true;
             importClasses = true;
             importDataset = true;
+            replaceAnnotations = false;
+            replaceDataset = false;
             bool selectedAnnotations = true;
             bool selectedClasses = true;
             bool selectedDataset = true;
+            bool selectedReplaceAnnotations = false;
+            bool selectedReplaceDataset = false;
             using (var dialog = new Form { Text = Strings.ImportAnnotationJson, Width = 720, Height = 520, StartPosition = FormStartPosition.CenterParent })
             using (var preview = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, WordWrap = false, Text = json })
             using (var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 42, FlowDirection = FlowDirection.LeftToRight })
             using (var annotations = new CheckBox { Text = "標註", Checked = true, AutoSize = true })
             using (var classes = new CheckBox { Text = "類別", Checked = true, AutoSize = true })
             using (var dataset = new CheckBox { Text = "資料集狀態", Checked = true, AutoSize = true })
+            using (var replaceAnnotationOption = new CheckBox { Text = "取代對應圖片標註", Checked = false, AutoSize = true })
+            using (var replaceDatasetOption = new CheckBox { Text = "取代 JSON 對應分配", Checked = false, AutoSize = true })
             using (var cancel = new Button { Text = Strings.Cancel, DialogResult = DialogResult.Cancel, AutoSize = true })
             using (var import = new Button { Text = Strings.ImportAnnotationJson, DialogResult = DialogResult.OK, AutoSize = true })
             {
                 options.Controls.Add(annotations);
                 options.Controls.Add(classes);
                 options.Controls.Add(dataset);
+                options.Controls.Add(replaceAnnotationOption);
+                options.Controls.Add(replaceDatasetOption);
                 options.Controls.Add(cancel);
                 options.Controls.Add(import);
                 dialog.Controls.Add(preview);
@@ -1539,9 +1549,11 @@ namespace Neurocle.WinForms
                     selectedAnnotations = annotations.Checked;
                     selectedClasses = classes.Checked;
                     selectedDataset = dataset.Checked;
+                    selectedReplaceAnnotations = replaceAnnotationOption.Checked;
+                    selectedReplaceDataset = replaceDatasetOption.Checked;
                 };
                 bool accepted = dialog.ShowDialog(this) == DialogResult.OK;
-                if (accepted) { importAnnotations = selectedAnnotations; importClasses = selectedClasses; importDataset = selectedDataset; }
+                if (accepted) { importAnnotations = selectedAnnotations; importClasses = selectedClasses; importDataset = selectedDataset; replaceAnnotations = selectedReplaceAnnotations; replaceDataset = selectedReplaceDataset; }
                 return accepted;
             }
         }
@@ -2125,7 +2137,7 @@ namespace Neurocle.WinForms
                 {
                     if (jsonRequest.TargetAnnotationSetType.HasValue && session.GetAnnotationSets().SingleOrDefault(value => value.Id == jsonRequest.TargetAnnotationSetId)?.Type != jsonRequest.TargetAnnotationSetType.Value) throw new JsonAnnotationImportException("Target annotation set changed or model type does not match.");
                     if (String.IsNullOrWhiteSpace(jsonRequest.TargetAnnotationSetId)) session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, jsonRequest.AllowUnknownFields);
-                    else session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotations, jsonRequest.ImportClasses, jsonRequest.ImportDataset, jsonRequest.AllowUnknownFields);
+                    else session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotations, jsonRequest.ImportClasses, jsonRequest.ImportDataset, jsonRequest.ReplaceAnnotations, jsonRequest.ReplaceDataset, jsonRequest.AllowUnknownFields);
                 }
                 catch (JsonAnnotationImportException exception) when (exception.Message == "JSON contains unknown fields." && !jsonRequest.AllowUnknownFields)
                 {
@@ -2165,7 +2177,7 @@ namespace Neurocle.WinForms
                 var jsonRequest = job.Request as AnnotationJsonImportJobRequest;
                 if (jsonRequest == null) continue;
                 DialogResult choice = MessageBox.Show(this, Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
-                importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, jsonRequest.TargetAnnotationSetId, jsonRequest.TargetAnnotationSetType, jsonRequest.ImportAnnotations, jsonRequest.ImportClasses, jsonRequest.ImportDataset, true) : null);
+                importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, jsonRequest.TargetAnnotationSetId, jsonRequest.TargetAnnotationSetType, jsonRequest.ImportAnnotations, jsonRequest.ImportClasses, jsonRequest.ImportDataset, jsonRequest.ReplaceAnnotations, jsonRequest.ReplaceDataset, true) : null);
             }
             foreach (ImportJobSnapshot job in jobs.Where(IsEndedImageImportJob))
             {

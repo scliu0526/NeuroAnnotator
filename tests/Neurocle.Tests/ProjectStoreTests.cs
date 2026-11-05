@@ -2417,22 +2417,28 @@ namespace Neurocle.Tests
                     bool canUndoBeforeImport = store.CanUndo(target.Id);
                     string json = "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"cat\",\"color\":\"#FFFFFF\"},{\"name\":\"dog\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"first.png\",\"set\":\"train\",\"classLabel\":\"cat\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"second.png\",\"set\":\"test\",\"classLabel\":\"dog\",\"regionLabel\":[],\"retestset\":1,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
 
-                    store.ImportAnnotationJsonIntoSet(json, target.Id, true, true, true, false);
+                    store.ImportAnnotationJsonIntoSet(json, target.Id, true, true, true, false, false, false);
 
                     Assert.AreEqual(existing.Id, store.GetClaClassId(target.Id, images[0].Id));
                     Assert.AreEqual("rgba(18, 52, 86, 1)", store.GetClasses(target.Id).Single(value => value.Name == "cat").Color);
                     Assert.AreEqual("dog", store.GetClasses(target.Id).Single(value => value.Name == "dog").Name);
                     Assert.AreEqual(store.GetClasses(target.Id).Single(value => value.Name == "dog").Id, store.GetClaClassId(target.Id, images[1].Id));
                     Assert.AreEqual(DatasetAssignmentStatus.Test, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[1].Id).Status);
+                    string omittedImageClassId = store.GetClaClassId(target.Id, images[1].Id);
                     Assert.AreEqual(canUndoBeforeImport, store.CanUndo(target.Id), "JSON import must not create Undo history.");
 
                     string datasetOnly = json.Replace("second.png", "third.png");
-                    store.ImportAnnotationJsonIntoSet(datasetOnly, target.Id, false, false, true, false);
+                    store.ImportAnnotationJsonIntoSet(datasetOnly, target.Id, false, false, true, false, false, false);
                     Assert.IsNull(store.GetClaClassId(target.Id, images[2].Id), "Dataset-only import must not write CLA annotations.");
                     Assert.AreEqual(DatasetAssignmentStatus.Test, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[2].Id).Status);
 
+                    string replaceJson = json.Replace("\"classLabel\":\"cat\"", "\"classLabel\":\"\"").Replace("second.png", "third.png");
+                    store.ImportAnnotationJsonIntoSet(replaceJson, target.Id, true, true, true, true, true, false);
+                    Assert.IsNull(store.GetClaClassId(target.Id, images[0].Id), "Replace mode must clear an explicitly empty CLA annotation.");
+                    Assert.AreEqual(omittedImageClassId, store.GetClaClassId(target.Id, images[1].Id), "Images omitted from JSON must retain their existing annotation.");
+
                     string mismatched = json.Replace("\"label_type\":\"cla\"", "\"label_type\":\"seg\"");
-                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJsonIntoSet(mismatched, target.Id, true, true, true, false));
+                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJsonIntoSet(mismatched, target.Id, true, true, true, false, false, false));
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(first)) File.Delete(first); if (File.Exists(second)) File.Delete(second); if (File.Exists(third)) File.Delete(third); }

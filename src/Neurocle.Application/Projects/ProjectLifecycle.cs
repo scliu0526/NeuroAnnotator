@@ -488,7 +488,7 @@ namespace Neurocle.Application.Projects
         /// <returns>新建立的標註集摘要。</returns>
         AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields);
         /// <summary>將 CLA JSON 匯入目前標註集的空白圖片。</summary>
-        void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotations, bool importClasses, bool importDataset, bool allowUnknownFields);
+        void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotations, bool importClasses, bool importDataset, bool replaceAnnotations, bool replaceDataset, bool allowUnknownFields);
         /// <summary>
         /// 將指定標註集匯出至 JSON 檔案。
         /// </summary>

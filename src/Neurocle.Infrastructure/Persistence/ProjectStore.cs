@@ -436,7 +436,7 @@ namespace Neurocle.Infrastructure.Persistence
         /// <summary>
         /// 將 CLA JSON 的標註與資料集分配加入指定標註集目前沒有標註的圖片；此操作不建立 Undo 歷程。
         /// </summary>
-        public void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotations, bool importClasses, bool importDataset, bool allowUnknownFields)
+        public void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotations, bool importClasses, bool importDataset, bool replaceAnnotations, bool replaceDataset, bool allowUnknownFields)
         {
             ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
             if (!allowUnknownFields && imported.UnknownFields.Count > 0) throw new JsonAnnotationImportException("JSON contains unknown fields.");
@@ -464,7 +464,7 @@ namespace Neurocle.Infrastructure.Persistence
             var assignments = GetDatasetAssignments(target.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
             var importable = imported.Data
                 .Select(item => new { Item = item, ImageId = imageByName[item.FileName][0].Id })
-                .Where(value => Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", value.ImageId))) == 0)
+                .Where(value => replaceAnnotations || (importDataset && replaceDataset) || Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", value.ImageId))) == 0)
                 .ToArray();
             CompleteOperation((db, transaction) =>
             {
@@ -476,7 +476,8 @@ namespace Neurocle.Infrastructure.Persistence
                     if (!importAnnotations && !importDataset) continue;
                     DatasetAssignmentStatus status = item.Set == "train" ? DatasetAssignmentStatus.Train : item.Set == "test" ? DatasetAssignmentStatus.Test : item.Set == "not_used" ? DatasetAssignmentStatus.NotUsed : DatasetAssignmentStatus.Unassigned;
                     bool retest = assignments.ContainsKey(imageId) && assignments[imageId].Retest;
-                    if (importDataset) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
+                    if (importDataset && (replaceDataset || !assignments.ContainsKey(imageId) || assignments[imageId].Status == DatasetAssignmentStatus.Unassigned)) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
+                    if (replaceAnnotations && importAnnotations) Execute(db, transaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageId));
                     if (importAnnotations && item.ClassLabel != "") Execute(db, transaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classByName[item.ClassLabel].Id));
                 }
             });

@@ -83,11 +83,11 @@ namespace Neurocle.WinForms
         }
 
         public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool allowUnknownFields)
-            : this(filePath, annotationSetName, targetAnnotationSetId, targetAnnotationSetType, true, true, true, allowUnknownFields)
+            : this(filePath, annotationSetName, targetAnnotationSetId, targetAnnotationSetType, true, true, true, false, false, allowUnknownFields)
         {
         }
 
-        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool importAnnotations, bool importClasses, bool importDataset, bool allowUnknownFields)
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool importAnnotations, bool importClasses, bool importDataset, bool replaceAnnotations, bool replaceDataset, bool allowUnknownFields)
             : base(ImportJobKind.AnnotationJson)
         {
             if (String.IsNullOrWhiteSpace(filePath)) throw new ArgumentException("A JSON file path is required.", nameof(filePath));
@@ -99,6 +99,8 @@ namespace Neurocle.WinForms
             ImportAnnotations = importAnnotations;
             ImportClasses = importClasses;
             ImportDataset = importDataset;
+            ReplaceAnnotations = replaceAnnotations;
+            ReplaceDataset = replaceDataset;
             AllowUnknownFields = allowUnknownFields;
         }
 
@@ -109,6 +111,8 @@ namespace Neurocle.WinForms
         public bool ImportAnnotations { get; }
         public bool ImportClasses { get; }
         public bool ImportDataset { get; }
+        public bool ReplaceAnnotations { get; }
+        public bool ReplaceDataset { get; }
         public bool AllowUnknownFields { get; }
     }
 
