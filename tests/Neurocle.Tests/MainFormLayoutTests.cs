@@ -2409,10 +2409,10 @@ namespace Neurocle.Tests
 
                 opacity.Value = 37;
                 EnterNumericText(opacity, "abc");
-                Assert.AreEqual(37, opacity.Value);
-                Assert.AreEqual(37, opacitySlider.Value);
-                Assert.AreEqual(0.37f, form.AnnotationCanvas.ObdOpacity);
-                Assert.AreEqual(0.37f, form.AnnotationCanvas.SegOpacity);
+                Assert.AreEqual(40, opacity.Value);
+                Assert.AreEqual(40, opacitySlider.Value);
+                Assert.AreEqual(0.4f, form.AnnotationCanvas.ObdOpacity);
+                Assert.AreEqual(0.4f, form.AnnotationCanvas.SegOpacity);
                 EnterNumericText(opacity, "101");
                 Assert.AreEqual(100, opacity.Value);
                 Assert.AreEqual(100, opacitySlider.Value);
@@ -2423,6 +2423,7 @@ namespace Neurocle.Tests
                 Assert.AreEqual(0, opacitySlider.Value);
                 Assert.AreEqual(0f, form.AnnotationCanvas.ObdOpacity);
                 Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
+
             }
         }
 
@@ -4310,9 +4311,13 @@ namespace Neurocle.Tests
                     canvas.SegClasses = classes;
                     canvas.SegRegions = new[] { new SegRegion("rect", "set", "image", "class", SegRegionType.Rect, 20, 20, 60, 60, 0) };
                     AssertOpacity(canvas, value => canvas.SegOpacity = value, 50, 50);
+                    canvas.SegOpacity = 0f;
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 20, 50).ToArgb(), "SEG closed-region outline must remain visible at 0% opacity.");
 
                     canvas.SegRegions = new[] { new SegRegion("line", "set", "image", "class", SegRegionType.PolyLine, 0, 0, 0, 0, 0, new[] { new SegPoint(10, 50), new SegPoint(90, 50) }, 10) };
                     AssertOpacity(canvas, value => canvas.SegOpacity = value, 50, 50);
+                    canvas.SegOpacity = 0f;
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 50, 50).ToArgb(), "Unselected SEG line may disappear at 0% opacity.");
                 }
 
                 store = ProjectStore.Create(projectPath);
@@ -4334,9 +4339,10 @@ namespace Neurocle.Tests
                     Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
 
                     opacityValue.Value = 73;
-                    Assert.AreEqual(73, opacity.Value);
-                    Assert.AreEqual(0.73f, form.AnnotationCanvas.ObdOpacity);
-                    Assert.AreEqual(0.73f, form.AnnotationCanvas.SegOpacity);
+                    Assert.AreEqual(70, opacity.Value);
+                    Assert.AreEqual(70, opacityValue.Value);
+                    Assert.AreEqual(0.7f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(0.7f, form.AnnotationCanvas.SegOpacity);
 
                     opacity.Value = 100;
                     Assert.AreEqual(100, opacityValue.Value);

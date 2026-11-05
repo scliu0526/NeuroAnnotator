@@ -1208,6 +1208,7 @@ namespace Neurocle.WinForms
         /// <param name="percent">縮放或分配百分比。</param>
         private void SetAnnotationOpacity(int percent)
         {
+            percent = Math.Max(0, Math.Min(100, (int)Math.Round(percent / 10d, MidpointRounding.AwayFromZero) * 10));
             if (annotationOpacity.Value != percent) annotationOpacity.Value = percent;
             if (annotationOpacityValue.Value != percent) annotationOpacityValue.Value = percent;
             float opacity = percent / 100f;

@@ -224,6 +224,7 @@ namespace Neurocle.WinForms
             this.annotationOpacity.Name = "annotationOpacity";
             this.annotationOpacityValue.Minimum = 0;
             this.annotationOpacityValue.Maximum = 100;
+            this.annotationOpacityValue.Increment = 10;
             this.annotationOpacityValue.Value = 40;
             this.annotationOpacityValue.Width = 52;
             this.annotationOpacityValue.Name = "annotationOpacityValue";
