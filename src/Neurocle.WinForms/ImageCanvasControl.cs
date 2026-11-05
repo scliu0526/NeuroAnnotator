@@ -39,6 +39,8 @@ namespace Neurocle.WinForms
         private bool thumbnailPanning;
         // 記錄導覽縮圖是否已收合。
         private bool thumbnailCollapsed;
+        // 指出目前標註手勢期間是否暫時隱藏導覽縮圖。
+        private bool thumbnailHiddenForGesture;
         // 保存縮圖像素轉換為原圖位移的比例。
         private float thumbnailDragScale;
         // 保存前一個滑鼠座標供拖曳計算。
@@ -187,7 +189,7 @@ namespace Neurocle.WinForms
                 annotationsVisible = value;
                 if (!value)
                 {
-                    CancelAnnotationEditGesture();
+                    CancelInProgressGesture();
                     ClearObdSelection();
                     ClearSegSelection();
                 }
@@ -589,37 +591,24 @@ namespace Neurocle.WinForms
             keyboardNudgeX = 0;
             keyboardNudgeY = 0;
             thumbnailPanning = false;
+            thumbnailHiddenForGesture = false;
             Capture = false;
+            RefreshToolCursor();
+            ApplyToolCursor();
             Invalidate();
         }
 
         /// <summary>
-        /// 取消目前 OBD 或 SEG 拖曳編輯，還原尚未提交的預覽狀態。
+        /// 設定標註手勢期間的縮圖暫時隱藏狀態。
         /// </summary>
-        private void CancelAnnotationEditGesture()
+        /// <param name="hidden">是否隱藏縮圖。</param>
+        private void SetThumbnailHiddenForGesture(bool hidden)
         {
-            bool cancelCapture = false;
-            if (obdDrag != ObdDragKind.None && obdDrag != ObdDragKind.Create)
-            {
-                obdPreviews = new Dictionary<string, RectangleF>();
-                activeObd = null;
-                obdDrag = ObdDragKind.None;
-                cancelCapture = true;
-            }
-            if (selectionStart.HasValue)
-            {
-                selectionStart = null;
-                selectionPreview = null;
-                cancelCapture = true;
-            }
-            if (segDrag != SegDragKind.None)
-            {
-                segPreviews = new Dictionary<string, SegRegion>();
-                segDrag = SegDragKind.None;
-                segRotationAngle = 0d;
-                cancelCapture = true;
-            }
-            if (cancelCapture) Capture = false;
+            if (thumbnailHiddenForGesture == hidden) return;
+            thumbnailHiddenForGesture = hidden;
+            RefreshToolCursor();
+            ApplyToolCursor();
+            Invalidate();
         }
 
         /// <summary>
@@ -797,6 +786,7 @@ namespace Neurocle.WinForms
             CanvasThumbnailLayout layout;
             float dpiScale = DeviceDpi / 96f;
             if (!CanvasThumbnailLayout.TryCreate(viewport.ImageSize, ClientSize, viewport.Zoom, viewport.Origin, dpiScale, out layout)) return;
+            if (thumbnailHiddenForGesture) return;
             if (!thumbnailCollapsed)
             {
                 using (var background = new SolidBrush(Color.FromArgb(210, 24, 24, 27))) graphics.FillRectangle(background, layout.ImageBounds);
@@ -1084,11 +1074,13 @@ namespace Neurocle.WinForms
                 Capture = true;
             }
             CanvasThumbnailLayout thumbnailLayout;
-            if (!panning && args.Button == MouseButtons.Left && TryGetThumbnailLayout(out thumbnailLayout))
+            if (!panning && args.Button == MouseButtons.Left && !thumbnailHiddenForGesture && TryGetThumbnailLayout(out thumbnailLayout))
             {
                 if (thumbnailLayout.ToggleBounds.Contains(args.Location))
                 {
                     thumbnailCollapsed = !thumbnailCollapsed;
+                    RefreshToolCursor();
+                    ApplyToolCursor();
                     Invalidate();
                     base.OnMouseDown(args);
                     return;
@@ -1113,6 +1105,7 @@ namespace Neurocle.WinForms
                     obdStart = ClampPoint(point);
                     obdPreview = new RectangleF(obdStart, SizeF.Empty);
                     obdDrag = ObdDragKind.Create;
+                    SetThumbnailHiddenForGesture(true);
                     Capture = true;
                     Invalidate();
                 }
@@ -1216,11 +1209,12 @@ namespace Neurocle.WinForms
                 {
                     segStart = point;
                     segPreview = new RectangleF(segStart, SizeF.Empty);
+                    SetThumbnailHiddenForGesture(true);
                     Capture = true;
                 }
                 else if (SegTool == SegToolKind.Line)
                 {
-                    if (!segLineStart.HasValue) { segLineStart = point; segPathStrokeWidth = SegStrokeWidth; }
+                    if (!segLineStart.HasValue) { segLineStart = point; segPathStrokeWidth = SegStrokeWidth; SetThumbnailHiddenForGesture(true); }
                     else
                     {
                         SegPoint first = ToSegPoint(segLineStart.Value);
@@ -1232,6 +1226,7 @@ namespace Neurocle.WinForms
                         }
                         segLineStart = null;
                         segPathStrokeWidth = 0;
+                        SetThumbnailHiddenForGesture(false);
                     }
                 }
                 else
@@ -1242,11 +1237,12 @@ namespace Neurocle.WinForms
                         if ((CurrentModifierKeys & Keys.Control) == Keys.Control) SegGeometryEraseRequested?.Invoke(SegRegionType.PolyGon, Rectangle.Empty, polygon, 0);
                         else SegPathCreated?.Invoke(SegRegionType.PolyGon, polygon, 0);
                         segPath.Clear();
+                        SetThumbnailHiddenForGesture(false);
                         Invalidate();
                         base.OnMouseDown(args);
                         return;
                     }
-                    if (segPath.Count == 0) { segPathStrokeWidth = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? SegStrokeWidth : 0; segPath.Add(point); }
+                    if (segPath.Count == 0) { segPathStrokeWidth = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? SegStrokeWidth : 0; segPath.Add(point); SetThumbnailHiddenForGesture(true); }
                     else segPath.Add(point);
                     segPathDragging = false;
                     Capture = true;
@@ -1446,11 +1442,32 @@ namespace Neurocle.WinForms
         /// </summary>
         private void RefreshToolCursor()
         {
-            hasToolCursor = pointerInside && image != null;
+            hasToolCursor = pointerInside && image != null && IsPointerInsideImage() && !IsPointerOverThumbnail();
             if (!hasToolCursor) return;
             PointF imagePoint = viewport.ScreenToImage(lastMousePosition);
             bool widthTool = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser);
             toolCursor = viewport.ImageToScreen(widthTool ? ClampSegPathPoint(imagePoint) : ClampPoint(imagePoint));
+        }
+
+        /// <summary>
+        /// 判斷實體滑鼠位置是否位於目前圖片範圍內。
+        /// </summary>
+        /// <returns>若位於圖片範圍內則為 true。</returns>
+        private bool IsPointerInsideImage()
+        {
+            PointF point = viewport.ScreenToImage(lastMousePosition);
+            return point.X >= 0f && point.Y >= 0f && point.X <= viewport.ImageSize.Width && point.Y <= viewport.ImageSize.Height;
+        }
+
+        /// <summary>
+        /// 判斷實體滑鼠是否位於可操作的導覽縮圖上。
+        /// </summary>
+        /// <returns>若位於展開縮圖上則為 true。</returns>
+        private bool IsPointerOverThumbnail()
+        {
+            if (thumbnailCollapsed || thumbnailHiddenForGesture) return false;
+            CanvasThumbnailLayout layout;
+            return TryGetThumbnailLayout(out layout) && layout.ImageBounds.Contains(lastMousePosition);
         }
 
         /// <summary>
@@ -1548,6 +1565,7 @@ namespace Neurocle.WinForms
                     }
                     if (changed.Count > 0) ObdRectanglesChanged?.Invoke(changed);
                 }
+                SetThumbnailHiddenForGesture(false);
                 Invalidate();
             }
             else if (args.Button == MouseButtons.Left && segDrag != SegDragKind.None)
@@ -1583,6 +1601,7 @@ namespace Neurocle.WinForms
                         else SegRegionCreated?.Invoke(SegRegionType.Ellipse, preview);
                     }
                 }
+                SetThumbnailHiddenForGesture(false);
                 Invalidate();
             }
             else if (args.Button == MouseButtons.Left && Capture && (SegTool == SegToolKind.Polygon || SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser))
@@ -1620,6 +1639,7 @@ namespace Neurocle.WinForms
                     segPathStrokeWidth = 0;
                 }
                 segPathDragging = false;
+                SetThumbnailHiddenForGesture(false);
                 Invalidate();
             }
             if (panning) Capture = false;

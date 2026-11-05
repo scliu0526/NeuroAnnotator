@@ -2589,6 +2589,117 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Annotation_cursor_and_thumbnail_follow_pointer_and_gesture_state()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(400, 400))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(200, 200),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Line
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+                    ImageCanvasControl.CanvasThumbnailLayout layout;
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(400, 400), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, (int)layout.ImageBounds.Left + 5, (int)layout.ImageBounds.Top + 5, 0));
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor, "The system pointer should remain visible over the thumbnail.");
+
+                    bool created = false;
+                    canvas.SegPathCreated += (type, points, width) => created = true;
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 10, 10, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Starting a line gesture should hide the thumbnail.");
+                    Point thumbnailPoint = Point.Round(new PointF(layout.ImageBounds.Left + layout.ImageBounds.Width / 2f, layout.ImageBounds.Top + layout.ImageBounds.Height / 2f));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, thumbnailPoint.X, thumbnailPoint.Y, 0));
+                    Assert.IsTrue(created, "A second line click over the former thumbnail must still complete the annotation.");
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Completing a line gesture should restore the thumbnail.");
+
+                    foreach (ImageCanvasControl.SegToolKind tool in new[]
+                    {
+                        ImageCanvasControl.SegToolKind.Rect,
+                        ImageCanvasControl.SegToolKind.Ellipse,
+                        ImageCanvasControl.SegToolKind.Polygon,
+                        ImageCanvasControl.SegToolKind.Brush,
+                        ImageCanvasControl.SegToolKind.Line,
+                        ImageCanvasControl.SegToolKind.Eraser
+                    })
+                    {
+                        canvas.DiscardUnfinishedShape();
+                        canvas.SegTool = tool;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                        Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Starting {0} should hide the thumbnail.", tool);
+                        canvas.DiscardUnfinishedShape();
+                        Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Cancelling {0} should restore the thumbnail.", tool);
+                    }
+
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Line;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    canvas.AnnotationsVisible = false;
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Cancelling through annotation visibility must restore the thumbnail.");
+                    Assert.IsNull(Field<object>(canvas, "segLineStart"), "Cancelling through annotation visibility must discard the unfinished line.");
+                    canvas.AnnotationsVisible = true;
+
+                    canvas.SegEnabled = false;
+                    canvas.ObdEnabled = true;
+                    canvas.ObdSelectMode = false;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Starting an OBD drawing gesture should hide the thumbnail.");
+                    canvas.DiscardUnfinishedShape();
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"));
+                }
+
+                using (var source = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(200, 200),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Rect
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+                    foreach (Point outside in new[] { new Point(0, 0), new Point(199, 0), new Point(0, 199), new Point(199, 199) })
+                    {
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, outside.X, outside.Y, 0));
+                        Assert.AreEqual(Cursors.Arrow, canvas.Cursor, "The system pointer should remain visible outside the image at {0}.", outside);
+                    }
+                    Rectangle? created = null;
+                    canvas.SegRegionCreated += (type, rectangle) => created = rectangle;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 150, 150, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 150, 150, 0));
+                    Assert.IsTrue(created.HasValue, "A click outside the image must still create a clamped annotation.");
+                    Assert.AreEqual(0, created.Value.X);
+                    Assert.AreEqual(0, created.Value.Y);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Obd_rectangle_and_seg_rectangle_ellipse_previews_fill_at_fixed_forty_percent()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
