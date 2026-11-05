@@ -396,6 +396,33 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Completed_import_card_keeps_view_button_clear_of_progress_bar()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(
+                        Guid.NewGuid(),
+                        new ImageFilesImportJobRequest(new[] { "one.png" }),
+                        ImportJobStatus.Completed,
+                        new ImportJobProgress(1, 1, 1, 0),
+                        new ImportJobResult(false, new[] { "image-id" }),
+                        null)
+                });
+
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                ProgressBar progress = Field<ProgressBar>(card, "progressBar");
+                Button view = Field<Button>(card, "viewImportedImagesButton");
+
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(view.Visible);
+                Assert.IsFalse(progress.Bounds.IntersectsWith(view.Bounds), "The imported-image button must not be covered by the progress bar.");
+            }
+        }
+
+        [STATestMethod]
         public void Completed_image_import_card_can_request_viewing_imported_images()
         {
             using (var form = new ImportQueueForm())

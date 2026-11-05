@@ -82,14 +82,14 @@ namespace Neurocle.WinForms
             cancelButton.Click += CancelButton_Click;
             viewImportedImagesButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             viewImportedImagesButton.AutoSize = true;
-            viewImportedImagesButton.Location = new Point(8, 60);
+            viewImportedImagesButton.Location = new Point(8, 90);
             viewImportedImagesButton.Name = "viewImportedImagesButton";
             viewImportedImagesButton.Text = Strings.ViewImportedImages;
             viewImportedImagesButton.Visible = true;
             viewImportedImagesButton.Click += ViewImportedImagesButton_Click;
             openExportButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             openExportButton.AutoSize = true;
-            openExportButton.Location = new Point(8, 78);
+            openExportButton.Location = new Point(8, 90);
             openExportButton.Name = "openExportButton";
             openExportButton.Text = "開啟輸出";
             openExportButton.Visible = false;
@@ -106,9 +106,9 @@ namespace Neurocle.WinForms
             Controls.Add(statusLabel);
             Controls.Add(sourceLabel);
             Margin = new Padding(4);
-            MinimumSize = new Size(420, 104);
+            MinimumSize = new Size(420, 124);
             Name = "ImportJobCardControl";
-            Size = new Size(420, 112);
+            Size = new Size(420, 128);
             ResumeLayout(false);
             PerformLayout();
             sourceLabel.BringToFront();

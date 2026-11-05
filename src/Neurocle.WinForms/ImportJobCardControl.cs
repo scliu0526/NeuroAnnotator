@@ -71,7 +71,7 @@ namespace Neurocle.WinForms
             cancelButton.Visible = true;
             cancelButton.Location = new System.Drawing.Point(Math.Max(8, ClientSize.Width - 90), 32);
             viewImportedImagesButton.Visible = true;
-            viewImportedImagesButton.Location = new System.Drawing.Point(8, 60);
+            viewImportedImagesButton.Location = new System.Drawing.Point(8, 90);
         }
 
         public event Action<Guid> CancelRequested;
