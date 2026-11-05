@@ -2260,6 +2260,7 @@ namespace Neurocle.WinForms
         private void UpdateProjectMenuAvailability()
         {
             bool projectChangeAllowed = !importInProgress && !annotationOperationInProgress;
+            bool annotationSetLocked = IsSelectedAnnotationSetLocked();
             projectMenu.Enabled = true;
             newProjectMenuItem.Enabled = projectChangeAllowed;
             openProjectMenuItem.Enabled = projectChangeAllowed;
@@ -2268,12 +2269,14 @@ namespace Neurocle.WinForms
             backupsMenuItem.Enabled = projectChangeAllowed;
             missingImagesMenuItem.Enabled = projectChangeAllowed;
             importQueueMenuItem.Enabled = project != null;
-            importAnnotationButton.Enabled = project != null && SelectedAnnotationSet != null && !importInProgress;
+            importAnnotationButton.Enabled = project != null && SelectedAnnotationSet != null && !importInProgress && !annotationSetLocked;
             deleteSelectedImagesButton.Enabled = !importInProgress;
             deleteAllImagesButton.Enabled = !importInProgress;
             exportSelected.Enabled = !importInProgress;
             exportAll.Enabled = !importInProgress;
-            datasetAssignments.Enabled = !importInProgress;
+            datasetAssignments.Enabled = !annotationSetLocked;
+            annotationTools.Enabled = !annotationSetLocked;
+            annotationClasses.Enabled = !annotationSetLocked;
             newSet.Enabled = projectChangeAllowed;
             renameSet.Enabled = projectChangeAllowed;
             deleteSet.Enabled = projectChangeAllowed;
@@ -2282,6 +2285,15 @@ namespace Neurocle.WinForms
             {
                 if (classButton.ContextMenuStrip != null) classButton.ContextMenuStrip.Enabled = projectChangeAllowed;
             }
+        }
+
+        private bool IsSelectedAnnotationSetLocked()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (selected == null || importJobQueue == null) return false;
+            return importJobQueue.Jobs.Any(job => (job.Status == ImportJobStatus.Waiting || job.Status == ImportJobStatus.Running)
+                && ((job.Request as AnnotationJsonImportJobRequest)?.TargetAnnotationSetId == selected.Id
+                    || (job.Request as JsonExportJobRequest)?.AnnotationSetId == selected.Id));
         }
 
         /// <summary>

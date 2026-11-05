@@ -171,6 +171,50 @@ namespace Neurocle.Tests
             }
         }
 
+        [TestMethod]
+        public void Json_jobs_lock_only_their_target_annotation_set_for_editing()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            ImportJobQueue queue = null;
+            var started = new System.Threading.ManualResetEventSlim();
+            var release = new System.Threading.ManualResetEventSlim();
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(path);
+                AnnotationSet set = store.CreateAnnotationSet("target", AnnotationSetType.Cla);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+                    {
+                        started.Set();
+                        release.Wait(TimeSpan.FromSeconds(5));
+                        return new ImportJobResult(false, new string[0]);
+                    });
+                    SetField(form, "importJobQueue", queue);
+                    queue.Enqueue(new JsonExportJobRequest(set.Id, Path.Combine(directory, "target.json")));
+                    Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+                    Assert.IsTrue((bool)Invoke(form, "IsSelectedAnnotationSetLocked"));
+                    release.Set();
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                    Assert.IsFalse((bool)Invoke(form, "IsSelectedAnnotationSetLocked"));
+                }
+                queue = null;
+            }
+            finally
+            {
+                release.Set();
+                queue?.Dispose();
+                store?.Dispose();
+                started.Dispose();
+                release.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
         [STATestMethod]
         public void Delete_selected_images_requires_confirmation_and_uses_only_explicit_selected_ids()
         {
@@ -302,11 +346,11 @@ namespace Neurocle.Tests
             }
         }
 
-        private static void Invoke(object target, string methodName, params object[] arguments)
+        private static object Invoke(object target, string methodName, params object[] arguments)
         {
             MethodInfo method = target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
                 .Single(candidate => candidate.Name == methodName && candidate.GetParameters().Length == arguments.Length);
-            method.Invoke(target, arguments);
+            return method.Invoke(target, arguments);
         }
 
         private static T Field<T>(object target, string fieldName) where T : class
