@@ -33,6 +33,8 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.FlowLayoutPanel filters;
         private System.Windows.Forms.Label trainLabel;
         private System.Windows.Forms.Label testLabel;
+        private System.Windows.Forms.Label trainPercentSuffix;
+        private System.Windows.Forms.Label testPercentSuffix;
         private System.Windows.Forms.Label setFilterLabel;
         private System.Windows.Forms.Label classFilterLabel;
         private System.Windows.Forms.Label annotationFilterLabel;
@@ -84,6 +86,8 @@ namespace Neurocle.WinForms
             this.filters = new System.Windows.Forms.FlowLayoutPanel();
             this.trainLabel = new System.Windows.Forms.Label();
             this.testLabel = new System.Windows.Forms.Label();
+            this.trainPercentSuffix = new System.Windows.Forms.Label();
+            this.testPercentSuffix = new System.Windows.Forms.Label();
             this.setFilterLabel = new System.Windows.Forms.Label();
             this.classFilterLabel = new System.Windows.Forms.Label();
             this.annotationFilterLabel = new System.Windows.Forms.Label();
@@ -192,19 +196,39 @@ namespace Neurocle.WinForms
             this.testPercent.Name = "testPercent";
             this.testPercent.TabIndex = 8;
             this.testPercent.ValueChanged += new System.EventHandler(this.TestPercent_ValueChanged);
+            // trainPercentSuffix
+            //
+            this.trainPercentSuffix.AutoSize = true;
+            this.trainPercentSuffix.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.trainPercentSuffix.Margin = new System.Windows.Forms.Padding(0, 0, 2, 4);
+            this.trainPercentSuffix.Text = "%";
+            this.trainPercentSuffix.Name = "trainPercentSuffix";
+            // testPercentSuffix
+            //
+            this.testPercentSuffix.AutoSize = true;
+            this.testPercentSuffix.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.testPercentSuffix.Margin = new System.Windows.Forms.Padding(0, 0, 2, 4);
+            this.testPercentSuffix.Text = "%";
+            this.testPercentSuffix.Name = "testPercentSuffix";
             // splitPercentages
             //
             this.splitPercentages.AutoSize = true;
-            this.splitPercentages.ColumnCount = 2;
-            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
-            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.splitPercentages.ColumnCount = 4;
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 42F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 8F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 42F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 8F));
             this.splitPercentages.RowCount = 2;
             this.splitPercentages.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
             this.splitPercentages.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
             this.splitPercentages.Controls.Add(this.trainLabel, 0, 0);
-            this.splitPercentages.Controls.Add(this.testLabel, 1, 0);
+            this.splitPercentages.SetColumnSpan(this.trainLabel, 2);
+            this.splitPercentages.Controls.Add(this.testLabel, 2, 0);
+            this.splitPercentages.SetColumnSpan(this.testLabel, 2);
             this.splitPercentages.Controls.Add(this.trainPercent, 0, 1);
-            this.splitPercentages.Controls.Add(this.testPercent, 1, 1);
+            this.splitPercentages.Controls.Add(this.trainPercentSuffix, 1, 1);
+            this.splitPercentages.Controls.Add(this.testPercent, 2, 1);
+            this.splitPercentages.Controls.Add(this.testPercentSuffix, 3, 1);
             this.splitPercentages.Dock = System.Windows.Forms.DockStyle.Top;
             this.splitPercentages.Name = "splitPercentages";
             this.splitPercentages.TabIndex = 6;
