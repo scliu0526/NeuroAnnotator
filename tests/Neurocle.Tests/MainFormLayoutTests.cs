@@ -423,6 +423,30 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Import_and_export_cards_keep_their_actions_mutually_exclusive()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                Guid importId = Guid.NewGuid();
+                Guid exportId = Guid.NewGuid();
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(importId, new ImageFilesImportJobRequest(new[] { "one.png" }), ImportJobStatus.Completed, null, new ImportJobResult(false, new[] { "image-id" }), null),
+                    new ImportJobSnapshot(exportId, new JsonExportJobRequest("set-id", "labels.json"), ImportJobStatus.Completed, null, new ImportJobResult(false, new[] { "unexpected-image-id" }, outputPath: "labels.json"), null)
+                });
+
+                ImportJobCardControl importCard = Field<FlowLayoutPanel>(form, "cardsPanel").Controls[0] as ImportJobCardControl;
+                ImportJobCardControl exportCard = Field<FlowLayoutPanel>(form, "cardsPanel").Controls[1] as ImportJobCardControl;
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(Field<Button>(importCard, "viewImportedImagesButton").Visible);
+                Assert.IsFalse(Field<Button>(importCard, "openExportButton").Visible);
+                Assert.IsFalse(Field<Button>(exportCard, "viewImportedImagesButton").Visible);
+                Assert.IsTrue(Field<Button>(exportCard, "openExportButton").Visible);
+            }
+        }
+
+        [STATestMethod]
         public void Completed_image_import_card_can_request_viewing_imported_images()
         {
             using (var form = new ImportQueueForm())

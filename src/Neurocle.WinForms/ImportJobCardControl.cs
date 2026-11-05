@@ -107,8 +107,9 @@ namespace Neurocle.WinForms
                 : System.Drawing.Size.Empty;
             detailsButton.Text = detailsVisible ? Strings.HideDetails : Strings.ShowDetails;
             cancelButton.Enabled = value.Status == ImportJobStatus.Waiting || (value.Status == ImportJobStatus.Running && !(value.Request is AnnotationJsonImportJobRequest));
-            bool canView = (value.Status == ImportJobStatus.Completed || value.Status == ImportJobStatus.Canceled)
-                && !(value.Request is AnnotationJsonImportJobRequest)
+            bool isImageImport = value.Request is ImageFilesImportJobRequest || value.Request is FolderImportJobRequest;
+            bool canView = isImageImport
+                && (value.Status == ImportJobStatus.Completed || value.Status == ImportJobStatus.Canceled)
                 && value.Result != null
                 && value.Result.ImportedImageIds.Count > 0;
             viewImportedImagesButton.Visible = canView;
