@@ -615,11 +615,11 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
-        public void Project_menu_exposes_diagnostics_usage_and_log_folder_commands()
+        public void Manage_menu_exposes_diagnostics_usage_and_log_folder_commands()
         {
             using (var form = new MainForm(new ProjectLifecycle()))
             {
-                Assert.IsTrue(form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "專案").DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "診斷資訊"));
+                Assert.IsTrue(form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "管理").DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "診斷資訊"));
             }
         }
 
