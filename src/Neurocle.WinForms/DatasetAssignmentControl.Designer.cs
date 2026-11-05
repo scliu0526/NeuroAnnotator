@@ -160,7 +160,7 @@ namespace Neurocle.WinForms
             // trainLabel
             //
             this.trainLabel.AutoSize = true;
-            this.trainLabel.Margin = new System.Windows.Forms.Padding(6, 8, 2, 2);
+            this.trainLabel.Margin = new System.Windows.Forms.Padding(6, 4, 2, 2);
             this.trainLabel.TabIndex = 5;
             this.trainLabel.Text = Strings.DatasetTrainPercent;
             //
@@ -169,6 +169,7 @@ namespace Neurocle.WinForms
             this.trainPercent.Minimum = 1;
             this.trainPercent.Maximum = 99;
             this.trainPercent.Value = 80;
+            this.trainPercent.Margin = new System.Windows.Forms.Padding(6, 0, 2, 4);
             this.trainPercent.Width = 48;
             this.trainPercent.Name = "trainPercent";
             this.trainPercent.TabIndex = 6;
@@ -177,7 +178,7 @@ namespace Neurocle.WinForms
             // testLabel
             //
             this.testLabel.AutoSize = true;
-            this.testLabel.Margin = new System.Windows.Forms.Padding(2, 8, 2, 2);
+            this.testLabel.Margin = new System.Windows.Forms.Padding(6, 4, 2, 2);
             this.testLabel.TabIndex = 7;
             this.testLabel.Text = Strings.DatasetTestPercent;
             //
@@ -186,6 +187,7 @@ namespace Neurocle.WinForms
             this.testPercent.Minimum = 1;
             this.testPercent.Maximum = 99;
             this.testPercent.Value = 20;
+            this.testPercent.Margin = new System.Windows.Forms.Padding(6, 0, 2, 4);
             this.testPercent.Width = 48;
             this.testPercent.Name = "testPercent";
             this.testPercent.TabIndex = 8;
@@ -193,17 +195,16 @@ namespace Neurocle.WinForms
             // splitPercentages
             //
             this.splitPercentages.AutoSize = true;
-            this.splitPercentages.ColumnCount = 4;
-            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 25F));
-            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 25F));
-            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 25F));
-            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 25F));
-            this.splitPercentages.RowCount = 1;
+            this.splitPercentages.ColumnCount = 2;
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.splitPercentages.RowCount = 2;
+            this.splitPercentages.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
             this.splitPercentages.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
             this.splitPercentages.Controls.Add(this.trainLabel, 0, 0);
-            this.splitPercentages.Controls.Add(this.trainPercent, 1, 0);
-            this.splitPercentages.Controls.Add(this.testLabel, 2, 0);
-            this.splitPercentages.Controls.Add(this.testPercent, 3, 0);
+            this.splitPercentages.Controls.Add(this.testLabel, 1, 0);
+            this.splitPercentages.Controls.Add(this.trainPercent, 0, 1);
+            this.splitPercentages.Controls.Add(this.testPercent, 1, 1);
             this.splitPercentages.Dock = System.Windows.Forms.DockStyle.Top;
             this.splitPercentages.Name = "splitPercentages";
             this.splitPercentages.TabIndex = 6;

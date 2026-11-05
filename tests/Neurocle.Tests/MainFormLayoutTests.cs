@@ -747,8 +747,17 @@ namespace Neurocle.Tests
                 Assert.AreEqual(2, manualActions.RowCount);
                 Assert.AreEqual(4, manualActions.Controls.Count);
                 TableLayoutPanel splitPercentages = Field<TableLayoutPanel>(datasetAssignments, "splitPercentages");
-                Assert.AreEqual(4, splitPercentages.ColumnCount);
+                Assert.AreEqual(2, splitPercentages.ColumnCount);
+                Assert.AreEqual(2, splitPercentages.RowCount);
                 Assert.AreEqual(4, splitPercentages.Controls.Count);
+                Assert.AreEqual(0, splitPercentages.GetPositionFromControl(Field<Label>(datasetAssignments, "trainLabel")).Column);
+                Assert.AreEqual(0, splitPercentages.GetPositionFromControl(Field<Label>(datasetAssignments, "trainLabel")).Row);
+                Assert.AreEqual(1, splitPercentages.GetPositionFromControl(Field<Label>(datasetAssignments, "testLabel")).Column);
+                Assert.AreEqual(0, splitPercentages.GetPositionFromControl(Field<Label>(datasetAssignments, "testLabel")).Row);
+                Assert.AreEqual(0, splitPercentages.GetPositionFromControl(Field<NumericUpDown>(datasetAssignments, "trainPercent")).Column);
+                Assert.AreEqual(1, splitPercentages.GetPositionFromControl(Field<NumericUpDown>(datasetAssignments, "trainPercent")).Row);
+                Assert.AreEqual(1, splitPercentages.GetPositionFromControl(Field<NumericUpDown>(datasetAssignments, "testPercent")).Column);
+                Assert.AreEqual(1, splitPercentages.GetPositionFromControl(Field<NumericUpDown>(datasetAssignments, "testPercent")).Row);
                 TableLayoutPanel splitActions = Field<TableLayoutPanel>(datasetAssignments, "splitActions");
                 Assert.AreEqual(2, splitActions.ColumnCount);
                 Assert.AreEqual(2, splitActions.Controls.Count);
