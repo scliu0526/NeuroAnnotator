@@ -183,6 +183,7 @@
   <data name="RenameAnnotationSet" xml:space="preserve"><value>重新命名標註集</value></data>
   <data name="DeleteAnnotationSet" xml:space="preserve"><value>刪除標註集</value></data>
   <data name="DeleteAnnotationSetPrompt" xml:space="preserve"><value>輸入完整標註集名稱以確認刪除</value></data>
+  <data name="DeleteAnnotationSetMismatch" xml:space="preserve"><value>刪除已拒絕：目前選取的標註集是「{0}」，輸入名稱必須與它完整相同。</value></data>
   <data name="AddAnnotationClass" xml:space="preserve"><value>新增類別</value></data>
   <data name="AnnotationClassNamePrompt" xml:space="preserve"><value>類別名稱</value></data>
   <data name="RenameAnnotationClass" xml:space="preserve"><value>重新命名類別</value></data>

@@ -10,6 +10,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.Application.Projects;
 using Neurocle.Infrastructure.Persistence;
 using Neurocle.WinForms;
+using Neurocle.WinForms.Resources;
 
 namespace Neurocle.Tests
 {
@@ -124,6 +125,43 @@ namespace Neurocle.Tests
                     Assert.AreEqual(annotated.Id, ((AnnotationSet)annotationSelector.SelectedItem).Id);
                     Assert.AreEqual(1, form.DatasetAssignments.Rows.Single().AnnotationCount);
                     Assert.IsNull(Field<object>(form.AnnotationCanvas, "segLineStart"));
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Delete_annotation_set_rejects_another_existing_set_name_and_reports_the_reason()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(path);
+                AnnotationSet selected = store.CreateAnnotationSet("selected", AnnotationSetType.Cla);
+                AnnotationSet other = store.CreateAnnotationSet("other", AnnotationSetType.Cla);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    string warning = null;
+                    SetField(form, "promptText", new Func<string, string>(message => other.Name));
+                    SetField(form, "showDeleteWarning", new Action<string>(message => warning = message));
+
+                    Invoke(form, "DeleteSelectedAnnotationSet");
+
+                    CollectionAssert.AreEquivalent(new[] { selected.Id, other.Id }, store.GetAnnotationSets().Select(value => value.Id).ToArray());
+                    StringAssert.Contains(warning, selected.Name);
+                    Assert.AreEqual(selected.Id, ((AnnotationSet)Field<ComboBox>(form, "annotationSets").SelectedItem).Id);
+
+                    SetField(form, "promptText", new Func<string, string>(message => selected.Name));
+                    Invoke(form, "DeleteSelectedAnnotationSet");
+                    CollectionAssert.AreEqual(new[] { other.Id }, store.GetAnnotationSets().Select(value => value.Id).ToArray());
                 }
             }
             finally

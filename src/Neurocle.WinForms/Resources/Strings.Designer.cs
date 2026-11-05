@@ -170,6 +170,7 @@ namespace Neurocle.WinForms.Resources
         internal static string RenameAnnotationSet { get { return ResourceManager.GetString("RenameAnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string DeleteAnnotationSet { get { return ResourceManager.GetString("DeleteAnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string DeleteAnnotationSetPrompt { get { return ResourceManager.GetString("DeleteAnnotationSetPrompt", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAnnotationSetMismatch { get { return ResourceManager.GetString("DeleteAnnotationSetMismatch", CultureInfo.CurrentUICulture); } }
         internal static string AddAnnotationClass { get { return ResourceManager.GetString("AddAnnotationClass", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationClassNamePrompt { get { return ResourceManager.GetString("AnnotationClassNamePrompt", CultureInfo.CurrentUICulture); } }
         internal static string RenameAnnotationClass { get { return ResourceManager.GetString("RenameAnnotationClass", CultureInfo.CurrentUICulture); } }

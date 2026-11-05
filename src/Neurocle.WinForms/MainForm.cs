@@ -147,6 +147,10 @@ namespace Neurocle.WinForms
         private IReadOnlyList<SegRegion> copiedSegRegions = new SegRegion[0];
         // 提供圖片刪除確認的可替換判斷函式。
         private Func<string, bool> confirmImageDeletion;
+        // 提供文字輸入提示的可替換函式。
+        private Func<string, string> promptText = Prompt;
+        // 提供刪除拒絕提示的可替換函式。
+        private Action<string> showDeleteWarning = message => MessageBox.Show(message, Strings.DeleteAnnotationSet, MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
         // 提供測試存取圖片瀏覽控制項。
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
@@ -1805,7 +1809,7 @@ namespace Neurocle.WinForms
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null) return;
-            string name = Prompt(Strings.AnnotationSetNamePrompt);
+            string name = promptText(Strings.AnnotationSetNamePrompt);
             if (name == null) return;
             project.RenameAnnotationSet(selected.Id, name);
             RefreshAnnotationSets();
@@ -1818,9 +1822,13 @@ namespace Neurocle.WinForms
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null) return;
-            string name = Prompt(Strings.DeleteAnnotationSetPrompt);
+            string name = promptText(Strings.DeleteAnnotationSetPrompt);
             if (name == null) return;
-            project.DeleteAnnotationSet(selected.Id, name);
+            if (!project.DeleteAnnotationSet(selected.Id, name))
+            {
+                showDeleteWarning(string.Format(Strings.DeleteAnnotationSetMismatch, selected.Name));
+                return;
+            }
             RefreshAnnotationSets();
         }
 
@@ -1848,7 +1856,7 @@ namespace Neurocle.WinForms
         /// <param name="value">要套用或檢查的值。</param>
         private void RenameAnnotationClass(AnnotationClass value)
         {
-            string name = Prompt(Strings.AnnotationClassNamePrompt);
+            string name = promptText(Strings.AnnotationClassNamePrompt);
             if (name == null) return;
             project.RenameClass(value.Id, name);
             RefreshAnnotationClasses();
