@@ -105,6 +105,8 @@ namespace Neurocle.WinForms
         private bool pointerInside;
         // 指出目前是否需要繪製自訂工具游標。
         private bool hasToolCursor;
+        // 記錄 Ctrl 修飾鍵是否已進入按下狀態，避免鍵盤重複事件反覆重繪畫布。
+        private bool controlModifierDown;
         // 保存目前畫布要繪製的 SEG 區域。
         private IReadOnlyList<SegRegion> segRegions = new List<SegRegion>();
         // 保存 SEG 區域識別碼對應的類別顯示資料。
@@ -1443,7 +1445,7 @@ namespace Neurocle.WinForms
         {
             float radius = SegEnabled && (SegTool == SegToolKind.Brush || SegTool == SegToolKind.Line || SegTool == SegToolKind.Eraser)
                 ? (float)(SegStrokeWidth * viewport.Zoom / 2d + 14f)
-                : 8f;
+                : 20f;
             return Rectangle.Round(new RectangleF(center.X - radius, center.Y - radius, radius * 2f, radius * 2f));
         }
 
@@ -1488,9 +1490,20 @@ namespace Neurocle.WinForms
         {
             pointerInside = false;
             hasToolCursor = false;
+            controlModifierDown = false;
             ApplyToolCursor();
             Invalidate();
             base.OnMouseLeave(args);
+        }
+
+        /// <summary>
+        /// 離開焦點時清除 Ctrl 按鍵追蹤，避免程式停用期間遺失 KeyUp 後誤判下一次按鍵為重複事件。
+        /// </summary>
+        /// <param name="args">包含此次事件詳細資料的事件資料。</param>
+        protected override void OnLostFocus(EventArgs args)
+        {
+            controlModifierDown = false;
+            base.OnLostFocus(args);
         }
 
         /// <summary>
@@ -1663,6 +1676,17 @@ namespace Neurocle.WinForms
         /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         protected override void OnKeyDown(KeyEventArgs args)
         {
+            if (IsControlKey(args.KeyCode))
+            {
+                if (!controlModifierDown)
+                {
+                    controlModifierDown = true;
+                    RefreshToolCursor();
+                    InvalidateToolCursor();
+                }
+                base.OnKeyDown(args);
+                return;
+            }
             if (args.KeyCode == Keys.Escape) { DiscardUnfinishedShape(); args.Handled = true; }
             else if (args.KeyCode == Keys.Delete && ObdEnabled && selectedObdIds.Count > 0)
             {
@@ -1687,9 +1711,36 @@ namespace Neurocle.WinForms
         /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         protected override void OnKeyUp(KeyEventArgs args)
         {
-            RefreshToolCursor();
-            Invalidate();
+            if (IsControlKey(args.KeyCode))
+            {
+                controlModifierDown = false;
+                RefreshToolCursor();
+                InvalidateToolCursor();
+            }
+            else
+            {
+                RefreshToolCursor();
+                Invalidate();
+            }
             base.OnKeyUp(args);
+        }
+
+        /// <summary>
+        /// 判斷按鍵是否為任一 Ctrl 修飾鍵。
+        /// </summary>
+        /// <param name="keyCode">要判斷的按鍵代碼。</param>
+        /// <returns>若為一般、左側或右側 Ctrl 鍵則為 true。</returns>
+        private static bool IsControlKey(Keys keyCode)
+        {
+            return keyCode == Keys.ControlKey || keyCode == Keys.LControlKey || keyCode == Keys.RControlKey;
+        }
+
+        /// <summary>
+        /// 只排程重繪目前自繪工具游標，避免修飾鍵變化重繪全部標註。
+        /// </summary>
+        private void InvalidateToolCursor()
+        {
+            if (hasToolCursor) Invalidate(GetToolCursorBounds(toolCursor));
         }
 
         /// <summary>
