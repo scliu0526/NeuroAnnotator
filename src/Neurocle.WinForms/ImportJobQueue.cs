@@ -10,7 +10,9 @@ namespace Neurocle.WinForms
     {
         ImageFiles,
         Folder,
-        AnnotationJson
+        AnnotationJson,
+        JsonExport,
+        ImageZipExport
     }
 
     internal enum ImportJobStatus
@@ -84,6 +86,42 @@ namespace Neurocle.WinForms
         public bool AllowUnknownFields { get; }
     }
 
+    internal abstract class ExportJobRequest : ImportJobRequest
+    {
+        protected ExportJobRequest(ImportJobKind kind, string outputPath)
+            : base(kind)
+        {
+            if (String.IsNullOrWhiteSpace(outputPath)) throw new ArgumentException("An output path is required.", nameof(outputPath));
+            OutputPath = outputPath;
+        }
+
+        public string OutputPath { get; }
+    }
+
+    internal sealed class JsonExportJobRequest : ExportJobRequest
+    {
+        public JsonExportJobRequest(string annotationSetId, string outputPath)
+            : base(ImportJobKind.JsonExport, outputPath)
+        {
+            if (String.IsNullOrWhiteSpace(annotationSetId)) throw new ArgumentException("An annotation set ID is required.", nameof(annotationSetId));
+            AnnotationSetId = annotationSetId;
+        }
+
+        public string AnnotationSetId { get; }
+    }
+
+    internal sealed class ImageZipExportJobRequest : ExportJobRequest
+    {
+        public ImageZipExportJobRequest(IEnumerable<string> imageIds, string outputPath)
+            : base(ImportJobKind.ImageZipExport, outputPath)
+        {
+            ImageIds = imageIds == null ? null : Array.AsReadOnly(imageIds.ToArray());
+        }
+
+        public IReadOnlyList<string> ImageIds { get; }
+        public bool ExportAll { get { return ImageIds == null; } }
+    }
+
     internal sealed class ImportJobProgress
     {
         public ImportJobProgress(int processedCount, int totalCount, int successfulCount, int failedCount)
@@ -144,7 +182,7 @@ namespace Neurocle.WinForms
         public bool RequiresConfirmation { get; }
     }
 
-    internal sealed class ImportJobQueue : IDisposable
+    internal class ImportJobQueue : IDisposable
     {
         internal delegate ImportJobResult ImportExecutor(ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress);
 
@@ -188,7 +226,7 @@ namespace Neurocle.WinForms
         private bool disposed;
 
         private const int MaxActiveJobs = 10;
-        private const int MaxCompletedJobs = 20;
+        private const int MaxCompletedJobs = 50;
 
         public ImportJobQueue(ImportExecutor executor)
         {
@@ -518,6 +556,15 @@ namespace Neurocle.WinForms
             idle.Wait();
             confirmationSignal.Dispose();
             idle.Dispose();
+        }
+    }
+
+    // 統一專案 FIFO 的語意名稱；保留既有 ImportJobQueue 以維持現有呼叫端相容性。
+    internal sealed class ProjectJobQueue : ImportJobQueue
+    {
+        public ProjectJobQueue(ImportExecutor executor)
+            : base(executor)
+        {
         }
     }
 }

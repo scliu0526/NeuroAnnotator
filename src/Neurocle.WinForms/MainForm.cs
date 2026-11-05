@@ -2033,7 +2033,7 @@ namespace Neurocle.WinForms
             }
             handledImageImportJobs.Clear();
             handledImportConfirmations.Clear();
-            importJobQueue = new ImportJobQueue((request, cancellationRequested, progress) => ExecuteImportJob(session, request, cancellationRequested, progress));
+            importJobQueue = new ProjectJobQueue((request, cancellationRequested, progress) => ExecuteImportJob(session, request, cancellationRequested, progress));
             importJobQueue.JobsChanged += ImageImportJobsChanged;
             if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(new ImportJobSnapshot[0]);
             importImagesButton.Enabled = true;

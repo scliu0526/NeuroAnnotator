@@ -96,19 +96,38 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
-        public void Queue_retains_only_the_twenty_most_recent_terminal_jobs()
+        public void Queue_retains_only_the_fifty_most_recent_terminal_jobs()
         {
             using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => new ImportJobResult(false, new string[0])))
             {
-                for (int index = 0; index < 25; index++)
+                for (int index = 0; index < 55; index++)
                 {
                     queue.Enqueue(new ImageFilesImportJobRequest(new[] { index + ".png" }));
                     Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
                 }
 
-                Assert.AreEqual(20, queue.Jobs.Count);
+                Assert.AreEqual(50, queue.Jobs.Count);
                 Assert.AreEqual("5.png", ((ImageFilesImportJobRequest)queue.Jobs[0].Request).FilePaths[0]);
             }
+        }
+
+        [TestMethod]
+        public void Project_queue_runs_import_and_export_requests_in_one_fifo()
+        {
+            var executionOrder = new List<ImportJobKind>();
+            using (var queue = new ProjectJobQueue((request, cancellationRequested, progress) =>
+            {
+                executionOrder.Add(request.Kind);
+                return new ImportJobResult(false, new string[0]);
+            }))
+            {
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "image.png" }));
+                queue.Enqueue(new JsonExportJobRequest("set-id", "labels.json"));
+                queue.Enqueue(new ImageZipExportJobRequest(new[] { "image-id" }, "images.zip"));
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+            }
+
+            CollectionAssert.AreEqual(new[] { ImportJobKind.ImageFiles, ImportJobKind.JsonExport, ImportJobKind.ImageZipExport }, executionOrder.ToArray());
         }
 
         [TestMethod]
