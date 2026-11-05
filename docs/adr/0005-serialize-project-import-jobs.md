@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0006
 ---
 
 # ADR-0005：同一專案的匯入工作以單一 FIFO 序列執行
