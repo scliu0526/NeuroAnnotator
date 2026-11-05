@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -655,6 +656,28 @@ namespace Neurocle.Tests
                     Assert.IsTrue(File.Exists(first.OutputPath));
                     Assert.IsTrue(File.Exists(second.OutputPath));
                     Assert.AreNotEqual(first.OutputPath, second.OutputPath);
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
+        [TestMethod]
+        public void Image_zip_export_request_keeps_selected_ids_fixed_and_writes_a_safe_archive()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "image.png");
+            try
+            {
+                using (var bitmap = new Bitmap(10, 10)) bitmap.Save(imagePath, ImageFormat.Png);
+                using (ProjectStore store = ProjectStore.Create(projectPath))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                    string output = Path.Combine(directory, "images.zip");
+                    ImportJobResult result = ExecuteMainFormImport(store, new ImageZipExportJobRequest(new[] { image.Id }, output), () => false, value => { });
+                    Assert.IsTrue(File.Exists(result.OutputPath));
+                    using (var archive = ZipFile.OpenRead(result.OutputPath)) Assert.AreEqual(1, archive.Entries.Count);
                 }
             }
             finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }

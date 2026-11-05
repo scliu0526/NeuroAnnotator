@@ -113,8 +113,8 @@ namespace Neurocle.WinForms
                 && value.Result.ImportedImageIds.Count > 0;
             viewImportedImagesButton.Visible = canView;
             viewImportedImagesButton.Enabled = canView;
-            bool canOpenExport = value.Request is JsonExportJobRequest && value.Status == ImportJobStatus.Completed && value.Result != null && !String.IsNullOrWhiteSpace(value.Result.OutputPath) && File.Exists(value.Result.OutputPath);
-            openExportButton.Visible = value.Request is JsonExportJobRequest;
+            bool canOpenExport = value.Request is ExportJobRequest && value.Status == ImportJobStatus.Completed && value.Result != null && !String.IsNullOrWhiteSpace(value.Result.OutputPath) && File.Exists(value.Result.OutputPath);
+            openExportButton.Visible = value.Request is ExportJobRequest;
             openExportButton.Enabled = canOpenExport;
             toolTip.SetToolTip(viewImportedImagesButton, string.Empty);
             toolTip.SetToolTip(openExportButton, canOpenExport ? value.Result.OutputPath : "輸出檔案不存在");
@@ -182,6 +182,8 @@ namespace Neurocle.WinForms
             if (jsonRequest != null) return jsonRequest.FilePath;
             var jsonExport = request as JsonExportJobRequest;
             if (jsonExport != null) return jsonExport.OutputPath;
+            var zipExport = request as ImageZipExportJobRequest;
+            if (zipExport != null) return zipExport.OutputPath;
             return request.Kind.ToString();
         }
 
@@ -196,6 +198,7 @@ namespace Neurocle.WinForms
             if (request is FolderImportJobRequest) return Strings.ImportFolder;
             if (request is AnnotationJsonImportJobRequest) return Strings.ImportAnnotationJson;
             if (request is JsonExportJobRequest) return Strings.ExportAnnotationJson;
+            if (request is ImageZipExportJobRequest) return ((ImageZipExportJobRequest)request).ExportAll ? Strings.ExportAllImages : Strings.ExportSelectedImages;
             return request.Kind.ToString();
         }
 

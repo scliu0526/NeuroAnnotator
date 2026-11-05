@@ -100,6 +100,8 @@ namespace Neurocle.WinForms
             if (jsonRequest != null) return Path.GetFileName(jsonRequest.FilePath);
             var jsonExport = request as JsonExportJobRequest;
             if (jsonExport != null) return Path.GetFileName(jsonExport.OutputPath);
+            var zipExport = request as ImageZipExportJobRequest;
+            if (zipExport != null) return Path.GetFileName(zipExport.OutputPath);
             return request.Kind.ToString();
         }
 

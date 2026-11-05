@@ -128,8 +128,6 @@ namespace Neurocle.WinForms
         // 記錄已完成畫面更新的匯入工作。
         private readonly HashSet<Guid> handledImageImportJobs = new HashSet<Guid>();
         private readonly HashSet<Guid> handledImportConfirmations = new HashSet<Guid>();
-        // 避免同時啟動多個匯出工作。
-        private bool exportInProgress;
         // 避免重疊執行需要背景處理的標註操作。
         private bool annotationOperationInProgress;
         // 保存標註操作期間等待套用的圖片選取事件。
@@ -211,7 +209,7 @@ namespace Neurocle.WinForms
                     return;
                 }
             }
-            if (exportInProgress || annotationOperationInProgress) args.Cancel = true;
+            if ((importJobQueue != null && importJobQueue.IsBusy) || annotationOperationInProgress) args.Cancel = true;
         }
 
         /// <summary>
@@ -1564,35 +1562,16 @@ namespace Neurocle.WinForms
         /// </summary>
         /// <param name="imageIds">圖片識別碼清單。</param>
         /// <returns>代表非同步操作的工作。</returns>
-        private async Task ExportImagesAsync(IEnumerable<string> imageIds)
+        private Task ExportImagesAsync(IEnumerable<string> imageIds)
         {
-            if (project == null) return;
+            if (project == null || importJobQueue == null) return Task.CompletedTask;
             using (var dialog = new SaveFileDialog { DefaultExt = "zip", AddExtension = true, Filter = Strings.ImageZipFileFilter, OverwritePrompt = false })
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                IProjectSession session = project;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return Task.CompletedTask;
                 string[] selected = imageIds == null ? null : imageIds.ToArray();
-                exportInProgress = true;
-                Enabled = false;
-                UseWaitCursor = true;
-                try
-                {
-                    await Task.Run(() => session.ExportImagesZip(dialog.FileName, selected));
-                    WriteDiagnostic(DiagnosticEvent.ImagesExported);
-                }
-                catch (Exception exception)
-                {
-                    WriteDiagnostic(DiagnosticEvent.OperationFailed);
-                    Enabled = true;
-                    MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-                finally
-                {
-                    UseWaitCursor = false;
-                    Enabled = true;
-                    exportInProgress = false;
-                }
+                TryEnqueueImportJob(new ImageZipExportJobRequest(selected, dialog.FileName));
             }
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -2110,6 +2089,15 @@ namespace Neurocle.WinForms
                 progress(new ImportJobProgress(1, 1, 1, 0));
                 return new ImportJobResult(false, new string[0], outputPath: output);
             }
+            var zipExport = request as ImageZipExportJobRequest;
+            if (zipExport != null)
+            {
+                if (cancellationRequested()) return new ImportJobResult(true, new string[0]);
+                progress(new ImportJobProgress(0, 1, 0, 0));
+                string output = session.ExportImagesZip(zipExport.OutputPath, zipExport.ImageIds);
+                progress(new ImportJobProgress(1, 1, 1, 0));
+                return new ImportJobResult(false, new string[0], outputPath: output);
+            }
             ImageImportReport report;
             var imageRequest = request as ImageFilesImportJobRequest;
             if (imageRequest != null)
@@ -2185,9 +2173,9 @@ namespace Neurocle.WinForms
                     else WriteDiagnostic(DiagnosticEvent.OperationFailed);
                     if (job.Status == ImportJobStatus.Completed) RefreshAnnotationSets();
                 }
-                else if (job.Request is JsonExportJobRequest)
+                else if (job.Request is ExportJobRequest)
                 {
-                    if (job.Status == ImportJobStatus.Completed) WriteDiagnostic(DiagnosticEvent.AnnotationJsonExported);
+                    if (job.Status == ImportJobStatus.Completed) WriteDiagnostic(job.Request is JsonExportJobRequest ? DiagnosticEvent.AnnotationJsonExported : DiagnosticEvent.ImagesExported);
                     else WriteDiagnostic(DiagnosticEvent.OperationFailed);
                 }
                 else
