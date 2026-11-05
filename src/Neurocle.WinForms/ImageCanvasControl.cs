@@ -620,7 +620,17 @@ namespace Neurocle.WinForms
             base.OnPaint(args);
             if (image == null) return;
             PointF origin = viewport.Origin;
-            args.Graphics.DrawImage(image, new RectangleF(origin.X, origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom)));
+            RectangleF imageBounds = new RectangleF(origin.X, origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom));
+            RectangleF imagePaintBounds = RectangleF.Intersect(imageBounds, args.Graphics.ClipBounds);
+            if (!imagePaintBounds.IsEmpty)
+            {
+                RectangleF sourceBounds = new RectangleF(
+                    (imagePaintBounds.X - imageBounds.X) / (float)viewport.Zoom,
+                    (imagePaintBounds.Y - imageBounds.Y) / (float)viewport.Zoom,
+                    imagePaintBounds.Width / (float)viewport.Zoom,
+                    imagePaintBounds.Height / (float)viewport.Zoom);
+                args.Graphics.DrawImage(image, imagePaintBounds, sourceBounds, GraphicsUnit.Pixel);
+            }
             foreach (ObdAnnotation annotation in obdAnnotations.Where(item => !selectedObdIds.Contains(item.Id)).Concat(obdAnnotations.Where(item => selectedObdIds.Contains(item.Id))))
             {
                 if (!AnnotationsVisible) continue;
