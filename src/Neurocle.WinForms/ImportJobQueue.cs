@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Neurocle.Application.Projects;
 
 namespace Neurocle.WinForms
 {
@@ -72,17 +73,42 @@ namespace Neurocle.WinForms
     internal sealed class AnnotationJsonImportJobRequest : ImportJobRequest
     {
         public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, bool allowUnknownFields)
+            : this(filePath, annotationSetName, null, null, allowUnknownFields)
+        {
+        }
+
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, bool allowUnknownFields)
+            : this(filePath, annotationSetName, targetAnnotationSetId, null, allowUnknownFields)
+        {
+        }
+
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool allowUnknownFields)
+            : this(filePath, annotationSetName, targetAnnotationSetId, targetAnnotationSetType, true, true, true, allowUnknownFields)
+        {
+        }
+
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool importAnnotations, bool importClasses, bool importDataset, bool allowUnknownFields)
             : base(ImportJobKind.AnnotationJson)
         {
             if (String.IsNullOrWhiteSpace(filePath)) throw new ArgumentException("A JSON file path is required.", nameof(filePath));
             if (String.IsNullOrWhiteSpace(annotationSetName)) throw new ArgumentException("An annotation set name is required.", nameof(annotationSetName));
             FilePath = filePath;
             AnnotationSetName = annotationSetName;
+            TargetAnnotationSetId = targetAnnotationSetId;
+            TargetAnnotationSetType = targetAnnotationSetType;
+            ImportAnnotations = importAnnotations;
+            ImportClasses = importClasses;
+            ImportDataset = importDataset;
             AllowUnknownFields = allowUnknownFields;
         }
 
         public string FilePath { get; }
         public string AnnotationSetName { get; }
+        public string TargetAnnotationSetId { get; }
+        public AnnotationSetType? TargetAnnotationSetType { get; }
+        public bool ImportAnnotations { get; }
+        public bool ImportClasses { get; }
+        public bool ImportDataset { get; }
         public bool AllowUnknownFields { get; }
     }
 

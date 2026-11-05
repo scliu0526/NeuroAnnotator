@@ -433,6 +433,55 @@ namespace Neurocle.Infrastructure.Persistence
             return set;
         }
 
+        /// <summary>
+        /// 將 CLA JSON 的標註與資料集分配加入指定標註集目前沒有標註的圖片；此操作不建立 Undo 歷程。
+        /// </summary>
+        public void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotations, bool importClasses, bool importDataset, bool allowUnknownFields)
+        {
+            ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
+            if (!allowUnknownFields && imported.UnknownFields.Count > 0) throw new JsonAnnotationImportException("JSON contains unknown fields.");
+            AnnotationSet target = GetAnnotationSets().SingleOrDefault(value => value.Id == annotationSetId);
+            if (target == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
+            if (target.Type != AnnotationSetType.Cla || imported.Type != AnnotationSetType.Cla) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
+            ProjectImage[] images = GetImages().ToArray();
+            var imageByName = images.GroupBy(image => image.OriginalFileName, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+            foreach (ImportedImage item in imported.Data)
+            {
+                ProjectImage[] matches;
+                if (!imageByName.TryGetValue(item.FileName, out matches) || matches.Length != 1 || matches[0].Width != item.Width || matches[0].Height != item.Height) throw new JsonAnnotationImportException("JSON image does not map to exactly one project image.");
+            }
+            AnnotationClass[] existing = GetClasses(target.Id).ToArray();
+            var classByName = existing.ToDictionary(value => value.Name, StringComparer.Ordinal);
+            var newClasses = new List<AnnotationClass>();
+            foreach (ImportedClass value in imported.Classes)
+            {
+                if (classByName.ContainsKey(value.Name)) continue;
+                if (!importClasses && importAnnotations) throw new JsonAnnotationImportException("JSON contains a class that is not in the target annotation set.");
+                var created = new AnnotationClass(Guid.NewGuid().ToString("D"), target.Id, NormalizeName(value.Name), AnnotationColorFormat.Normalize(value.Color));
+                classByName.Add(created.Name, created);
+                newClasses.Add(created);
+            }
+            var assignments = GetDatasetAssignments(target.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
+            var importable = imported.Data
+                .Select(item => new { Item = item, ImageId = imageByName[item.FileName][0].Id })
+                .Where(value => Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", value.ImageId))) == 0)
+                .ToArray();
+            CompleteOperation((db, transaction) =>
+            {
+                if (importClasses) foreach (AnnotationClass value in newClasses) Execute(db, transaction, "INSERT INTO AnnotationClass (Id, AnnotationSetId, Name, Color) VALUES ($id, $set, $name, $color);", new SqliteParameter("$id", value.Id), new SqliteParameter("$set", value.AnnotationSetId), new SqliteParameter("$name", value.Name), new SqliteParameter("$color", value.Color));
+                foreach (var value in importable)
+                {
+                    ImportedImage item = value.Item;
+                    string imageId = value.ImageId;
+                    if (!importAnnotations && !importDataset) continue;
+                    DatasetAssignmentStatus status = item.Set == "train" ? DatasetAssignmentStatus.Train : item.Set == "test" ? DatasetAssignmentStatus.Test : item.Set == "not_used" ? DatasetAssignmentStatus.NotUsed : DatasetAssignmentStatus.Unassigned;
+                    bool retest = assignments.ContainsKey(imageId) && assignments[imageId].Retest;
+                    if (importDataset) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
+                    if (importAnnotations && item.ClassLabel != "") Execute(db, transaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classByName[item.ClassLabel].Id));
+                }
+            });
+        }
+
         /// <inheritdoc />
         public string ExportAnnotationJson(string annotationSetId, string outputPath)
         {

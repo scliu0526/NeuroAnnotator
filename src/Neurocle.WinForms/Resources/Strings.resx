@@ -42,6 +42,7 @@
   <data name="ImportImages" xml:space="preserve"><value>匯入圖片</value></data>
   <data name="ImportAnnotationJson" xml:space="preserve"><value>匯入標註 JSON</value></data>
   <data name="ImportAnnotationUnknownFields" xml:space="preserve"><value>JSON 包含未知欄位，這些欄位不會保存。是否繼續匯入？</value></data>
+  <data name="ImportAnnotationIrreversiblePrompt" xml:space="preserve"><value>匯入將直接寫入目前標註集，且無法使用 Undo/Redo 復原。是否繼續？</value></data>
   <data name="ImageFileFilter" xml:space="preserve"><value>圖片 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp</value></data>
   <data name="ImageImportUnsupportedFormat" xml:space="preserve"><value>圖片匯入失敗：僅支援 PNG、JPG、JPEG 與 BMP 格式。</value></data>
   <data name="ImageImportFileSizeLimit" xml:space="preserve"><value>圖片匯入失敗：單一檔案不可超過 100 MB。</value></data>

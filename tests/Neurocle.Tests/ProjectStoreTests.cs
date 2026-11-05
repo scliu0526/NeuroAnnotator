@@ -2397,6 +2397,48 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Cla_json_import_into_selected_set_adds_only_empty_images_and_reuses_existing_class_color()
+        {
+            string path = TemporaryProjectPath();
+            string first = Path.Combine(Path.GetDirectoryName(path), "first.png");
+            string second = Path.Combine(Path.GetDirectoryName(path), "second.png");
+            string third = Path.Combine(Path.GetDirectoryName(path), "third.png");
+            try
+            {
+                CreateBitmap(first, Color.Red, ImageFormat.Png, 20, 20);
+                CreateBitmap(second, Color.Blue, ImageFormat.Png, 20, 20);
+                CreateBitmap(third, Color.Green, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(new[] { first, second, third }).ToArray();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Cla);
+                    AnnotationClass existing = store.AddClass(target.Id, "cat", "#123456");
+                    store.SetClaClass(target.Id, images[0].Id, existing.Id);
+                    bool canUndoBeforeImport = store.CanUndo(target.Id);
+                    string json = "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"cat\",\"color\":\"#FFFFFF\"},{\"name\":\"dog\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"first.png\",\"set\":\"train\",\"classLabel\":\"cat\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"second.png\",\"set\":\"test\",\"classLabel\":\"dog\",\"regionLabel\":[],\"retestset\":1,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+
+                    store.ImportAnnotationJsonIntoSet(json, target.Id, true, true, true, false);
+
+                    Assert.AreEqual(existing.Id, store.GetClaClassId(target.Id, images[0].Id));
+                    Assert.AreEqual("rgba(18, 52, 86, 1)", store.GetClasses(target.Id).Single(value => value.Name == "cat").Color);
+                    Assert.AreEqual("dog", store.GetClasses(target.Id).Single(value => value.Name == "dog").Name);
+                    Assert.AreEqual(store.GetClasses(target.Id).Single(value => value.Name == "dog").Id, store.GetClaClassId(target.Id, images[1].Id));
+                    Assert.AreEqual(DatasetAssignmentStatus.Test, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[1].Id).Status);
+                    Assert.AreEqual(canUndoBeforeImport, store.CanUndo(target.Id), "JSON import must not create Undo history.");
+
+                    string datasetOnly = json.Replace("second.png", "third.png");
+                    store.ImportAnnotationJsonIntoSet(datasetOnly, target.Id, false, false, true, false);
+                    Assert.IsNull(store.GetClaClassId(target.Id, images[2].Id), "Dataset-only import must not write CLA annotations.");
+                    Assert.AreEqual(DatasetAssignmentStatus.Test, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[2].Id).Status);
+
+                    string mismatched = json.Replace("\"label_type\":\"cla\"", "\"label_type\":\"seg\"");
+                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJsonIntoSet(mismatched, target.Id, true, true, true, false));
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(first)) File.Delete(first); if (File.Exists(second)) File.Delete(second); if (File.Exists(third)) File.Delete(third); }
+        }
+
+        [TestMethod]
         public void Json_annotation_import_preserves_seg_path_points()
         {
             string path = TemporaryProjectPath();

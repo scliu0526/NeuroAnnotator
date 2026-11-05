@@ -487,6 +487,8 @@ namespace Neurocle.Application.Projects
         /// <param name="allowUnknownFields">是否允許並忽略格式中未知欄位。</param>
         /// <returns>新建立的標註集摘要。</returns>
         AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields);
+        /// <summary>將 CLA JSON 匯入目前標註集的空白圖片。</summary>
+        void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotations, bool importClasses, bool importDataset, bool allowUnknownFields);
         /// <summary>
         /// 將指定標註集匯出至 JSON 檔案。
         /// </summary>
