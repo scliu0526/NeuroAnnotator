@@ -73,7 +73,7 @@ namespace Neurocle.WinForms
             this.Controls.Add(this.clearCompletedButton);
             this.Controls.Add(this.cancelButton);
             this.MinimumSize = new System.Drawing.Size(520, 260);
-            this.MaximumSize = new System.Drawing.Size(536, 0);
+            this.MaximumSize = new System.Drawing.Size(536, 1000);
             this.Name = "ImportQueueForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             this.Text = Strings.ImportQueueTitle;

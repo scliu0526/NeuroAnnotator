@@ -387,6 +387,9 @@ namespace Neurocle.Tests
                 Assert.AreEqual(100, completedProgress.Value);
                 Assert.AreEqual(520, form.ClientSize.Width);
                 Assert.AreEqual(FormBorderStyle.FixedSingle, form.FormBorderStyle);
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(form.ClientSize.Height >= form.MinimumSize.Height, "The queue window must retain enough height to display job cards and progress bars.");
                 jobs.Items[2].Selected = true;
                 Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
             }
