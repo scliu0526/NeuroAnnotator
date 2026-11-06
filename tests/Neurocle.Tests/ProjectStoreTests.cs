@@ -1660,6 +1660,35 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Each_released_brush_stroke_can_be_undone_and_redone_independently()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 100, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source }).Single();
+                    AnnotationSet set = store.CreateAnnotationSet("brush strokes", AnnotationSetType.Seg);
+                    AnnotationClass value = store.GetClasses(set.Id).Single();
+                    store.AddSegPath(set.Id, image.Id, value.Id, SegRegionType.PolyLine, new[] { new SegPoint(20, 20) }, 15);
+                    store.AddSegPath(set.Id, image.Id, value.Id, SegRegionType.PolyLine, new[] { new SegPoint(40, 40) }, 15);
+                    store.AddSegPath(set.Id, image.Id, value.Id, SegRegionType.PolyLine, new[] { new SegPoint(60, 60) }, 15);
+
+                    Assert.AreEqual(3, store.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(new[] { 20, 40 }, store.GetSegRegions(set.Id, image.Id).Select(region => region.Points[0].X).ToArray());
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(new[] { 20 }, store.GetSegRegions(set.Id, image.Id).Select(region => region.Points[0].X).ToArray());
+                    Assert.IsTrue(store.Redo(set.Id));
+                    CollectionAssert.AreEqual(new[] { 20, 40 }, store.GetSegRegions(set.Id, image.Id).Select(region => region.Points[0].X).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Seg_geometry_erase_is_class_scoped_and_undoable()
         {
             string path = TemporaryProjectPath();

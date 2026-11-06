@@ -2865,6 +2865,18 @@ namespace Neurocle.Tests
                         Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Cancelling {0} should restore the thumbnail.", tool);
                     }
 
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    int brushCommits = 0;
+                    canvas.SegPathCreated += (type, points, width) => brushCommits++;
+                    foreach (Point point in new[] { new Point(20, 20), new Point(40, 40), new Point(60, 60) })
+                    {
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, point.X, point.Y, 0));
+                        Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"));
+                        RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, point.X, point.Y, 0));
+                        Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Completing a brush stroke must restore the thumbnail.");
+                    }
+                    Assert.AreEqual(3, brushCommits, "Each released brush stroke is one completed annotation.");
+
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Line;
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
                     canvas.AnnotationsVisible = false;
@@ -4673,6 +4685,89 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Each_released_seg_brush_path_is_one_ctrl_z_history_step()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            string secondImagePath = Path.Combine(directory, "second.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 100);
+                CreateFilledImage(secondImagePath, Color.White, 100);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage[] images = store.ImportFiles(new[] { imagePath, secondImagePath }).ToArray();
+                ProjectImage image = images[0];
+                ProjectImage secondImage = images[1];
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                ProjectStore activeStore = store;
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    store = null;
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    form.ImageBrowser.SelectImage(image.Id);
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(activeStore.ImagesDirectory, image.ManagedFileName)));
+                    ImageCanvasControl canvas = form.AnnotationCanvas;
+                    WaitForImage(canvas, Path.Combine(activeStore.ImagesDirectory, image.ManagedFileName));
+                    Field<ComboBox>(form, "annotationSets").SelectedItem = AnnotationSet(Field<ComboBox>(form, "annotationSets"), set.Id);
+                    Field<Button>(form, "segBrush").PerformClick();
+
+                    int submittedPaths = 0;
+                    canvas.SegPathCreated += (type, points, width) => submittedPaths++;
+                    int expectedCount = 0;
+                    foreach (int coordinate in new[] { 20, 40, 60 })
+                    {
+                        expectedCount++;
+                        Point screenPoint = ImagePointToScreen(canvas, coordinate, coordinate);
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, screenPoint.X, screenPoint.Y, 0));
+                        RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, screenPoint.X, screenPoint.Y, 0));
+                        Assert.AreEqual(expectedCount, submittedPaths, "Each release must submit one brush path.");
+                        DateTime timeout = DateTime.UtcNow.AddSeconds(5);
+                        while (Field<bool>(form, "annotationOperationInProgress") && DateTime.UtcNow < timeout)
+                        {
+                            System.Windows.Forms.Application.DoEvents();
+                            Thread.Sleep(1);
+                        }
+                        Assert.IsFalse(Field<bool>(form, "annotationOperationInProgress"), "The brush save did not finish.");
+                        Assert.AreEqual(expectedCount, activeStore.GetSegRegions(set.Id, image.Id).Count, "Each released brush path should be saved separately.");
+                    }
+
+                    Assert.AreEqual(3, activeStore.GetSegRegions(set.Id, image.Id).Count);
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+                    CollectionAssert.AreEqual(new[] { 20, 40 }, activeStore.GetSegRegions(set.Id, image.Id).Select(region => region.Points[0].X).ToArray());
+                    Assert.IsTrue(activeStore.CanRedo(set.Id));
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Y));
+                    CollectionAssert.AreEqual(new[] { 20, 40, 60 }, activeStore.GetSegRegions(set.Id, image.Id).Select(region => region.Points[0].X).ToArray());
+
+                    Point unfinishedPoint = ImagePointToScreen(canvas, 80, 80);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, unfinishedPoint.X, unfinishedPoint.Y, 0));
+                    Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"));
+                    RaiseEvent(canvas, "OnKeyDown", new KeyEventArgs(Keys.Escape));
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Esc should restore the thumbnail while cancelling a brush stroke.");
+                    Assert.AreEqual(3, activeStore.GetSegRegions(set.Id, image.Id).Count, "Esc must not submit a partially drawn brush stroke.");
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, unfinishedPoint.X, unfinishedPoint.Y, 0));
+                    Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"));
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(secondImage, Path.Combine(activeStore.ImagesDirectory, secondImage.ManagedFileName)));
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Switching images should restore the thumbnail while cancelling a brush stroke.");
+                    Assert.AreEqual(3, activeStore.GetSegRegions(set.Id, image.Id).Count, "Switching images must not submit a partially drawn brush stroke.");
+                    Assert.AreEqual(secondImage.Id, Field<string>(form, "selectedImageId"));
+                    form.Close();
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void New_annotation_set_dialog_requires_a_type_and_name_and_creates_only_the_selected_type()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
@@ -5134,11 +5229,11 @@ namespace Neurocle.Tests
         }
 
 
-        private static void Invoke(object target, string methodName, params object[] arguments)
+        private static object Invoke(object target, string methodName, params object[] arguments)
         {
             MethodInfo method = target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
                 .Single(candidate => candidate.Name == methodName && candidate.GetParameters().Length == arguments.Length);
-            method.Invoke(target, arguments);
+            return method.Invoke(target, arguments);
         }
 
         private static void RunAnnotationSetDialogAction(MainForm owner, Action<AnnotationSetCreationDialog> action)
