@@ -8,6 +8,8 @@
 
 標註介面、Ctrl 擦除、匯入工作佇列、資料集右欄與類別列的後續驗收條件依[標註介面與匯入工作流程增量計畫](annotation-ui-workflow-refresh.md)與[增量正式規格](../specs/annotation-ui-workflow-refresh.md)執行；與下方隱藏標註不可編輯或單一自動切分入口衝突時，以本次增量為準。
 
+標註工作流程、混合專案工作佇列、JSON 匯入既有標註集、匯出排隊及畫布游標／效能的後續驗收條件依[增量實行計畫](annotation-workflow-queues-and-canvas-fixes.md)與[增量正式規格](../specs/annotation-workflow-queues-and-canvas-fixes.md)執行；與匯入專用佇列、任意透明度或舊匯出阻塞流程衝突時，以本次增量為準。
+
 ## 1. 測試策略
 
 | 測試縫 | 主要責任 | 執行位置 |

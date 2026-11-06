@@ -25,6 +25,8 @@ namespace Neurocle.WinForms
             this.components = new Container();
             this.menu = new MenuStrip();
             this.projectMenu = new ToolStripMenuItem(Strings.ProjectMenu);
+            this.jobMenu = new ToolStripMenuItem("工作");
+            this.manageMenu = new ToolStripMenuItem("管理");
             this.helpMenu = new ToolStripMenuItem("說明");
             this.newProjectMenuItem = new ToolStripMenuItem(Strings.NewProject);
             this.openProjectMenuItem = new ToolStripMenuItem(Strings.OpenProject);
@@ -35,7 +37,7 @@ namespace Neurocle.WinForms
             this.importFolderMenuItem = new ToolStripMenuItem(Strings.ImportFolder);
             this.importFolderMenuItem.Enabled = false;
             this.importAnnotationMenuItem = new ToolStripMenuItem(Strings.ImportAnnotationJson);
-            this.importQueueMenuItem = new ToolStripMenuItem(Strings.OpenImportQueue);
+            this.importQueueMenuItem = new ToolStripMenuItem("開啟工作佇列");
             this.importQueueMenuItem.Enabled = false;
             this.missingImagesMenuItem = new ToolStripMenuItem(Strings.ManageMissingImages);
             this.backupsMenuItem = new ToolStripMenuItem(Strings.ManageBackups);
@@ -109,19 +111,17 @@ namespace Neurocle.WinForms
             this.exportPage.SuspendLayout();
             this.SuspendLayout();
 
+            this.jobMenu.DropDownItems.Add(this.importQueueMenuItem);
+            this.manageMenu.DropDownItems.AddRange(new ToolStripItem[] { this.missingImagesMenuItem, this.backupsMenuItem, this.diagnosticsMenuItem });
             this.projectMenu.DropDownItems.AddRange(new ToolStripItem[]
             {
                 this.newProjectMenuItem,
                 this.openProjectMenuItem,
                 this.saveProjectMenuItem,
-                this.saveProjectAsMenuItem,
-                this.importQueueMenuItem,
-                this.missingImagesMenuItem,
-                this.backupsMenuItem,
-                this.diagnosticsMenuItem
+                this.saveProjectAsMenuItem
             });
             this.helpMenu.DropDownItems.Add(this.shortcutsMenuItem);
-            this.menu.Items.AddRange(new ToolStripItem[] { this.projectMenu, this.helpMenu });
+            this.menu.Items.AddRange(new ToolStripItem[] { this.projectMenu, this.jobMenu, this.manageMenu, this.helpMenu });
             this.menu.Dock = DockStyle.Top;
             this.menu.Name = "menu";
             this.menu.TabIndex = 0;
@@ -224,6 +224,7 @@ namespace Neurocle.WinForms
             this.annotationOpacity.Name = "annotationOpacity";
             this.annotationOpacityValue.Minimum = 0;
             this.annotationOpacityValue.Maximum = 100;
+            this.annotationOpacityValue.Increment = 10;
             this.annotationOpacityValue.Value = 40;
             this.annotationOpacityValue.Width = 52;
             this.annotationOpacityValue.Name = "annotationOpacityValue";

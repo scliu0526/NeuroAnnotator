@@ -42,6 +42,7 @@
   <data name="ImportImages" xml:space="preserve"><value>匯入圖片</value></data>
   <data name="ImportAnnotationJson" xml:space="preserve"><value>匯入標註 JSON</value></data>
   <data name="ImportAnnotationUnknownFields" xml:space="preserve"><value>JSON 包含未知欄位，這些欄位不會保存。是否繼續匯入？</value></data>
+  <data name="ImportAnnotationIrreversiblePrompt" xml:space="preserve"><value>匯入將直接寫入目前標註集，且無法使用 Undo/Redo 復原。是否繼續？</value></data>
   <data name="ImageFileFilter" xml:space="preserve"><value>圖片 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp</value></data>
   <data name="ImageImportUnsupportedFormat" xml:space="preserve"><value>圖片匯入失敗：僅支援 PNG、JPG、JPEG 與 BMP 格式。</value></data>
   <data name="ImageImportFileSizeLimit" xml:space="preserve"><value>圖片匯入失敗：單一檔案不可超過 100 MB。</value></data>
@@ -183,6 +184,7 @@
   <data name="RenameAnnotationSet" xml:space="preserve"><value>重新命名標註集</value></data>
   <data name="DeleteAnnotationSet" xml:space="preserve"><value>刪除標註集</value></data>
   <data name="DeleteAnnotationSetPrompt" xml:space="preserve"><value>輸入完整標註集名稱以確認刪除</value></data>
+  <data name="DeleteAnnotationSetMismatch" xml:space="preserve"><value>刪除已拒絕：目前選取的標註集是「{0}」，輸入名稱必須與它完整相同。</value></data>
   <data name="AddAnnotationClass" xml:space="preserve"><value>新增類別</value></data>
   <data name="AnnotationClassNamePrompt" xml:space="preserve"><value>類別名稱</value></data>
   <data name="RenameAnnotationClass" xml:space="preserve"><value>重新命名類別</value></data>

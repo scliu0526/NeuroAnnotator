@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -96,19 +97,54 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
-        public void Queue_retains_only_the_twenty_most_recent_terminal_jobs()
+        public void Preflight_failure_is_recorded_without_executing_or_consuming_active_capacity()
+        {
+            int executions = 0;
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => { executions++; return new ImportJobResult(false, new string[0]); }))
+            {
+                Guid id = queue.RecordFailure(new AnnotationJsonImportJobRequest("bad.json", "target", false), "invalid JSON");
+                ImportJobSnapshot failure = queue.Jobs.Single();
+                Assert.AreEqual(id, failure.Id);
+                Assert.AreEqual(ImportJobStatus.Failed, failure.Status);
+                Assert.AreEqual("invalid JSON", failure.ErrorMessage);
+                Assert.AreEqual(0, executions);
+                Assert.IsFalse(queue.IsBusy);
+            }
+        }
+
+        [TestMethod]
+        public void Queue_retains_only_the_fifty_most_recent_terminal_jobs()
         {
             using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => new ImportJobResult(false, new string[0])))
             {
-                for (int index = 0; index < 25; index++)
+                for (int index = 0; index < 55; index++)
                 {
                     queue.Enqueue(new ImageFilesImportJobRequest(new[] { index + ".png" }));
                     Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
                 }
 
-                Assert.AreEqual(20, queue.Jobs.Count);
+                Assert.AreEqual(50, queue.Jobs.Count);
                 Assert.AreEqual("5.png", ((ImageFilesImportJobRequest)queue.Jobs[0].Request).FilePaths[0]);
             }
+        }
+
+        [TestMethod]
+        public void Project_queue_runs_import_and_export_requests_in_one_fifo()
+        {
+            var executionOrder = new List<ImportJobKind>();
+            using (var queue = new ProjectJobQueue((request, cancellationRequested, progress) =>
+            {
+                executionOrder.Add(request.Kind);
+                return new ImportJobResult(false, new string[0]);
+            }))
+            {
+                queue.Enqueue(new ImageFilesImportJobRequest(new[] { "image.png" }));
+                queue.Enqueue(new JsonExportJobRequest("set-id", "labels.json"));
+                queue.Enqueue(new ImageZipExportJobRequest(new[] { "image-id" }, "images.zip"));
+                Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+            }
+
+            CollectionAssert.AreEqual(new[] { ImportJobKind.ImageFiles, ImportJobKind.JsonExport, ImportJobKind.ImageZipExport }, executionOrder.ToArray());
         }
 
         [TestMethod]
@@ -231,6 +267,10 @@ namespace Neurocle.Tests
             Assert.AreEqual("labels.json", request.FilePath);
             Assert.AreEqual("labels", request.AnnotationSetName);
             Assert.IsFalse(request.AllowUnknownFields);
+            string[] approved = { "root.future" };
+            var approvedRequest = new AnnotationJsonImportJobRequest("labels.json", "labels", null, null, true, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, approved);
+            approved[0] = "root.changed";
+            CollectionAssert.AreEqual(new[] { "root.future" }, approvedRequest.ApprovedUnknownFields.ToArray());
         }
 
         [TestMethod]
@@ -250,6 +290,30 @@ namespace Neurocle.Tests
                     Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
                     Assert.AreEqual(ImportJobStatus.Completed, queue.Jobs.Single().Status);
                     Assert.AreEqual(1, store.GetAnnotationSets().Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Json_job_executor_rejects_unknown_fields_added_after_preflight_consent()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "neurocle-json-drift-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string jsonPath = Path.Combine(directory, "labels.json");
+                File.WriteAllText(jsonPath, "{\"approved\":1,\"newField\":2,\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"class1\",\"color\":\"rgba(1, 2, 3, 1)\"}],\"data\":[]}");
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(directory, "queue.neurocle")))
+                using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => ExecuteMainFormImport(store, request, cancellationRequested, progress)))
+                {
+                    queue.Enqueue(new AnnotationJsonImportJobRequest(jsonPath, "labels", null, null, true, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, new[] { "root.approved" }));
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                    Assert.AreEqual(ImportJobStatus.Failed, queue.Jobs.Single().Status);
+                    Assert.AreEqual(0, store.GetAnnotationSets().Count);
                 }
             }
             finally
@@ -611,6 +675,56 @@ namespace Neurocle.Tests
             {
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
+        }
+
+        [TestMethod]
+        public void Json_export_request_runs_through_main_form_executor_with_progress_and_unique_output()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "image.png");
+            try
+            {
+                using (var bitmap = new Bitmap(10, 10)) bitmap.Save(imagePath, ImageFormat.Png);
+                using (ProjectStore store = ProjectStore.Create(projectPath))
+                {
+                    store.ImportFiles(new[] { imagePath });
+                    AnnotationSet set = store.CreateAnnotationSet("labels", Neurocle.Application.Projects.AnnotationSetType.Cla);
+                    string requested = Path.Combine(directory, "labels.json");
+                    var progress = new List<ImportJobProgress>();
+                    ImportJobResult first = ExecuteMainFormImport(store, new JsonExportJobRequest(set.Id, requested), () => false, progress.Add);
+                    ImportJobResult second = ExecuteMainFormImport(store, new JsonExportJobRequest(set.Id, requested), () => false, value => { });
+                    Assert.IsFalse(first.WasCanceled);
+                    Assert.AreEqual(2, progress.Count);
+                    Assert.IsTrue(File.Exists(first.OutputPath));
+                    Assert.IsTrue(File.Exists(second.OutputPath));
+                    Assert.AreNotEqual(first.OutputPath, second.OutputPath);
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
+        [TestMethod]
+        public void Image_zip_export_request_keeps_selected_ids_fixed_and_writes_a_safe_archive()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "image.png");
+            try
+            {
+                using (var bitmap = new Bitmap(10, 10)) bitmap.Save(imagePath, ImageFormat.Png);
+                using (ProjectStore store = ProjectStore.Create(projectPath))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                    string output = Path.Combine(directory, "images.zip");
+                    ImportJobResult result = ExecuteMainFormImport(store, new ImageZipExportJobRequest(new[] { image.Id }, output), () => false, value => { });
+                    Assert.IsTrue(File.Exists(result.OutputPath));
+                    using (var archive = ZipFile.OpenRead(result.OutputPath)) Assert.AreEqual(1, archive.Entries.Count);
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
 
         private static ImportJobResult ImportImages(ProjectStore store, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress, Action<ImageImportProgress> afterProgress = null)

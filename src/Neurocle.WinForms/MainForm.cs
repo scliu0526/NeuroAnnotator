@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -27,6 +28,8 @@ namespace Neurocle.WinForms
         private Label toastMessage;
         private Timer toastTimer;
         private ToolStripMenuItem projectMenu;
+        private ToolStripMenuItem jobMenu;
+        private ToolStripMenuItem manageMenu;
         private ImageBrowserControl imageBrowser;
         // 保存圖片瀏覽頁使用的畫布。
         private ImageCanvasControl imageCanvas;
@@ -127,8 +130,6 @@ namespace Neurocle.WinForms
         // 記錄已完成畫面更新的匯入工作。
         private readonly HashSet<Guid> handledImageImportJobs = new HashSet<Guid>();
         private readonly HashSet<Guid> handledImportConfirmations = new HashSet<Guid>();
-        // 避免同時啟動多個匯出工作。
-        private bool exportInProgress;
         // 避免重疊執行需要背景處理的標註操作。
         private bool annotationOperationInProgress;
         // 保存標註操作期間等待套用的圖片選取事件。
@@ -147,6 +148,10 @@ namespace Neurocle.WinForms
         private IReadOnlyList<SegRegion> copiedSegRegions = new SegRegion[0];
         // 提供圖片刪除確認的可替換判斷函式。
         private Func<string, bool> confirmImageDeletion;
+        // 提供文字輸入提示的可替換函式。
+        private Func<string, string> promptText = Prompt;
+        // 提供刪除拒絕提示的可替換函式。
+        private Action<string> showDeleteWarning = message => MessageBox.Show(message, Strings.DeleteAnnotationSet, MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
         // 提供測試存取圖片瀏覽控制項。
         internal ImageBrowserControl ImageBrowser { get { return imageBrowser; } }
@@ -206,7 +211,7 @@ namespace Neurocle.WinForms
                     return;
                 }
             }
-            if (exportInProgress || annotationOperationInProgress) args.Cancel = true;
+            if ((importJobQueue != null && importJobQueue.IsBusy) || annotationOperationInProgress) args.Cancel = true;
         }
 
         /// <summary>
@@ -1085,6 +1090,7 @@ namespace Neurocle.WinForms
             UpdateProjectStatus();
             RefreshAnnotationClasses();
             RefreshDatasetAssignments();
+            UpdateProjectMenuAvailability();
             RefreshImportedImageAvailability(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
         }
 
@@ -1167,6 +1173,7 @@ namespace Neurocle.WinForms
             }
             RefreshAnnotationClasses();
             RefreshDatasetAssignments();
+            UpdateProjectMenuAvailability();
         }
 
         /// <summary>
@@ -1191,6 +1198,7 @@ namespace Neurocle.WinForms
             canvas.DiscardUnfinishedShape();
             RefreshAnnotationClasses();
             RefreshDatasetAssignments();
+            UpdateProjectMenuAvailability();
         }
 
         /// <summary>
@@ -1208,6 +1216,7 @@ namespace Neurocle.WinForms
         /// <param name="percent">縮放或分配百分比。</param>
         private void SetAnnotationOpacity(int percent)
         {
+            percent = Math.Max(0, Math.Min(100, (int)Math.Round(percent / 10d, MidpointRounding.AwayFromZero) * 10));
             if (annotationOpacity.Value != percent) annotationOpacity.Value = percent;
             if (annotationOpacityValue.Value != percent) annotationOpacityValue.Value = percent;
             float opacity = percent / 100f;
@@ -1482,14 +1491,50 @@ namespace Neurocle.WinForms
         /// <summary>
         /// 選取標註 JSON 並將其加入目前專案的匯入佇列。
         /// </summary>
-        private void QueueAnnotationJson()
+        private async void QueueAnnotationJson()
         {
-            if (project == null || importJobQueue == null) return;
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (project == null || importJobQueue == null || selected == null) return;
+            IProjectSession targetProject = project;
+            ImportJobQueue targetQueue = importJobQueue;
             using (var dialog = new OpenFileDialog { Filter = "JSON (*.json)|*.json", Multiselect = false })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, Path.GetFileNameWithoutExtension(dialog.FileName), false));
+                AnnotationJsonImportPreview preview;
+                ProjectImage[] projectImages = targetProject.GetImages().ToArray();
+                try
+                {
+                    preview = await Task.Run(() => PreflightAnnotationJson(dialog.FileName, selected.Type, projectImages));
+                }
+                catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is JsonAnnotationImportException)
+                {
+                    if (!ReferenceEquals(project, targetProject) || importJobQueue != targetQueue || SelectedAnnotationSet?.Id != selected.Id) return;
+                    targetQueue.RecordFailure(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, false), exception.Message);
+                    ShowImportQueue();
+                    return;
+                }
+                if (!ReferenceEquals(project, targetProject) || importJobQueue != targetQueue || SelectedAnnotationSet?.Id != selected.Id) return;
+                using (var options = new AnnotationJsonImportDialog(dialog.FileName, preview))
+                {
+                    if (options.ShowDialog(this) != DialogResult.OK) return;
+                    if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+                    IEnumerable<string> approvedUnknownFields = options.AllowUnknownFields ? preview.UnknownFields : new string[0];
+                    TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, options.ImportAnnotationsAndClasses, options.AnnotationMode, options.ImportDataset, options.DatasetMode, approvedUnknownFields));
+                }
             }
+        }
+
+        internal static AnnotationJsonImportPreview PreflightAnnotationJson(string filePath, AnnotationSetType targetType, IReadOnlyList<ProjectImage> projectImages)
+        {
+            AnnotationJsonImportPreview preview = AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath));
+            if (preview.Type != targetType) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
+            foreach (AnnotationJsonImportPreviewImage image in preview.Images)
+            {
+                ProjectImage[] matches = projectImages.Where(value => String.Equals(value.OriginalFileName, image.FileName, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (matches.Length != 1) throw new JsonAnnotationImportException("JSON image does not map to exactly one project image: " + image.FileName);
+                if (matches[0].Width != image.Width || matches[0].Height != image.Height) throw new JsonAnnotationImportException("JSON image dimensions do not match the project image: " + image.FileName);
+            }
+            return preview;
         }
 
         /// <summary>
@@ -1497,65 +1542,32 @@ namespace Neurocle.WinForms
         /// </summary>
         /// <param name="imageIds">圖片識別碼清單。</param>
         /// <returns>代表非同步操作的工作。</returns>
-        private async Task ExportImagesAsync(IEnumerable<string> imageIds)
+        private Task ExportImagesAsync(IEnumerable<string> imageIds)
         {
-            if (project == null) return;
+            if (project == null || importJobQueue == null) return Task.CompletedTask;
             using (var dialog = new SaveFileDialog { DefaultExt = "zip", AddExtension = true, Filter = Strings.ImageZipFileFilter, OverwritePrompt = false })
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                IProjectSession session = project;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return Task.CompletedTask;
                 string[] selected = imageIds == null ? null : imageIds.ToArray();
-                exportInProgress = true;
-                Enabled = false;
-                UseWaitCursor = true;
-                try
-                {
-                    await Task.Run(() => session.ExportImagesZip(dialog.FileName, selected));
-                    WriteDiagnostic(DiagnosticEvent.ImagesExported);
-                }
-                catch (Exception exception)
-                {
-                    WriteDiagnostic(DiagnosticEvent.OperationFailed);
-                    Enabled = true;
-                    MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-                finally
-                {
-                    UseWaitCursor = false;
-                    Enabled = true;
-                    exportInProgress = false;
-                }
+                TryEnqueueImportJob(new ImageZipExportJobRequest(selected, dialog.FileName));
             }
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// 非同步匯出目前專案標註 JSON。
         /// </summary>
         /// <returns>代表非同步操作的工作。</returns>
-        private async Task ExportAnnotationJsonAsync()
+        private Task ExportAnnotationJsonAsync()
         {
             AnnotationSet set = annotationSets.SelectedItem as AnnotationSet;
-            if (project == null || set == null) return;
+            if (project == null || set == null || importJobQueue == null) return Task.CompletedTask;
             using (var dialog = new SaveFileDialog { DefaultExt = "json", AddExtension = true, Filter = Strings.AnnotationJsonFileFilter, OverwritePrompt = false, FileName = set.Name })
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                IProjectSession session = project;
-                exportInProgress = true;
-                Enabled = false;
-                UseWaitCursor = true;
-                try
-                {
-                    await Task.Run(() => session.ExportAnnotationJson(set.Id, dialog.FileName));
-                    WriteDiagnostic(DiagnosticEvent.AnnotationJsonExported);
-                }
-                catch (Exception exception)
-                {
-                    WriteDiagnostic(DiagnosticEvent.OperationFailed);
-                    Enabled = true;
-                    MessageBox.Show(this, GetErrorMessage(exception), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-                finally { UseWaitCursor = false; Enabled = true; exportInProgress = false; }
+                if (dialog.ShowDialog(this) != DialogResult.OK) return Task.CompletedTask;
+                TryEnqueueImportJob(new JsonExportJobRequest(set.Id, dialog.FileName));
             }
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -1804,7 +1816,7 @@ namespace Neurocle.WinForms
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null) return;
-            string name = Prompt(Strings.AnnotationSetNamePrompt);
+            string name = promptText(Strings.AnnotationSetNamePrompt);
             if (name == null) return;
             project.RenameAnnotationSet(selected.Id, name);
             RefreshAnnotationSets();
@@ -1817,9 +1829,13 @@ namespace Neurocle.WinForms
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || selected == null) return;
-            string name = Prompt(Strings.DeleteAnnotationSetPrompt);
+            string name = promptText(Strings.DeleteAnnotationSetPrompt);
             if (name == null) return;
-            project.DeleteAnnotationSet(selected.Id, name);
+            if (!project.DeleteAnnotationSet(selected.Id, name))
+            {
+                showDeleteWarning(string.Format(Strings.DeleteAnnotationSetMismatch, selected.Name));
+                return;
+            }
             RefreshAnnotationSets();
         }
 
@@ -1847,7 +1863,7 @@ namespace Neurocle.WinForms
         /// <param name="value">要套用或檢查的值。</param>
         private void RenameAnnotationClass(AnnotationClass value)
         {
-            string name = Prompt(Strings.AnnotationClassNamePrompt);
+            string name = promptText(Strings.AnnotationClassNamePrompt);
             if (name == null) return;
             project.RenameClass(value.Id, name);
             RefreshAnnotationClasses();
@@ -2024,7 +2040,7 @@ namespace Neurocle.WinForms
             }
             handledImageImportJobs.Clear();
             handledImportConfirmations.Clear();
-            importJobQueue = new ImportJobQueue((request, cancellationRequested, progress) => ExecuteImportJob(session, request, cancellationRequested, progress));
+            importJobQueue = new ProjectJobQueue((request, cancellationRequested, progress) => ExecuteImportJob(session, request, cancellationRequested, progress));
             importJobQueue.JobsChanged += ImageImportJobsChanged;
             if (importQueueForm != null && !importQueueForm.IsDisposed) importQueueForm.UpdateJobs(new ImportJobSnapshot[0]);
             importImagesButton.Enabled = true;
@@ -2044,6 +2060,24 @@ namespace Neurocle.WinForms
         /// <exception cref="InvalidOperationException">目前狀態不允許此操作。</exception>
         private static ImportJobResult ExecuteImportJob(IProjectSession session, ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress)
         {
+            var jsonExport = request as JsonExportJobRequest;
+            if (jsonExport != null)
+            {
+                if (cancellationRequested()) return new ImportJobResult(true, new string[0]);
+                progress(new ImportJobProgress(0, 1, 0, 0));
+                string output = session.ExportAnnotationJson(jsonExport.AnnotationSetId, jsonExport.OutputPath);
+                progress(new ImportJobProgress(1, 1, 1, 0));
+                return new ImportJobResult(false, new string[0], outputPath: output);
+            }
+            var zipExport = request as ImageZipExportJobRequest;
+            if (zipExport != null)
+            {
+                if (cancellationRequested()) return new ImportJobResult(true, new string[0]);
+                progress(new ImportJobProgress(0, 1, 0, 0));
+                string output = session.ExportImagesZip(zipExport.OutputPath, zipExport.ImageIds);
+                progress(new ImportJobProgress(1, 1, 1, 0));
+                return new ImportJobResult(false, new string[0], outputPath: output);
+            }
             ImageImportReport report;
             var imageRequest = request as ImageFilesImportJobRequest;
             if (imageRequest != null)
@@ -2063,14 +2097,17 @@ namespace Neurocle.WinForms
                 if (jsonRequest == null) throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
                 if (cancellationRequested()) return new ImportJobResult(true, new string[0]);
                 string json = File.ReadAllText(jsonRequest.FilePath);
-                try
+                bool allowUnknownFields = jsonRequest.ApprovedUnknownFields == null;
+                if (jsonRequest.ApprovedUnknownFields != null)
                 {
-                    session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, jsonRequest.AllowUnknownFields);
+                    AnnotationJsonImportPreview executionPreview = AnnotationJsonImportPreview.Parse(json);
+                    string unexpectedUnknownField = executionPreview.UnknownFields.Except(jsonRequest.ApprovedUnknownFields, StringComparer.Ordinal).FirstOrDefault();
+                    if (unexpectedUnknownField != null) throw new JsonAnnotationImportException("JSON contains an unapproved unknown field: " + unexpectedUnknownField);
+                    allowUnknownFields = executionPreview.UnknownFields.Count > 0;
                 }
-                catch (JsonAnnotationImportException exception) when (exception.Message == "JSON contains unknown fields." && !jsonRequest.AllowUnknownFields)
-                {
-                    return new ImportJobResult(false, new string[0], 0, 0, false, true, exception.Message);
-                }
+                if (jsonRequest.TargetAnnotationSetType.HasValue && session.GetAnnotationSets().SingleOrDefault(value => value.Id == jsonRequest.TargetAnnotationSetId)?.Type != jsonRequest.TargetAnnotationSetType.Value) throw new JsonAnnotationImportException("Target annotation set changed or model type does not match.");
+                if (String.IsNullOrWhiteSpace(jsonRequest.TargetAnnotationSetId)) session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, allowUnknownFields);
+                else session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotationsAndClasses, jsonRequest.AnnotationMode, jsonRequest.ImportDataset, jsonRequest.DatasetMode, allowUnknownFields);
                 return new ImportJobResult(false, new string[0]);
             }
             return new ImportJobResult(
@@ -2105,7 +2142,7 @@ namespace Neurocle.WinForms
                 var jsonRequest = job.Request as AnnotationJsonImportJobRequest;
                 if (jsonRequest == null) continue;
                 DialogResult choice = MessageBox.Show(this, Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
-                importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, true) : null);
+                importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, jsonRequest.TargetAnnotationSetId, jsonRequest.TargetAnnotationSetType, jsonRequest.ImportAnnotationsAndClasses, jsonRequest.AnnotationMode, jsonRequest.ImportDataset, jsonRequest.DatasetMode, (IEnumerable<string>)null) : null);
             }
             foreach (ImportJobSnapshot job in jobs.Where(IsEndedImageImportJob))
             {
@@ -2116,6 +2153,11 @@ namespace Neurocle.WinForms
                     if (job.Status == ImportJobStatus.Completed) WriteDiagnostic(DiagnosticEvent.AnnotationJsonImported);
                     else WriteDiagnostic(DiagnosticEvent.OperationFailed);
                     if (job.Status == ImportJobStatus.Completed) RefreshAnnotationSets();
+                }
+                else if (job.Request is ExportJobRequest)
+                {
+                    if (job.Status == ImportJobStatus.Completed) WriteDiagnostic(job.Request is JsonExportJobRequest ? DiagnosticEvent.AnnotationJsonExported : DiagnosticEvent.ImagesExported);
+                    else WriteDiagnostic(DiagnosticEvent.OperationFailed);
                 }
                 else
                 {
@@ -2140,6 +2182,12 @@ namespace Neurocle.WinForms
         /// 切換圖片頁並選取指定匯入工作仍存在的圖片。
         /// </summary>
         /// <param name="jobId">匯入工作的識別碼。</param>
+        private void OpenExportedFile(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+            Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + path + "\"") { UseShellExecute = true });
+        }
+
         private void ViewImportedImages(Guid jobId)
         {
             if (project == null || importJobQueue == null || importQueueForm == null) return;
@@ -2191,6 +2239,7 @@ namespace Neurocle.WinForms
         private void UpdateProjectMenuAvailability()
         {
             bool projectChangeAllowed = !importInProgress && !annotationOperationInProgress;
+            bool annotationSetLocked = IsSelectedAnnotationSetLocked();
             projectMenu.Enabled = true;
             newProjectMenuItem.Enabled = projectChangeAllowed;
             openProjectMenuItem.Enabled = projectChangeAllowed;
@@ -2199,11 +2248,14 @@ namespace Neurocle.WinForms
             backupsMenuItem.Enabled = projectChangeAllowed;
             missingImagesMenuItem.Enabled = projectChangeAllowed;
             importQueueMenuItem.Enabled = project != null;
+            importAnnotationButton.Enabled = project != null && SelectedAnnotationSet != null && !importInProgress && !annotationSetLocked;
             deleteSelectedImagesButton.Enabled = !importInProgress;
             deleteAllImagesButton.Enabled = !importInProgress;
             exportSelected.Enabled = !importInProgress;
             exportAll.Enabled = !importInProgress;
-            datasetAssignments.Enabled = !importInProgress;
+            datasetAssignments.Enabled = !annotationSetLocked;
+            annotationTools.Enabled = !annotationSetLocked;
+            annotationClasses.Enabled = !annotationSetLocked;
             newSet.Enabled = projectChangeAllowed;
             renameSet.Enabled = projectChangeAllowed;
             deleteSet.Enabled = projectChangeAllowed;
@@ -2212,6 +2264,15 @@ namespace Neurocle.WinForms
             {
                 if (classButton.ContextMenuStrip != null) classButton.ContextMenuStrip.Enabled = projectChangeAllowed;
             }
+        }
+
+        private bool IsSelectedAnnotationSetLocked()
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            if (selected == null || importJobQueue == null) return false;
+            return importJobQueue.Jobs.Any(job => (job.Status == ImportJobStatus.Waiting || job.Status == ImportJobStatus.Running)
+                && ((job.Request as AnnotationJsonImportJobRequest)?.TargetAnnotationSetId == selected.Id
+                    || (job.Request as JsonExportJobRequest)?.AnnotationSetId == selected.Id));
         }
 
         /// <summary>
@@ -2225,6 +2286,7 @@ namespace Neurocle.WinForms
                 importQueueForm.CancelRequested += id => importJobQueue?.Cancel(id);
                 importQueueForm.ClearCompletedRequested += () => importJobQueue?.ClearCompleted();
                 importQueueForm.ViewImportedImagesRequested += ViewImportedImages;
+                importQueueForm.OpenExportRequested += OpenExportedFile;
             }
             importQueueForm.UpdateJobs(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);
             RefreshImportedImageAvailability(importJobQueue == null ? new ImportJobSnapshot[0] : importJobQueue.Jobs);

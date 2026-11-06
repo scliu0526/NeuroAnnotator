@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.ComponentModel.Design;
+using System.IO;
 using System.Windows.Forms;
 using Neurocle.WinForms.Resources;
 
@@ -70,11 +71,12 @@ namespace Neurocle.WinForms
             cancelButton.Visible = true;
             cancelButton.Location = new System.Drawing.Point(Math.Max(8, ClientSize.Width - 90), 32);
             viewImportedImagesButton.Visible = true;
-            viewImportedImagesButton.Location = new System.Drawing.Point(8, 60);
+            viewImportedImagesButton.Location = new System.Drawing.Point(8, 90);
         }
 
         public event Action<Guid> CancelRequested;
         public event Action<Guid> ViewImportedImagesRequested;
+        public event Action<string> OpenExportRequested;
 
         /// <summary>
         /// 取得目前卡片所代表的工作識別碼。
@@ -92,22 +94,37 @@ namespace Neurocle.WinForms
             statusLabel.Text = StatusText(value.Status);
             progressLabel.Text = value.Result == null
                 ? value.Status == ImportJobStatus.Waiting ? Strings.ImportQueueWaiting : value.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, value.Progress.ProcessedCount, value.Progress.TotalCount)
-                : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
+                : value.Result.OutputPath != null ? Path.GetFileName(value.Result.OutputPath) : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
+            bool progressUnknown = value.Status == ImportJobStatus.Running && (value.Progress == null || value.Progress.TotalCount <= 0);
+            progressBar.Style = progressUnknown ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous;
+            int progress = value.Status == ImportJobStatus.Completed
+                ? 100
+                : value.Status == ImportJobStatus.Waiting || value.Progress == null || value.Progress.TotalCount <= 0
+                    ? 0
+                    : Math.Max(0, Math.Min(100, (int)Math.Round(value.Progress.ProcessedCount * 100d / value.Progress.TotalCount)));
+            if (!progressUnknown) progressBar.Value = progress;
+            toolTip.SetToolTip(sourceLabel, SourceText(value.Request));
             detailsLabel.Text = value.ErrorMessage ?? string.Empty;
+            toolTip.SetToolTip(detailsLabel, detailsLabel.Text);
             detailsLabel.Visible = detailsVisible && detailsLabel.Text.Length > 0;
             detailsLabel.Dock = detailsLabel.Visible ? DockStyle.Top : DockStyle.None;
             detailsLabel.Size = detailsLabel.Visible
-                ? new System.Drawing.Size(ClientSize.Width, 36)
+                ? new System.Drawing.Size(ClientSize.Width, 52)
                 : System.Drawing.Size.Empty;
             detailsButton.Text = detailsVisible ? Strings.HideDetails : Strings.ShowDetails;
             cancelButton.Enabled = value.Status == ImportJobStatus.Waiting || (value.Status == ImportJobStatus.Running && !(value.Request is AnnotationJsonImportJobRequest));
-            bool canView = (value.Status == ImportJobStatus.Completed || value.Status == ImportJobStatus.Canceled)
-                && !(value.Request is AnnotationJsonImportJobRequest)
+            bool isImageImport = value.Request is ImageFilesImportJobRequest || value.Request is FolderImportJobRequest;
+            bool canView = isImageImport
+                && (value.Status == ImportJobStatus.Completed || value.Status == ImportJobStatus.Canceled)
                 && value.Result != null
                 && value.Result.ImportedImageIds.Count > 0;
             viewImportedImagesButton.Visible = canView;
             viewImportedImagesButton.Enabled = canView;
+            bool canOpenExport = value.Request is ExportJobRequest && value.Status == ImportJobStatus.Completed && value.Result != null && !String.IsNullOrWhiteSpace(value.Result.OutputPath) && File.Exists(value.Result.OutputPath);
+            openExportButton.Visible = value.Request is ExportJobRequest;
+            openExportButton.Enabled = canOpenExport;
             toolTip.SetToolTip(viewImportedImagesButton, string.Empty);
+            toolTip.SetToolTip(openExportButton, canOpenExport ? value.Result.OutputPath : "輸出檔案不存在");
         }
 
         /// <summary>
@@ -141,6 +158,11 @@ namespace Neurocle.WinForms
             if (job != null && ViewImportedImagesRequested != null) ViewImportedImagesRequested(job.Id);
         }
 
+        private void OpenExportButton_Click(object sender, EventArgs args)
+        {
+            if (job?.Result?.OutputPath != null && OpenExportRequested != null) OpenExportRequested(job.Result.OutputPath);
+        }
+
         /// <summary>
         /// 更新本次匯入圖片的跳轉可用性及停用原因。
         /// </summary>
@@ -165,6 +187,10 @@ namespace Neurocle.WinForms
             if (folderRequest != null) return folderRequest.DirectoryPath + (folderRequest.IncludeSubdirectories ? Strings.ImportQueueFolderRecursive : string.Empty);
             var jsonRequest = request as AnnotationJsonImportJobRequest;
             if (jsonRequest != null) return jsonRequest.FilePath;
+            var jsonExport = request as JsonExportJobRequest;
+            if (jsonExport != null) return jsonExport.OutputPath;
+            var zipExport = request as ImageZipExportJobRequest;
+            if (zipExport != null) return zipExport.OutputPath;
             return request.Kind.ToString();
         }
 
@@ -178,6 +204,8 @@ namespace Neurocle.WinForms
             if (request is ImageFilesImportJobRequest) return Strings.ImportImages;
             if (request is FolderImportJobRequest) return Strings.ImportFolder;
             if (request is AnnotationJsonImportJobRequest) return Strings.ImportAnnotationJson;
+            if (request is JsonExportJobRequest) return Strings.ExportAnnotationJson;
+            if (request is ImageZipExportJobRequest) return ((ImageZipExportJobRequest)request).ExportAll ? Strings.ExportAllImages : Strings.ExportSelectedImages;
             return request.Kind.ToString();
         }
 

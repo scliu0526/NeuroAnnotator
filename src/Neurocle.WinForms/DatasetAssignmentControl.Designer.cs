@@ -33,6 +33,8 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.FlowLayoutPanel filters;
         private System.Windows.Forms.Label trainLabel;
         private System.Windows.Forms.Label testLabel;
+        private System.Windows.Forms.Label trainPercentSuffix;
+        private System.Windows.Forms.Label testPercentSuffix;
         private System.Windows.Forms.Label setFilterLabel;
         private System.Windows.Forms.Label classFilterLabel;
         private System.Windows.Forms.Label annotationFilterLabel;
@@ -47,6 +49,8 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.Label manualSplitDescription;
         private System.Windows.Forms.Label retestDescription;
         private System.Windows.Forms.TableLayoutPanel manualActions;
+        private System.Windows.Forms.TableLayoutPanel splitPercentages;
+        private System.Windows.Forms.TableLayoutPanel splitActions;
 
         protected override void Dispose(bool disposing)
         {
@@ -82,6 +86,8 @@ namespace Neurocle.WinForms
             this.filters = new System.Windows.Forms.FlowLayoutPanel();
             this.trainLabel = new System.Windows.Forms.Label();
             this.testLabel = new System.Windows.Forms.Label();
+            this.trainPercentSuffix = new System.Windows.Forms.Label();
+            this.testPercentSuffix = new System.Windows.Forms.Label();
             this.setFilterLabel = new System.Windows.Forms.Label();
             this.classFilterLabel = new System.Windows.Forms.Label();
             this.annotationFilterLabel = new System.Windows.Forms.Label();
@@ -96,6 +102,8 @@ namespace Neurocle.WinForms
             this.manualSplitDescription = new System.Windows.Forms.Label();
             this.retestDescription = new System.Windows.Forms.Label();
             this.manualActions = new System.Windows.Forms.TableLayoutPanel();
+            this.splitPercentages = new System.Windows.Forms.TableLayoutPanel();
+            this.splitActions = new System.Windows.Forms.TableLayoutPanel();
             this.clearRetestItem = new System.Windows.Forms.ToolStripMenuItem();
             this.clearClassItem = new System.Windows.Forms.ToolStripMenuItem();
             this.clearSetItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -156,7 +164,7 @@ namespace Neurocle.WinForms
             // trainLabel
             //
             this.trainLabel.AutoSize = true;
-            this.trainLabel.Margin = new System.Windows.Forms.Padding(6, 8, 2, 2);
+            this.trainLabel.Margin = new System.Windows.Forms.Padding(6, 4, 2, 2);
             this.trainLabel.TabIndex = 5;
             this.trainLabel.Text = Strings.DatasetTrainPercent;
             //
@@ -165,6 +173,7 @@ namespace Neurocle.WinForms
             this.trainPercent.Minimum = 1;
             this.trainPercent.Maximum = 99;
             this.trainPercent.Value = 80;
+            this.trainPercent.Margin = new System.Windows.Forms.Padding(6, 0, 2, 4);
             this.trainPercent.Width = 48;
             this.trainPercent.Name = "trainPercent";
             this.trainPercent.TabIndex = 6;
@@ -173,7 +182,7 @@ namespace Neurocle.WinForms
             // testLabel
             //
             this.testLabel.AutoSize = true;
-            this.testLabel.Margin = new System.Windows.Forms.Padding(2, 8, 2, 2);
+            this.testLabel.Margin = new System.Windows.Forms.Padding(6, 4, 2, 2);
             this.testLabel.TabIndex = 7;
             this.testLabel.Text = Strings.DatasetTestPercent;
             //
@@ -182,10 +191,47 @@ namespace Neurocle.WinForms
             this.testPercent.Minimum = 1;
             this.testPercent.Maximum = 99;
             this.testPercent.Value = 20;
+            this.testPercent.Margin = new System.Windows.Forms.Padding(6, 0, 2, 4);
             this.testPercent.Width = 48;
             this.testPercent.Name = "testPercent";
             this.testPercent.TabIndex = 8;
             this.testPercent.ValueChanged += new System.EventHandler(this.TestPercent_ValueChanged);
+            // trainPercentSuffix
+            //
+            this.trainPercentSuffix.AutoSize = true;
+            this.trainPercentSuffix.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.trainPercentSuffix.Margin = new System.Windows.Forms.Padding(0, 0, 2, 4);
+            this.trainPercentSuffix.Text = "%";
+            this.trainPercentSuffix.Name = "trainPercentSuffix";
+            // testPercentSuffix
+            //
+            this.testPercentSuffix.AutoSize = true;
+            this.testPercentSuffix.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.testPercentSuffix.Margin = new System.Windows.Forms.Padding(0, 0, 2, 4);
+            this.testPercentSuffix.Text = "%";
+            this.testPercentSuffix.Name = "testPercentSuffix";
+            // splitPercentages
+            //
+            this.splitPercentages.AutoSize = true;
+            this.splitPercentages.ColumnCount = 4;
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 42F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 8F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 42F));
+            this.splitPercentages.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 8F));
+            this.splitPercentages.RowCount = 2;
+            this.splitPercentages.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.splitPercentages.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.splitPercentages.Controls.Add(this.trainLabel, 0, 0);
+            this.splitPercentages.SetColumnSpan(this.trainLabel, 2);
+            this.splitPercentages.Controls.Add(this.testLabel, 2, 0);
+            this.splitPercentages.SetColumnSpan(this.testLabel, 2);
+            this.splitPercentages.Controls.Add(this.trainPercent, 0, 1);
+            this.splitPercentages.Controls.Add(this.trainPercentSuffix, 1, 1);
+            this.splitPercentages.Controls.Add(this.testPercent, 2, 1);
+            this.splitPercentages.Controls.Add(this.testPercentSuffix, 3, 1);
+            this.splitPercentages.Dock = System.Windows.Forms.DockStyle.Top;
+            this.splitPercentages.Name = "splitPercentages";
+            this.splitPercentages.TabIndex = 6;
             //
             // splitSelectedButton
             //
@@ -203,6 +249,19 @@ namespace Neurocle.WinForms
             this.splitAllButton.Text = Strings.DatasetSplitAll;
             this.splitAllButton.UseVisualStyleBackColor = true;
             this.splitAllButton.Click += new System.EventHandler(this.SplitAllButton_Click);
+            // splitActions
+            //
+            this.splitActions.AutoSize = true;
+            this.splitActions.ColumnCount = 2;
+            this.splitActions.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.splitActions.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
+            this.splitActions.RowCount = 1;
+            this.splitActions.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.splitActions.Controls.Add(this.splitSelectedButton, 0, 0);
+            this.splitActions.Controls.Add(this.splitAllButton, 1, 0);
+            this.splitActions.Dock = System.Windows.Forms.DockStyle.Top;
+            this.splitActions.Name = "splitActions";
+            this.splitActions.TabIndex = 9;
             this.randomSplitLabel.AutoSize = true;
             this.randomSplitLabel.Text = Strings.DatasetRandomSplitTitle;
             this.randomSplitLabel.Margin = new System.Windows.Forms.Padding(4, 8, 4, 2);
@@ -235,12 +294,8 @@ namespace Neurocle.WinForms
             //
             this.actions.Controls.Add(this.randomSplitLabel);
             this.actions.Controls.Add(this.randomSplitDescription);
-            this.actions.Controls.Add(this.trainLabel);
-            this.actions.Controls.Add(this.trainPercent);
-            this.actions.Controls.Add(this.testLabel);
-            this.actions.Controls.Add(this.testPercent);
-            this.actions.Controls.Add(this.splitSelectedButton);
-            this.actions.Controls.Add(this.splitAllButton);
+            this.actions.Controls.Add(this.splitPercentages);
+            this.actions.Controls.Add(this.splitActions);
             this.actions.Controls.Add(this.manualSplitLabel);
             this.actions.Controls.Add(this.manualSplitDescription);
             this.actions.Controls.Add(this.manualActions);

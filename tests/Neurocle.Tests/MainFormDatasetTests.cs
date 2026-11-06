@@ -10,6 +10,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Neurocle.Application.Projects;
 using Neurocle.Infrastructure.Persistence;
 using Neurocle.WinForms;
+using Neurocle.WinForms.Resources;
 
 namespace Neurocle.Tests
 {
@@ -129,6 +130,87 @@ namespace Neurocle.Tests
             finally
             {
                 store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Delete_annotation_set_rejects_another_existing_set_name_and_reports_the_reason()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(path);
+                AnnotationSet selected = store.CreateAnnotationSet("selected", AnnotationSetType.Cla);
+                AnnotationSet other = store.CreateAnnotationSet("other", AnnotationSetType.Cla);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    string warning = null;
+                    SetField(form, "promptText", new Func<string, string>(message => other.Name));
+                    SetField(form, "showDeleteWarning", new Action<string>(message => warning = message));
+
+                    Invoke(form, "DeleteSelectedAnnotationSet");
+
+                    CollectionAssert.AreEquivalent(new[] { selected.Id, other.Id }, store.GetAnnotationSets().Select(value => value.Id).ToArray());
+                    StringAssert.Contains(warning, selected.Name);
+                    Assert.AreEqual(selected.Id, ((AnnotationSet)Field<ComboBox>(form, "annotationSets").SelectedItem).Id);
+
+                    SetField(form, "promptText", new Func<string, string>(message => selected.Name));
+                    Invoke(form, "DeleteSelectedAnnotationSet");
+                    CollectionAssert.AreEqual(new[] { other.Id }, store.GetAnnotationSets().Select(value => value.Id).ToArray());
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Json_jobs_lock_only_their_target_annotation_set_for_editing()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            ProjectStore store = null;
+            ImportJobQueue queue = null;
+            var started = new System.Threading.ManualResetEventSlim();
+            var release = new System.Threading.ManualResetEventSlim();
+            Directory.CreateDirectory(directory);
+            try
+            {
+                store = ProjectStore.Create(path);
+                AnnotationSet set = store.CreateAnnotationSet("target", AnnotationSetType.Cla);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    queue = new ImportJobQueue((request, cancellationRequested, progress) =>
+                    {
+                        started.Set();
+                        release.Wait(TimeSpan.FromSeconds(5));
+                        return new ImportJobResult(false, new string[0]);
+                    });
+                    SetField(form, "importJobQueue", queue);
+                    queue.Enqueue(new JsonExportJobRequest(set.Id, Path.Combine(directory, "target.json")));
+                    Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+                    Assert.IsTrue((bool)Invoke(form, "IsSelectedAnnotationSetLocked"));
+                    release.Set();
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                    Assert.IsFalse((bool)Invoke(form, "IsSelectedAnnotationSetLocked"));
+                }
+                queue = null;
+            }
+            finally
+            {
+                release.Set();
+                queue?.Dispose();
+                store?.Dispose();
+                started.Dispose();
+                release.Dispose();
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
         }
@@ -264,11 +346,11 @@ namespace Neurocle.Tests
             }
         }
 
-        private static void Invoke(object target, string methodName, params object[] arguments)
+        private static object Invoke(object target, string methodName, params object[] arguments)
         {
             MethodInfo method = target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
                 .Single(candidate => candidate.Name == methodName && candidate.GetParameters().Length == arguments.Length);
-            method.Invoke(target, arguments);
+            return method.Invoke(target, arguments);
         }
 
         private static T Field<T>(object target, string fieldName) where T : class

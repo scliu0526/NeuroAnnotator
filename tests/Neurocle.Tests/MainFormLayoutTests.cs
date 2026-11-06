@@ -285,8 +285,9 @@ namespace Neurocle.Tests
                 using (var progress = new ImportProgressForm())
                 using (var shortcuts = new KeyboardShortcutsForm())
                 using (var missing = new MissingImagesForm())
+                using (var jsonImport = new AnnotationJsonImportDialog())
                 {
-                    foreach (Form form in new Form[] { backup, diagnostics, progress, shortcuts, missing })
+                    foreach (Form form in new Form[] { backup, diagnostics, progress, shortcuts, missing, jsonImport })
                     {
                         Assert.IsTrue(GetDescendants(form).Any(), form.GetType().Name + " should load its Designer controls.");
                     }
@@ -351,7 +352,11 @@ namespace Neurocle.Tests
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "imageControls").Controls.Contains(importFolder));
                 Assert.IsTrue(Field<FlowLayoutPanel>(form, "annotationHeader").Controls.Contains(importAnnotation));
                 ToolStripMenuItem projectMenu = Field<ToolStripMenuItem>(form, "projectMenu");
-                Assert.IsTrue(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importQueueMenuItem")));
+                Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importQueueMenuItem")));
+                Assert.IsTrue(Field<ToolStripMenuItem>(form, "jobMenu").DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importQueueMenuItem")));
+                Assert.IsTrue(Field<ToolStripMenuItem>(form, "manageMenu").DropDownItems.Contains(Field<ToolStripMenuItem>(form, "missingImagesMenuItem")));
+                Assert.IsTrue(Field<ToolStripMenuItem>(form, "manageMenu").DropDownItems.Contains(Field<ToolStripMenuItem>(form, "backupsMenuItem")));
+                Assert.IsTrue(Field<ToolStripMenuItem>(form, "manageMenu").DropDownItems.Contains(Field<ToolStripMenuItem>(form, "diagnosticsMenuItem")));
                 Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importImagesMenuItem")));
                 Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importFolderMenuItem")));
                 Assert.IsFalse(projectMenu.DropDownItems.Contains(Field<ToolStripMenuItem>(form, "importAnnotationMenuItem")));
@@ -377,8 +382,202 @@ namespace Neurocle.Tests
                 Assert.AreEqual("成功 1，失敗 1，未完成 0", jobs.Items[3].SubItems[2].Text);
                 Assert.AreEqual(4, cards.Controls.Count);
                 Assert.AreEqual("1 / 2", jobs.Items[1].SubItems[2].Text);
+                ProgressBar runningProgress = Field<ProgressBar>(cards.Controls[1], "progressBar");
+                ProgressBar completedProgress = Field<ProgressBar>(cards.Controls[2], "progressBar");
+                Assert.AreEqual(50, runningProgress.Value);
+                Assert.AreEqual(100, completedProgress.Value);
+                Assert.AreEqual(520, form.ClientSize.Width);
+                Assert.AreEqual(FormBorderStyle.Sizable, form.FormBorderStyle);
+                Assert.AreEqual(0, form.MaximumSize.Height, "The queue window must not define a maximum height.");
+                Assert.AreEqual(804, ImportQueueForm.ScaleFixedWidthForDpi(form.Width, 96, 144), "The fixed logical width must scale at 150% DPI.");
+                Assert.AreEqual(1072, ImportQueueForm.ScaleFixedWidthForDpi(form.Width, 96, 192), "The fixed logical width must scale at 200% DPI.");
+                int originalWidth = form.Width;
+                form.Size = new Size(originalWidth + 100, 600);
+                Assert.AreEqual(originalWidth, form.Width, "The queue window width must remain fixed.");
+                Assert.AreEqual(600, form.Height, "The queue window height must remain adjustable.");
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(form.ClientSize.Height >= form.MinimumSize.Height, "The queue window must retain enough height to display job cards and progress bars.");
                 jobs.Items[2].Selected = true;
                 Assert.IsFalse(Field<Button>(form, "cancelButton").Enabled);
+            }
+        }
+
+        [STATestMethod]
+        public void Annotation_json_import_dialog_uses_mode_dropdowns_and_a_concise_class_and_set_preview()
+        {
+            string claJson = "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"scratch\",\"color\":\"#FF0000\"},{\"name\":\"毛邊\",\"color\":\"#00FF00\"}],\"data\":[{\"fileName\":\"one.png\",\"set\":\"not_used\",\"classLabel\":\"scratch\",\"regionLabel\":[],\"retestset\":1,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"two.png\",\"set\":\"train\",\"classLabel\":\"毛邊\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"three.png\",\"set\":\"test\",\"classLabel\":\"\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+            using (var dialog = new AnnotationJsonImportDialog("labels.json", AnnotationJsonImportPreview.Parse(claJson)))
+            {
+                ComboBox annotationMode = Field<ComboBox>(dialog, "annotationMode");
+                ComboBox datasetMode = Field<ComboBox>(dialog, "datasetMode");
+                TreeView preview = Field<TreeView>(dialog, "preview");
+                CollectionAssert.AreEqual(new[] { "只加入空白圖片", "取代所有對應圖片" }, annotationMode.Items.Cast<string>().ToArray());
+                CollectionAssert.AreEqual(new[] { "只加入未分配圖片", "取代所有對應圖片" }, datasetMode.Items.Cast<string>().ToArray());
+                Assert.AreEqual("Class: 2", preview.Nodes[0].Text);
+                CollectionAssert.AreEqual(new[] { "scratch", "毛邊" }, preview.Nodes[0].Nodes.Cast<TreeNode>().Select(node => node.Text).ToArray());
+                Assert.AreEqual("Set: Not used, Retest, Train, Test", preview.Nodes[1].Text);
+                Assert.AreEqual(0, GetDescendants(dialog).OfType<TextBox>().Count(), "The dialog must not show the complete raw JSON text.");
+
+                Field<CheckBox>(dialog, "annotationsAndClasses").Checked = false;
+                Field<CheckBox>(dialog, "dataset").Checked = false;
+                Assert.IsFalse(Field<Button>(dialog, "importButton").Enabled, "At least one import group must remain selected.");
+            }
+
+            string obdJson = claJson.Replace("\"label_type\":\"cla\"", "\"label_type\":\"obd\"").Replace("\"classLabel\":\"scratch\",\"regionLabel\":[]", "\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"scratch\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}]").Replace("\"classLabel\":\"毛邊\"", "\"classLabel\":\"\"");
+            using (var dialog = new AnnotationJsonImportDialog("labels.json", AnnotationJsonImportPreview.Parse(obdJson)))
+            {
+                CollectionAssert.AreEqual(new[] { "只加入空白圖片", "加入所有圖片", "取代所有對應圖片" }, Field<ComboBox>(dialog, "annotationMode").Items.Cast<string>().ToArray());
+            }
+
+            string unknownJson = claJson.Insert(1, "\"futureField\":true,");
+            using (var dialog = new AnnotationJsonImportDialog("labels.json", AnnotationJsonImportPreview.Parse(unknownJson)))
+            {
+                ListBox unknownFields = Field<ListBox>(dialog, "unknownFields");
+                CheckBox allowUnknownFields = Field<CheckBox>(dialog, "allowUnknownFields");
+                Assert.AreEqual("root.futureField", unknownFields.Items.Cast<string>().Single());
+                Assert.IsFalse(Field<Button>(dialog, "importButton").Enabled, "Unknown fields must require explicit consent before import can be queued.");
+                allowUnknownFields.Checked = true;
+                Assert.IsTrue(Field<Button>(dialog, "importButton").Enabled);
+                Assert.IsTrue(dialog.AllowUnknownFields);
+            }
+        }
+
+        [TestMethod]
+        public void Annotation_json_preflight_rejects_model_mapping_and_dimension_mismatches_before_queueing()
+        {
+            string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
+            string json = "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"train\",\"classLabel\":\"part\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+            File.WriteAllText(path, json);
+            try
+            {
+                var image = new ProjectImage("id", "sample.png", "managed.png", "hash", 20, 20, 1);
+                Assert.AreEqual(AnnotationSetType.Cla, MainForm.PreflightAnnotationJson(path, AnnotationSetType.Cla, new[] { image }).Type);
+                Assert.ThrowsException<JsonAnnotationImportException>(() => MainForm.PreflightAnnotationJson(path, AnnotationSetType.Seg, new[] { image }));
+                Assert.ThrowsException<JsonAnnotationImportException>(() => MainForm.PreflightAnnotationJson(path, AnnotationSetType.Cla, new ProjectImage[0]));
+                Assert.ThrowsException<JsonAnnotationImportException>(() => MainForm.PreflightAnnotationJson(path, AnnotationSetType.Cla, new[] { new ProjectImage("id", "sample.png", "managed.png", "hash", 21, 20, 1) }));
+            }
+            finally { File.Delete(path); }
+        }
+
+        [STATestMethod]
+        public void Import_queue_updates_each_existing_card_without_resetting_other_progress()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                Guid completedId = Guid.NewGuid();
+                Guid runningId = Guid.NewGuid();
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(completedId, new ImageFilesImportJobRequest(new[] { "done.png" }), ImportJobStatus.Completed, new ImportJobProgress(4, 4, 4, 0), new ImportJobResult(false, new[] { "done" }), null),
+                    new ImportJobSnapshot(runningId, new ImageFilesImportJobRequest(new[] { "running.png" }), ImportJobStatus.Running, new ImportJobProgress(1, 4, 1, 0), null, null)
+                });
+
+                FlowLayoutPanel cards = Field<FlowLayoutPanel>(form, "cardsPanel");
+                ImportJobCardControl completedCard = cards.Controls.OfType<ImportJobCardControl>().Single(card => card.JobId == completedId);
+                ImportJobCardControl runningCard = cards.Controls.OfType<ImportJobCardControl>().Single(card => card.JobId == runningId);
+
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(completedId, new ImageFilesImportJobRequest(new[] { "done.png" }), ImportJobStatus.Completed, new ImportJobProgress(4, 4, 4, 0), new ImportJobResult(false, new[] { "done" }), null),
+                    new ImportJobSnapshot(runningId, new ImageFilesImportJobRequest(new[] { "running.png" }), ImportJobStatus.Running, new ImportJobProgress(2, 4, 2, 0), null, null)
+                });
+
+                Assert.AreSame(completedCard, cards.Controls.OfType<ImportJobCardControl>().Single(card => card.JobId == completedId), "Updating another job must not restart a completed card's progress animation.");
+                Assert.AreSame(runningCard, cards.Controls.OfType<ImportJobCardControl>().Single(card => card.JobId == runningId), "A running job must update its existing card.");
+                Assert.AreEqual(100, Field<ProgressBar>(completedCard, "progressBar").Value);
+                Assert.AreEqual(50, Field<ProgressBar>(runningCard, "progressBar").Value);
+            }
+        }
+
+        [STATestMethod]
+        public void Canceled_job_preserves_its_last_known_percentage()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "one.png", "two.png", "three.png", "four.png" }), ImportJobStatus.Canceled, new ImportJobProgress(1, 4, 1, 0), new ImportJobResult(true, new[] { "one" }, 0, 3), null)
+                });
+
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                Assert.AreEqual(25, Field<ProgressBar>(card, "progressBar").Value);
+            }
+        }
+
+        [STATestMethod]
+        public void Import_card_switches_from_unknown_scan_to_actual_percentage_when_total_is_known()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                Guid jobId = Guid.NewGuid();
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(jobId, new FolderImportJobRequest("folder", true), ImportJobStatus.Running, null, null, null)
+                });
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                ProgressBar progress = Field<ProgressBar>(card, "progressBar");
+                Assert.AreEqual(ProgressBarStyle.Marquee, progress.Style, "A scan without a known total must not show a fabricated percentage.");
+
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(jobId, new FolderImportJobRequest("folder", true), ImportJobStatus.Running, new ImportJobProgress(1, 4, 1, 0), null, null)
+                });
+
+                Assert.AreSame(card, Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single());
+                Assert.AreEqual(ProgressBarStyle.Continuous, progress.Style);
+                Assert.AreEqual(25, progress.Value);
+            }
+        }
+
+        [STATestMethod]
+        public void Completed_import_card_keeps_view_button_clear_of_progress_bar()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(
+                        Guid.NewGuid(),
+                        new ImageFilesImportJobRequest(new[] { "one.png" }),
+                        ImportJobStatus.Completed,
+                        new ImportJobProgress(1, 1, 1, 0),
+                        new ImportJobResult(false, new[] { "image-id" }),
+                        null)
+                });
+
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                ProgressBar progress = Field<ProgressBar>(card, "progressBar");
+                Button view = Field<Button>(card, "viewImportedImagesButton");
+
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(view.Visible);
+                Assert.IsFalse(progress.Bounds.IntersectsWith(view.Bounds), "The imported-image button must not be covered by the progress bar.");
+            }
+        }
+
+        [STATestMethod]
+        public void Import_and_export_cards_keep_their_actions_mutually_exclusive()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                Guid importId = Guid.NewGuid();
+                Guid exportId = Guid.NewGuid();
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(importId, new ImageFilesImportJobRequest(new[] { "one.png" }), ImportJobStatus.Completed, null, new ImportJobResult(false, new[] { "image-id" }), null),
+                    new ImportJobSnapshot(exportId, new JsonExportJobRequest("set-id", "labels.json"), ImportJobStatus.Completed, null, new ImportJobResult(false, new[] { "unexpected-image-id" }, outputPath: "labels.json"), null)
+                });
+
+                ImportJobCardControl importCard = Field<FlowLayoutPanel>(form, "cardsPanel").Controls[0] as ImportJobCardControl;
+                ImportJobCardControl exportCard = Field<FlowLayoutPanel>(form, "cardsPanel").Controls[1] as ImportJobCardControl;
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(Field<Button>(importCard, "viewImportedImagesButton").Visible);
+                Assert.IsFalse(Field<Button>(importCard, "openExportButton").Visible);
+                Assert.IsFalse(Field<Button>(exportCard, "viewImportedImagesButton").Visible);
+                Assert.IsTrue(Field<Button>(exportCard, "openExportButton").Visible);
             }
         }
 
@@ -605,11 +804,11 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
-        public void Project_menu_exposes_diagnostics_usage_and_log_folder_commands()
+        public void Manage_menu_exposes_diagnostics_usage_and_log_folder_commands()
         {
             using (var form = new MainForm(new ProjectLifecycle()))
             {
-                Assert.IsTrue(form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "專案").DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "診斷資訊"));
+                Assert.IsTrue(form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "管理").DropDownItems.OfType<ToolStripMenuItem>().Any(item => item.Text == "診斷資訊"));
             }
         }
 
@@ -706,6 +905,25 @@ namespace Neurocle.Tests
                 Assert.AreEqual(2, manualActions.ColumnCount);
                 Assert.AreEqual(2, manualActions.RowCount);
                 Assert.AreEqual(4, manualActions.Controls.Count);
+                TableLayoutPanel splitPercentages = Field<TableLayoutPanel>(datasetAssignments, "splitPercentages");
+                Assert.AreEqual(4, splitPercentages.ColumnCount);
+                Assert.AreEqual(2, splitPercentages.RowCount);
+                Assert.AreEqual(6, splitPercentages.Controls.Count);
+                Assert.AreEqual(0, splitPercentages.GetPositionFromControl(Field<Label>(datasetAssignments, "trainLabel")).Column);
+                Assert.AreEqual(0, splitPercentages.GetPositionFromControl(Field<Label>(datasetAssignments, "trainLabel")).Row);
+                Assert.AreEqual(2, splitPercentages.GetPositionFromControl(Field<Label>(datasetAssignments, "testLabel")).Column);
+                Assert.AreEqual(0, splitPercentages.GetPositionFromControl(Field<Label>(datasetAssignments, "testLabel")).Row);
+                Assert.AreEqual(0, splitPercentages.GetPositionFromControl(Field<NumericUpDown>(datasetAssignments, "trainPercent")).Column);
+                Assert.AreEqual(1, splitPercentages.GetPositionFromControl(Field<NumericUpDown>(datasetAssignments, "trainPercent")).Row);
+                Assert.AreEqual(2, splitPercentages.GetPositionFromControl(Field<NumericUpDown>(datasetAssignments, "testPercent")).Column);
+                Assert.AreEqual(1, splitPercentages.GetPositionFromControl(Field<NumericUpDown>(datasetAssignments, "testPercent")).Row);
+                Assert.AreEqual("%", Field<Label>(datasetAssignments, "trainPercentSuffix").Text);
+                Assert.AreEqual("%", Field<Label>(datasetAssignments, "testPercentSuffix").Text);
+                Assert.AreEqual(2, splitPercentages.GetColumnSpan(Field<Label>(datasetAssignments, "trainLabel")));
+                Assert.AreEqual(2, splitPercentages.GetColumnSpan(Field<Label>(datasetAssignments, "testLabel")));
+                TableLayoutPanel splitActions = Field<TableLayoutPanel>(datasetAssignments, "splitActions");
+                Assert.AreEqual(2, splitActions.ColumnCount);
+                Assert.AreEqual(2, splitActions.Controls.Count);
                 Assert.AreEqual("隨機切分", Field<Label>(datasetAssignments, "randomSplitLabel").Text);
                 Assert.AreEqual("手動分配", Field<Label>(datasetAssignments, "manualSplitLabel").Text);
                 Assert.AreEqual("資料集 Retest", Field<Label>(datasetAssignments, "retestSectionLabel").Text);
@@ -2409,10 +2627,10 @@ namespace Neurocle.Tests
 
                 opacity.Value = 37;
                 EnterNumericText(opacity, "abc");
-                Assert.AreEqual(37, opacity.Value);
-                Assert.AreEqual(37, opacitySlider.Value);
-                Assert.AreEqual(0.37f, form.AnnotationCanvas.ObdOpacity);
-                Assert.AreEqual(0.37f, form.AnnotationCanvas.SegOpacity);
+                Assert.AreEqual(40, opacity.Value);
+                Assert.AreEqual(40, opacitySlider.Value);
+                Assert.AreEqual(0.4f, form.AnnotationCanvas.ObdOpacity);
+                Assert.AreEqual(0.4f, form.AnnotationCanvas.SegOpacity);
                 EnterNumericText(opacity, "101");
                 Assert.AreEqual(100, opacity.Value);
                 Assert.AreEqual(100, opacitySlider.Value);
@@ -2423,6 +2641,7 @@ namespace Neurocle.Tests
                 Assert.AreEqual(0, opacitySlider.Value);
                 Assert.AreEqual(0f, form.AnnotationCanvas.ObdOpacity);
                 Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
+
             }
         }
 
@@ -2589,6 +2808,357 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Annotation_cursor_and_thumbnail_follow_pointer_and_gesture_state()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(400, 400))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(200, 200),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Line
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+                    ImageCanvasControl.CanvasThumbnailLayout layout;
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(400, 400), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, (int)layout.ImageBounds.Left + 5, (int)layout.ImageBounds.Top + 5, 0));
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor, "The system pointer should remain visible over the thumbnail.");
+
+                    bool created = false;
+                    canvas.SegPathCreated += (type, points, width) => created = true;
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 10, 10, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Starting a line gesture should hide the thumbnail.");
+                    Point thumbnailPoint = Point.Round(new PointF(layout.ImageBounds.Left + layout.ImageBounds.Width / 2f, layout.ImageBounds.Top + layout.ImageBounds.Height / 2f));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, thumbnailPoint.X, thumbnailPoint.Y, 0));
+                    Assert.IsTrue(created, "A second line click over the former thumbnail must still complete the annotation.");
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Completing a line gesture should restore the thumbnail.");
+
+                    foreach (ImageCanvasControl.SegToolKind tool in new[]
+                    {
+                        ImageCanvasControl.SegToolKind.Rect,
+                        ImageCanvasControl.SegToolKind.Ellipse,
+                        ImageCanvasControl.SegToolKind.Polygon,
+                        ImageCanvasControl.SegToolKind.Brush,
+                        ImageCanvasControl.SegToolKind.Line,
+                        ImageCanvasControl.SegToolKind.Eraser
+                    })
+                    {
+                        canvas.DiscardUnfinishedShape();
+                        canvas.SegTool = tool;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                        Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Starting {0} should hide the thumbnail.", tool);
+                        canvas.DiscardUnfinishedShape();
+                        Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Cancelling {0} should restore the thumbnail.", tool);
+                    }
+
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Line;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    canvas.AnnotationsVisible = false;
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Cancelling through annotation visibility must restore the thumbnail.");
+                    Assert.IsNull(Field<object>(canvas, "segLineStart"), "Cancelling through annotation visibility must discard the unfinished line.");
+                    canvas.AnnotationsVisible = true;
+
+                    canvas.SegEnabled = false;
+                    canvas.ObdEnabled = true;
+                    canvas.ObdSelectMode = false;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
+                    Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Starting an OBD drawing gesture should hide the thumbnail.");
+                    canvas.DiscardUnfinishedShape();
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"));
+                }
+
+                using (var source = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(200, 200),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Rect
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+                    foreach (Point outside in new[] { new Point(0, 0), new Point(199, 0), new Point(0, 199), new Point(199, 199) })
+                    {
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, outside.X, outside.Y, 0));
+                        Assert.AreEqual(Cursors.Arrow, canvas.Cursor, "The system pointer should remain visible outside the image at {0}.", outside);
+                    }
+                    Rectangle? created = null;
+                    canvas.SegRegionCreated += (type, rectangle) => created = rectangle;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 150, 150, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 150, 150, 0));
+                    Assert.IsFalse(created.HasValue, "A left click outside the image must not start an annotation.");
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 100, 100, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 199, 199, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 199, 199, 0));
+                    Assert.IsTrue(created.HasValue, "A gesture started inside the image must continue when dragged outside.");
+                    Assert.IsTrue(created.Value.Left >= 0 && created.Value.Top >= 0 && created.Value.Right <= 100 && created.Value.Bottom <= 100,
+                        "The continued gesture must remain clamped to the image boundary.");
+
+                    SegPoint[] brushPath = null;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Brush;
+                    canvas.SegPathCreated += (type, points, width) => brushPath = points.ToArray();
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 100, 100, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 199, 199, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 199, 199, 0));
+                    Assert.IsNotNull(brushPath, "A brush stroke started inside the image must continue outside it.");
+                    Assert.IsTrue(brushPath.All(point => point.X >= 0 && point.Y >= 0 && point.X < 100 && point.Y < 100),
+                        "Every continued brush point must stay inside the image boundary.");
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Drawing_tools_ignore_new_left_presses_outside_the_image()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(200, 200), SegEnabled = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+                    int submissions = 0;
+                    canvas.SegRegionCreated += (type, rectangle) => submissions++;
+                    canvas.SegPathCreated += (type, points, width) => submissions++;
+                    canvas.SegEraseRequested += (points, width) => submissions++;
+                    canvas.SegGeometryEraseRequested += (type, rectangle, points, width) => submissions++;
+
+                    foreach (ImageCanvasControl.SegToolKind tool in new[]
+                    {
+                        ImageCanvasControl.SegToolKind.Rect,
+                        ImageCanvasControl.SegToolKind.Ellipse,
+                        ImageCanvasControl.SegToolKind.Polygon,
+                        ImageCanvasControl.SegToolKind.Brush,
+                        ImageCanvasControl.SegToolKind.Line,
+                        ImageCanvasControl.SegToolKind.Eraser
+                    })
+                    {
+                        canvas.DiscardUnfinishedShape();
+                        canvas.SegTool = tool;
+                        int before = submissions;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 100, 100, 0));
+                        RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 100, 100, 0));
+                        Assert.AreEqual(before, submissions, "{0} must ignore a new left press outside the image.", tool);
+                        Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "{0} must not start a hidden-thumbnail gesture outside the image.", tool);
+                        Assert.IsFalse(canvas.Capture, "{0} must not capture the mouse outside the image.", tool);
+                    }
+
+                    foreach (ImageCanvasControl.SegToolKind tool in new[] { ImageCanvasControl.SegToolKind.Line, ImageCanvasControl.SegToolKind.Polygon })
+                    {
+                        canvas.DiscardUnfinishedShape();
+                        canvas.SegTool = tool;
+                        int before = submissions;
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 100, 100, 0));
+                        Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"));
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+                        Assert.AreEqual(before, submissions, "{0} must ignore a later discrete click outside the image.", tool);
+                        Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Ignoring the outside click must preserve the existing {0} gesture.", tool);
+                        if (tool == ImageCanvasControl.SegToolKind.Line) Assert.IsNotNull(Field<object>(canvas, "segLineStart"));
+                        else Assert.AreEqual(1, Field<List<PointF>>(canvas, "segPath").Count);
+                    }
+
+                    canvas.DiscardUnfinishedShape();
+                    canvas.SegEnabled = false;
+                    canvas.ObdEnabled = true;
+                    canvas.ObdSelectMode = false;
+                    int obdCreated = 0;
+                    canvas.ObdRectangleCreated += rectangle => obdCreated++;
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 100, 100, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 100, 100, 0));
+                    Assert.AreEqual(0, obdCreated, "OBD rectangle drawing must ignore a new left press outside the image.");
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"));
+                    Assert.IsFalse(canvas.Capture);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Continuous_drawing_gestures_started_inside_clamp_to_every_image_edge_at_multiple_zooms()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(200, 200) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    Rectangle? obdRectangle = null;
+                    Rectangle? segRectangle = null;
+                    SegPoint[] segPath = null;
+                    SegPoint[] erasedPath = null;
+                    canvas.ObdRectangleCreated += value => obdRectangle = value;
+                    canvas.SegRegionCreated += (type, value) => segRectangle = value;
+                    canvas.SegPathCreated += (type, points, width) => segPath = points.ToArray();
+                    canvas.SegEraseRequested += (points, width) => erasedPath = points.ToArray();
+                    PointF[] outsideImagePoints =
+                    {
+                        new PointF(120, 75), new PointF(-20, 25), new PointF(25, -20), new PointF(75, 120),
+                        new PointF(-20, -20), new PointF(120, -20), new PointF(-20, 120), new PointF(120, 120)
+                    };
+
+                    foreach (int zoom in new[] { 100, 200 })
+                    {
+                        canvas.SetZoomPercent(zoom);
+                        float scale = (float)canvas.Zoom;
+                        PointF origin = canvas.ViewState.Origin;
+                        Point start = Point.Round(new PointF(origin.X + 50 * scale, origin.Y + 50 * scale));
+                        foreach (PointF outsideImage in outsideImagePoints)
+                        {
+                            Point outside = Point.Round(new PointF(origin.X + outsideImage.X * scale, origin.Y + outsideImage.Y * scale));
+                            canvas.DiscardUnfinishedShape();
+                            canvas.SegEnabled = false;
+                            canvas.ObdEnabled = true;
+                            canvas.ObdSelectMode = false;
+                            obdRectangle = null;
+                            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                            Assert.AreEqual("Create", Field<object>(canvas, "obdDrag").ToString(), "OBD must begin inside the image at zoom {0}.", zoom);
+                            RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, outside.X, outside.Y, 0));
+                            Assert.IsTrue(Field<RectangleF?>(canvas, "obdPreview").Value.Width >= 1f, "OBD preview must reach the clamped edge.");
+                            RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, outside.X, outside.Y, 0));
+                            Assert.IsTrue(obdRectangle.HasValue, "OBD must continue at zoom {0} toward {1}.", zoom, outsideImage);
+                            AssertRectangleInsideImage(obdRectangle.Value, zoom, outsideImage, "OBD");
+
+                            canvas.ObdEnabled = false;
+                            canvas.SegEnabled = true;
+                            foreach (ImageCanvasControl.SegToolKind tool in new[] { ImageCanvasControl.SegToolKind.Rect, ImageCanvasControl.SegToolKind.Ellipse, ImageCanvasControl.SegToolKind.Brush, ImageCanvasControl.SegToolKind.Eraser })
+                            {
+                                canvas.DiscardUnfinishedShape();
+                                canvas.SegTool = tool;
+                                segRectangle = null;
+                                segPath = null;
+                                erasedPath = null;
+                                RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                                RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, outside.X, outside.Y, 0));
+                                RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, outside.X, outside.Y, 0));
+                                if (tool == ImageCanvasControl.SegToolKind.Rect || tool == ImageCanvasControl.SegToolKind.Ellipse)
+                                {
+                                    Assert.IsTrue(segRectangle.HasValue, "{0} must continue at zoom {1} toward {2}.", tool, zoom, outsideImage);
+                                    AssertRectangleInsideImage(segRectangle.Value, zoom, outsideImage, tool.ToString());
+                                }
+                                else
+                                {
+                                    SegPoint[] points = tool == ImageCanvasControl.SegToolKind.Eraser ? erasedPath : segPath;
+                                    Assert.IsNotNull(points, "{0} must continue at zoom {1} toward {2}.", tool, zoom, outsideImage);
+                                    Assert.IsTrue(points.All(point => point.X >= 0 && point.Y >= 0 && point.X < 100 && point.Y < 100),
+                                        "{0} points must remain inside the image at zoom {1} toward {2}.", tool, zoom, outsideImage);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Annotation_cursor_invalidates_its_old_pixels_when_pointer_leaves_image_or_enters_thumbnail()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 400);
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(200, 200),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Rect
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+                    ImageCanvasControl.CanvasThumbnailLayout layout;
+                    Assert.IsTrue(ImageCanvasControl.CanvasThumbnailLayout.TryCreate(new Size(400, 400), canvas.ClientSize, canvas.Zoom, canvas.ViewState.Origin, canvas.DeviceDpi / 96f, out layout));
+
+                    Point oldCursor = new Point(20, 180);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, oldCursor.X, oldCursor.Y, 0));
+                    var invalidated = new List<Rectangle>();
+                    canvas.Invalidated += (sender, args) => invalidated.Add(args.InvalidRect);
+
+                    Point thumbnail = Point.Round(new PointF(layout.ImageBounds.Left + layout.ImageBounds.Width / 2f, layout.ImageBounds.Top + layout.ImageBounds.Height / 2f));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, thumbnail.X, thumbnail.Y, 0));
+
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
+                    Assert.IsTrue(invalidated.Any(area => area.Contains(oldCursor)), "Entering the thumbnail must erase the previously drawn annotation cursor.");
+                }
+
+                CreateFilledImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(200, 200),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Rect
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetZoomPercent(100);
+
+                    Point oldCursor = new Point(100, 100);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, oldCursor.X, oldCursor.Y, 0));
+                    var invalidated = new List<Rectangle>();
+                    canvas.Invalidated += (sender, args) => invalidated.Add(args.InvalidRect);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 10, 10, 0));
+
+                    Assert.AreEqual(Cursors.Arrow, canvas.Cursor);
+                    Assert.IsTrue(invalidated.Any(area => area.Contains(oldCursor)), "Leaving the image must erase the previously drawn annotation cursor.");
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Obd_rectangle_and_seg_rectangle_ellipse_previews_fill_at_fixed_forty_percent()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
@@ -2699,6 +3269,63 @@ namespace Neurocle.Tests
                                 if (baseline.HasValue) Assert.AreEqual(baseline.Value.ToArgb(), rendered.ToArgb(), "Preview opacity must not follow result opacity for {0}.", tool.HasValue ? tool.Value.ToString() : "OBD");
                                 else baseline = rendered;
                             }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Line_preview_uses_round_caps_like_the_completed_stroke()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var source = new Bitmap(100, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(source)) graphics.Clear(Color.Black);
+                    source.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl
+                {
+                    Size = new Size(100, 100),
+                    SegEnabled = true,
+                    SegTool = ImageCanvasControl.SegToolKind.Line,
+                    SegStrokeWidth = 20,
+                    PreviewColor = Color.White
+                })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    foreach (int width in new[] { 10, 20, 30 })
+                    foreach (int zoomPercent in new[] { 100, 150, 200 })
+                    foreach (Keys modifiers in new[] { Keys.None, Keys.Control })
+                    {
+                        canvas.DiscardUnfinishedShape();
+                        canvas.SegStrokeWidth = width;
+                        canvas.ModifierKeysProvider = () => modifiers;
+                        canvas.SetZoomPercent(zoomPercent);
+                        double zoom = zoomPercent / 100d;
+                        int startX = (int)Math.Round(50d + (40d - 50d) * zoom);
+                        int endX = (int)Math.Round(50d + (60d - 50d) * zoom);
+                        RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, startX, 50, 0));
+                        RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, endX, 50, 0));
+                        SetField(canvas, "hasToolCursor", false);
+
+                        using (var rendered = new Bitmap(canvas.Width, canvas.Height))
+                        {
+                            canvas.DrawToBitmap(rendered, canvas.ClientRectangle);
+                            int left = Enumerable.Range(0, rendered.Width).First(x => rendered.GetPixel(x, 50).ToArgb() != Color.Black.ToArgb());
+                            int right = Enumerable.Range(0, rendered.Width).Reverse().First(x => rendered.GetPixel(x, 50).ToArgb() != Color.Black.ToArgb());
+                            Assert.IsTrue(left < startX, "The line preview must extend with a round start cap for width {0}, zoom {1}%, modifiers {2} (left={3}, start={4}).", width, zoomPercent, modifiers, left, startX);
+                            Assert.IsTrue(right > endX, "The line preview must extend with a round end cap for width {0}, zoom {1}%, modifiers {2} (right={3}, end={4}).", width, zoomPercent, modifiers, right, endX);
                         }
                     }
                 }
@@ -3097,6 +3724,12 @@ namespace Neurocle.Tests
                 store?.Dispose();
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
+        }
+
+        private static void AssertRectangleInsideImage(Rectangle rectangle, int zoom, PointF outside, string tool)
+        {
+            Assert.IsTrue(rectangle.Left >= 0 && rectangle.Top >= 0 && rectangle.Right <= 100 && rectangle.Bottom <= 100,
+                "{0} must remain inside the image at zoom {1} toward {2}; received {3}.", tool, zoom, outside, rectangle);
         }
 
         private static void AssertPreviewStrokeThickness(ImageCanvasControl canvas, int x, int y, int expected)
@@ -4142,9 +4775,13 @@ namespace Neurocle.Tests
                     canvas.SegClasses = classes;
                     canvas.SegRegions = new[] { new SegRegion("rect", "set", "image", "class", SegRegionType.Rect, 20, 20, 60, 60, 0) };
                     AssertOpacity(canvas, value => canvas.SegOpacity = value, 50, 50);
+                    canvas.SegOpacity = 0f;
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 20, 50).ToArgb(), "SEG closed-region outline must remain visible at 0% opacity.");
 
                     canvas.SegRegions = new[] { new SegRegion("line", "set", "image", "class", SegRegionType.PolyLine, 0, 0, 0, 0, 0, new[] { new SegPoint(10, 50), new SegPoint(90, 50) }, 10) };
                     AssertOpacity(canvas, value => canvas.SegOpacity = value, 50, 50);
+                    canvas.SegOpacity = 0f;
+                    Assert.AreEqual(Color.Black.ToArgb(), RenderPixel(canvas, 50, 50).ToArgb(), "Unselected SEG line may disappear at 0% opacity.");
                 }
 
                 store = ProjectStore.Create(projectPath);
@@ -4166,9 +4803,10 @@ namespace Neurocle.Tests
                     Assert.AreEqual(0f, form.AnnotationCanvas.SegOpacity);
 
                     opacityValue.Value = 73;
-                    Assert.AreEqual(73, opacity.Value);
-                    Assert.AreEqual(0.73f, form.AnnotationCanvas.ObdOpacity);
-                    Assert.AreEqual(0.73f, form.AnnotationCanvas.SegOpacity);
+                    Assert.AreEqual(70, opacity.Value);
+                    Assert.AreEqual(70, opacityValue.Value);
+                    Assert.AreEqual(0.7f, form.AnnotationCanvas.ObdOpacity);
+                    Assert.AreEqual(0.7f, form.AnnotationCanvas.SegOpacity);
 
                     opacity.Value = 100;
                     Assert.AreEqual(100, opacityValue.Value);

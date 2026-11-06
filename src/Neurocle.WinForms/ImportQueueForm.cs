@@ -10,14 +10,34 @@ namespace Neurocle.WinForms
     internal sealed partial class ImportQueueForm : Form
     {
         private IReadOnlyList<ImportJobSnapshot> currentJobs = new ImportJobSnapshot[0];
+        private int fixedWidth;
 
         public ImportQueueForm()
         {
             InitializeComponent();
+            fixedWidth = Width;
+        }
+
+        protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+        {
+            if (fixedWidth > 0 && (specified & BoundsSpecified.Width) != 0) width = fixedWidth;
+            base.SetBoundsCore(x, y, width, height, specified);
+        }
+
+        protected override void OnDpiChanged(DpiChangedEventArgs args)
+        {
+            fixedWidth = ScaleFixedWidthForDpi(fixedWidth, args.DeviceDpiOld, args.DeviceDpiNew);
+            base.OnDpiChanged(args);
+        }
+
+        internal static int ScaleFixedWidthForDpi(int width, int oldDpi, int newDpi)
+        {
+            return oldDpi <= 0 || newDpi <= 0 ? width : (int)Math.Round(width * (double)newDpi / oldDpi);
         }
 
         public event Action<Guid> CancelRequested;
         public event Action<Guid> ViewImportedImagesRequested;
+        public event Action<string> OpenExportRequested;
         public event Action ClearCompletedRequested;
 
         /// <summary>
@@ -52,15 +72,24 @@ namespace Neurocle.WinForms
             }
             jobsList.EndUpdate();
             cardsPanel.SuspendLayout();
-            foreach (Control card in cardsPanel.Controls.Cast<Control>().ToArray()) card.Dispose();
-            cardsPanel.Controls.Clear();
+            var cardsById = cardsPanel.Controls.OfType<ImportJobCardControl>().ToDictionary(card => card.JobId);
+            var currentIds = new HashSet<Guid>(currentJobs.Select(job => job.Id));
+            foreach (ImportJobCardControl card in cardsById.Values.Where(card => !currentIds.Contains(card.JobId)).ToArray()) card.Dispose();
+            int cardIndex = 0;
             foreach (ImportJobSnapshot job in currentJobs)
             {
-                var card = new ImportJobCardControl { Width = Math.Max(380, cardsPanel.ClientSize.Width - 24) };
+                ImportJobCardControl card;
+                if (!cardsById.TryGetValue(job.Id, out card))
+                {
+                    card = new ImportJobCardControl();
+                    card.CancelRequested += id => { if (CancelRequested != null) CancelRequested(id); };
+                    card.ViewImportedImagesRequested += id => { if (ViewImportedImagesRequested != null) ViewImportedImagesRequested(id); };
+                    card.OpenExportRequested += path => { if (OpenExportRequested != null) OpenExportRequested(path); };
+                    cardsPanel.Controls.Add(card);
+                }
+                card.Width = Math.Max(420, cardsPanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8);
                 card.UpdateJob(job);
-                card.CancelRequested += id => { if (CancelRequested != null) CancelRequested(id); };
-                card.ViewImportedImagesRequested += id => { if (ViewImportedImagesRequested != null) ViewImportedImagesRequested(id); };
-                cardsPanel.Controls.Add(card);
+                cardsPanel.Controls.SetChildIndex(card, cardIndex++);
             }
             cardsPanel.ResumeLayout();
             UpdateCancelButton();
@@ -96,6 +125,10 @@ namespace Neurocle.WinForms
             if (folderRequest != null) return folderRequest.DirectoryPath + (folderRequest.IncludeSubdirectories ? Strings.ImportQueueFolderRecursive : string.Empty);
             var jsonRequest = request as AnnotationJsonImportJobRequest;
             if (jsonRequest != null) return Path.GetFileName(jsonRequest.FilePath);
+            var jsonExport = request as JsonExportJobRequest;
+            if (jsonExport != null) return Path.GetFileName(jsonExport.OutputPath);
+            var zipExport = request as ImageZipExportJobRequest;
+            if (zipExport != null) return Path.GetFileName(zipExport.OutputPath);
             return request.Kind.ToString();
         }
 

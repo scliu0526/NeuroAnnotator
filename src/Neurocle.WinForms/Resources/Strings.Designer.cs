@@ -28,6 +28,7 @@ namespace Neurocle.WinForms.Resources
         internal static string ImportImages { get { return ResourceManager.GetString("ImportImages", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationJson { get { return ResourceManager.GetString("ImportAnnotationJson", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationUnknownFields { get { return ResourceManager.GetString("ImportAnnotationUnknownFields", CultureInfo.CurrentUICulture); } }
+        internal static string ImportAnnotationIrreversiblePrompt { get { return ResourceManager.GetString("ImportAnnotationIrreversiblePrompt", CultureInfo.CurrentUICulture); } }
         internal static string ImageFileFilter { get { return ResourceManager.GetString("ImageFileFilter", CultureInfo.CurrentUICulture); } }
         internal static string ImageImportUnsupportedFormat { get { return ResourceManager.GetString("ImageImportUnsupportedFormat", CultureInfo.CurrentUICulture); } }
         internal static string ImageImportFileSizeLimit { get { return ResourceManager.GetString("ImageImportFileSizeLimit", CultureInfo.CurrentUICulture); } }
@@ -170,6 +171,7 @@ namespace Neurocle.WinForms.Resources
         internal static string RenameAnnotationSet { get { return ResourceManager.GetString("RenameAnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string DeleteAnnotationSet { get { return ResourceManager.GetString("DeleteAnnotationSet", CultureInfo.CurrentUICulture); } }
         internal static string DeleteAnnotationSetPrompt { get { return ResourceManager.GetString("DeleteAnnotationSetPrompt", CultureInfo.CurrentUICulture); } }
+        internal static string DeleteAnnotationSetMismatch { get { return ResourceManager.GetString("DeleteAnnotationSetMismatch", CultureInfo.CurrentUICulture); } }
         internal static string AddAnnotationClass { get { return ResourceManager.GetString("AddAnnotationClass", CultureInfo.CurrentUICulture); } }
         internal static string AnnotationClassNamePrompt { get { return ResourceManager.GetString("AnnotationClassNamePrompt", CultureInfo.CurrentUICulture); } }
         internal static string RenameAnnotationClass { get { return ResourceManager.GetString("RenameAnnotationClass", CultureInfo.CurrentUICulture); } }

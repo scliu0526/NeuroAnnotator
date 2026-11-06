@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Neurocle.Application.Projects;
 
 namespace Neurocle.WinForms
 {
@@ -10,7 +11,9 @@ namespace Neurocle.WinForms
     {
         ImageFiles,
         Folder,
-        AnnotationJson
+        AnnotationJson,
+        JsonExport,
+        ImageZipExport
     }
 
     internal enum ImportJobStatus
@@ -70,18 +73,82 @@ namespace Neurocle.WinForms
     internal sealed class AnnotationJsonImportJobRequest : ImportJobRequest
     {
         public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, bool allowUnknownFields)
+            : this(filePath, annotationSetName, null, null, allowUnknownFields)
+        {
+        }
+
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, bool allowUnknownFields)
+            : this(filePath, annotationSetName, targetAnnotationSetId, null, allowUnknownFields)
+        {
+        }
+
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool allowUnknownFields)
+            : this(filePath, annotationSetName, targetAnnotationSetId, targetAnnotationSetType, true, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, allowUnknownFields ? null : new string[0])
+        {
+        }
+
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, IEnumerable<string> approvedUnknownFields)
             : base(ImportJobKind.AnnotationJson)
         {
             if (String.IsNullOrWhiteSpace(filePath)) throw new ArgumentException("A JSON file path is required.", nameof(filePath));
             if (String.IsNullOrWhiteSpace(annotationSetName)) throw new ArgumentException("An annotation set name is required.", nameof(annotationSetName));
             FilePath = filePath;
             AnnotationSetName = annotationSetName;
-            AllowUnknownFields = allowUnknownFields;
+            TargetAnnotationSetId = targetAnnotationSetId;
+            TargetAnnotationSetType = targetAnnotationSetType;
+            ImportAnnotationsAndClasses = importAnnotationsAndClasses;
+            AnnotationMode = annotationMode;
+            ImportDataset = importDataset;
+            DatasetMode = datasetMode;
+            ApprovedUnknownFields = approvedUnknownFields == null ? null : Array.AsReadOnly(approvedUnknownFields.Distinct(StringComparer.Ordinal).ToArray());
         }
 
         public string FilePath { get; }
         public string AnnotationSetName { get; }
-        public bool AllowUnknownFields { get; }
+        public string TargetAnnotationSetId { get; }
+        public AnnotationSetType? TargetAnnotationSetType { get; }
+        public bool ImportAnnotationsAndClasses { get; }
+        public AnnotationImportMode AnnotationMode { get; }
+        public bool ImportDataset { get; }
+        public DatasetImportMode DatasetMode { get; }
+        public IReadOnlyList<string> ApprovedUnknownFields { get; }
+        public bool AllowUnknownFields => ApprovedUnknownFields == null || ApprovedUnknownFields.Count > 0;
+    }
+
+    internal abstract class ExportJobRequest : ImportJobRequest
+    {
+        protected ExportJobRequest(ImportJobKind kind, string outputPath)
+            : base(kind)
+        {
+            if (String.IsNullOrWhiteSpace(outputPath)) throw new ArgumentException("An output path is required.", nameof(outputPath));
+            OutputPath = outputPath;
+        }
+
+        public string OutputPath { get; }
+    }
+
+    internal sealed class JsonExportJobRequest : ExportJobRequest
+    {
+        public JsonExportJobRequest(string annotationSetId, string outputPath)
+            : base(ImportJobKind.JsonExport, outputPath)
+        {
+            if (String.IsNullOrWhiteSpace(annotationSetId)) throw new ArgumentException("An annotation set ID is required.", nameof(annotationSetId));
+            AnnotationSetId = annotationSetId;
+        }
+
+        public string AnnotationSetId { get; }
+    }
+
+    internal sealed class ImageZipExportJobRequest : ExportJobRequest
+    {
+        public ImageZipExportJobRequest(IEnumerable<string> imageIds, string outputPath)
+            : base(ImportJobKind.ImageZipExport, outputPath)
+        {
+            ImageIds = imageIds == null ? null : Array.AsReadOnly(imageIds.ToArray());
+        }
+
+        public IReadOnlyList<string> ImageIds { get; }
+        public bool ExportAll { get { return ImageIds == null; } }
     }
 
     internal sealed class ImportJobProgress
@@ -102,7 +169,7 @@ namespace Neurocle.WinForms
 
     internal sealed class ImportJobResult
     {
-        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false, bool requiresConfirmation = false, string confirmationMessage = null)
+        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false, bool requiresConfirmation = false, string confirmationMessage = null, string outputPath = null)
         {
             WasCanceled = wasCanceled;
             ImportedImageIds = Array.AsReadOnly((importedImageIds ?? new string[0]).ToArray());
@@ -111,6 +178,7 @@ namespace Neurocle.WinForms
             WasCanceledDuringScan = wasCanceledDuringScan;
             RequiresConfirmation = requiresConfirmation;
             ConfirmationMessage = confirmationMessage;
+            OutputPath = outputPath;
         }
 
         public bool WasCanceled { get; }
@@ -120,6 +188,7 @@ namespace Neurocle.WinForms
         public bool WasCanceledDuringScan { get; }
         public bool RequiresConfirmation { get; }
         public string ConfirmationMessage { get; }
+        public string OutputPath { get; }
     }
 
     internal sealed class ImportJobSnapshot
@@ -144,7 +213,7 @@ namespace Neurocle.WinForms
         public bool RequiresConfirmation { get; }
     }
 
-    internal sealed class ImportJobQueue : IDisposable
+    internal class ImportJobQueue : IDisposable
     {
         internal delegate ImportJobResult ImportExecutor(ImportJobRequest request, Func<bool> cancellationRequested, Action<ImportJobProgress> progress);
 
@@ -188,7 +257,7 @@ namespace Neurocle.WinForms
         private bool disposed;
 
         private const int MaxActiveJobs = 10;
-        private const int MaxCompletedJobs = 20;
+        private const int MaxCompletedJobs = 50;
 
         public ImportJobQueue(ImportExecutor executor)
         {
@@ -242,6 +311,25 @@ namespace Neurocle.WinForms
             }
             Publish();
             if (startWorker) Task.Run((Action)ProcessQueue);
+            return job.Id;
+        }
+
+        /// <summary>
+        /// 記錄一筆在排隊前即已確認失敗的工作，不占用活動工作名額。
+        /// </summary>
+        public Guid RecordFailure(ImportJobRequest request, string errorMessage)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(errorMessage)) throw new ArgumentException("An error message is required.", nameof(errorMessage));
+            var job = new Job(request) { Status = ImportJobStatus.Failed, ErrorMessage = errorMessage };
+            lock (gate)
+            {
+                ThrowIfDisposed();
+                TrimHistoryLocked();
+                jobs.Add(job);
+                TrimHistoryLocked();
+            }
+            Publish();
             return job.Id;
         }
 
@@ -518,6 +606,15 @@ namespace Neurocle.WinForms
             idle.Wait();
             confirmationSignal.Dispose();
             idle.Dispose();
+        }
+    }
+
+    // 統一專案 FIFO 的語意名稱；保留既有 ImportJobQueue 以維持現有呼叫端相容性。
+    internal sealed class ProjectJobQueue : ImportJobQueue
+    {
+        public ProjectJobQueue(ImportExecutor executor)
+            : base(executor)
+        {
         }
     }
 }
