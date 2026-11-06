@@ -1491,72 +1491,50 @@ namespace Neurocle.WinForms
         /// <summary>
         /// 選取標註 JSON 並將其加入目前專案的匯入佇列。
         /// </summary>
-        private void QueueAnnotationJson()
+        private async void QueueAnnotationJson()
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || importJobQueue == null || selected == null) return;
+            IProjectSession targetProject = project;
+            ImportJobQueue targetQueue = importJobQueue;
             using (var dialog = new OpenFileDialog { Filter = "JSON (*.json)|*.json", Multiselect = false })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                string json = File.ReadAllText(dialog.FileName);
-                bool importAnnotations;
-                bool importClasses;
-                bool importDataset;
-                bool replaceAnnotations;
-                bool replaceDataset;
-                if (!ShowAnnotationImportPreview(json, out importAnnotations, out importClasses, out importDataset, out replaceAnnotations, out replaceDataset)) return;
-                if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
-                TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, importAnnotations, importClasses, importDataset, replaceAnnotations, replaceDataset, false));
+                AnnotationJsonImportPreview preview;
+                ProjectImage[] projectImages = targetProject.GetImages().ToArray();
+                try
+                {
+                    preview = await Task.Run(() => PreflightAnnotationJson(dialog.FileName, selected.Type, projectImages));
+                }
+                catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is JsonAnnotationImportException)
+                {
+                    if (!ReferenceEquals(project, targetProject) || importJobQueue != targetQueue || SelectedAnnotationSet?.Id != selected.Id) return;
+                    targetQueue.RecordFailure(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, false), exception.Message);
+                    ShowImportQueue();
+                    return;
+                }
+                if (!ReferenceEquals(project, targetProject) || importJobQueue != targetQueue || SelectedAnnotationSet?.Id != selected.Id) return;
+                using (var options = new AnnotationJsonImportDialog(dialog.FileName, preview))
+                {
+                    if (options.ShowDialog(this) != DialogResult.OK) return;
+                    if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+                    IEnumerable<string> approvedUnknownFields = options.AllowUnknownFields ? preview.UnknownFields : new string[0];
+                    TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, options.ImportAnnotationsAndClasses, options.AnnotationMode, options.ImportDataset, options.DatasetMode, approvedUnknownFields));
+                }
             }
         }
 
-        private bool ShowAnnotationImportPreview(string json, out bool importAnnotations, out bool importClasses, out bool importDataset, out bool replaceAnnotations, out bool replaceDataset)
+        internal static AnnotationJsonImportPreview PreflightAnnotationJson(string filePath, AnnotationSetType targetType, IReadOnlyList<ProjectImage> projectImages)
         {
-            importAnnotations = true;
-            importClasses = true;
-            importDataset = true;
-            replaceAnnotations = false;
-            replaceDataset = false;
-            bool selectedAnnotations = true;
-            bool selectedClasses = true;
-            bool selectedDataset = true;
-            bool selectedReplaceAnnotations = false;
-            bool selectedReplaceDataset = false;
-            using (var dialog = new Form { Text = Strings.ImportAnnotationJson, Width = 720, Height = 520, StartPosition = FormStartPosition.CenterParent })
-            using (var preview = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, WordWrap = false, Text = json })
-            using (var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 42, FlowDirection = FlowDirection.LeftToRight })
-            using (var annotations = new CheckBox { Text = "標註", Checked = true, AutoSize = true })
-            using (var classes = new CheckBox { Text = "類別", Checked = true, AutoSize = true })
-            using (var dataset = new CheckBox { Text = "資料集狀態", Checked = true, AutoSize = true })
-            using (var replaceAnnotationOption = new CheckBox { Text = "取代對應圖片標註", Checked = false, AutoSize = true })
-            using (var replaceDatasetOption = new CheckBox { Text = "取代 JSON 對應分配", Checked = false, AutoSize = true })
-            using (var cancel = new Button { Text = Strings.Cancel, DialogResult = DialogResult.Cancel, AutoSize = true })
-            using (var import = new Button { Text = Strings.ImportAnnotationJson, DialogResult = DialogResult.OK, AutoSize = true })
+            AnnotationJsonImportPreview preview = AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath));
+            if (preview.Type != targetType) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
+            foreach (AnnotationJsonImportPreviewImage image in preview.Images)
             {
-                options.Controls.Add(annotations);
-                options.Controls.Add(classes);
-                options.Controls.Add(dataset);
-                options.Controls.Add(replaceAnnotationOption);
-                options.Controls.Add(replaceDatasetOption);
-                options.Controls.Add(cancel);
-                options.Controls.Add(import);
-                dialog.Controls.Add(preview);
-                dialog.Controls.Add(options);
-                dialog.AcceptButton = import;
-                dialog.CancelButton = cancel;
-                import.Click += (sender, args) =>
-                {
-                    if (!annotations.Checked && !classes.Checked && !dataset.Checked) { dialog.DialogResult = DialogResult.None; return; }
-                    selectedAnnotations = annotations.Checked;
-                    selectedClasses = classes.Checked;
-                    selectedDataset = dataset.Checked;
-                    selectedReplaceAnnotations = replaceAnnotationOption.Checked;
-                    selectedReplaceDataset = replaceDatasetOption.Checked;
-                };
-                bool accepted = dialog.ShowDialog(this) == DialogResult.OK;
-                if (accepted) { importAnnotations = selectedAnnotations; importClasses = selectedClasses; importDataset = selectedDataset; replaceAnnotations = selectedReplaceAnnotations; replaceDataset = selectedReplaceDataset; }
-                return accepted;
+                ProjectImage[] matches = projectImages.Where(value => String.Equals(value.OriginalFileName, image.FileName, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (matches.Length != 1) throw new JsonAnnotationImportException("JSON image does not map to exactly one project image: " + image.FileName);
+                if (matches[0].Width != image.Width || matches[0].Height != image.Height) throw new JsonAnnotationImportException("JSON image dimensions do not match the project image: " + image.FileName);
             }
+            return preview;
         }
 
         /// <summary>
@@ -2119,16 +2097,17 @@ namespace Neurocle.WinForms
                 if (jsonRequest == null) throw new InvalidOperationException("Unsupported import job kind: " + request.Kind);
                 if (cancellationRequested()) return new ImportJobResult(true, new string[0]);
                 string json = File.ReadAllText(jsonRequest.FilePath);
-                try
+                bool allowUnknownFields = jsonRequest.ApprovedUnknownFields == null;
+                if (jsonRequest.ApprovedUnknownFields != null)
                 {
-                    if (jsonRequest.TargetAnnotationSetType.HasValue && session.GetAnnotationSets().SingleOrDefault(value => value.Id == jsonRequest.TargetAnnotationSetId)?.Type != jsonRequest.TargetAnnotationSetType.Value) throw new JsonAnnotationImportException("Target annotation set changed or model type does not match.");
-                    if (String.IsNullOrWhiteSpace(jsonRequest.TargetAnnotationSetId)) session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, jsonRequest.AllowUnknownFields);
-                    else session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotations, jsonRequest.ImportClasses, jsonRequest.ImportDataset, jsonRequest.ReplaceAnnotations, jsonRequest.ReplaceDataset, jsonRequest.AllowUnknownFields);
+                    AnnotationJsonImportPreview executionPreview = AnnotationJsonImportPreview.Parse(json);
+                    string unexpectedUnknownField = executionPreview.UnknownFields.Except(jsonRequest.ApprovedUnknownFields, StringComparer.Ordinal).FirstOrDefault();
+                    if (unexpectedUnknownField != null) throw new JsonAnnotationImportException("JSON contains an unapproved unknown field: " + unexpectedUnknownField);
+                    allowUnknownFields = executionPreview.UnknownFields.Count > 0;
                 }
-                catch (JsonAnnotationImportException exception) when (exception.Message == "JSON contains unknown fields." && !jsonRequest.AllowUnknownFields)
-                {
-                    return new ImportJobResult(false, new string[0], 0, 0, false, true, exception.Message);
-                }
+                if (jsonRequest.TargetAnnotationSetType.HasValue && session.GetAnnotationSets().SingleOrDefault(value => value.Id == jsonRequest.TargetAnnotationSetId)?.Type != jsonRequest.TargetAnnotationSetType.Value) throw new JsonAnnotationImportException("Target annotation set changed or model type does not match.");
+                if (String.IsNullOrWhiteSpace(jsonRequest.TargetAnnotationSetId)) session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, allowUnknownFields);
+                else session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotationsAndClasses, jsonRequest.AnnotationMode, jsonRequest.ImportDataset, jsonRequest.DatasetMode, allowUnknownFields);
                 return new ImportJobResult(false, new string[0]);
             }
             return new ImportJobResult(
@@ -2163,7 +2142,7 @@ namespace Neurocle.WinForms
                 var jsonRequest = job.Request as AnnotationJsonImportJobRequest;
                 if (jsonRequest == null) continue;
                 DialogResult choice = MessageBox.Show(this, Strings.ImportAnnotationUnknownFields, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
-                importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, jsonRequest.TargetAnnotationSetId, jsonRequest.TargetAnnotationSetType, jsonRequest.ImportAnnotations, jsonRequest.ImportClasses, jsonRequest.ImportDataset, jsonRequest.ReplaceAnnotations, jsonRequest.ReplaceDataset, true) : null);
+                importJobQueue.ResolveConfirmation(job.Id, choice == DialogResult.OK ? new AnnotationJsonImportJobRequest(jsonRequest.FilePath, jsonRequest.AnnotationSetName, jsonRequest.TargetAnnotationSetId, jsonRequest.TargetAnnotationSetType, jsonRequest.ImportAnnotationsAndClasses, jsonRequest.AnnotationMode, jsonRequest.ImportDataset, jsonRequest.DatasetMode, (IEnumerable<string>)null) : null);
             }
             foreach (ImportJobSnapshot job in jobs.Where(IsEndedImageImportJob))
             {

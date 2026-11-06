@@ -2417,7 +2417,7 @@ namespace Neurocle.Tests
                     bool canUndoBeforeImport = store.CanUndo(target.Id);
                     string json = "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"cat\",\"color\":\"#FFFFFF\"},{\"name\":\"dog\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"first.png\",\"set\":\"train\",\"classLabel\":\"cat\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"second.png\",\"set\":\"test\",\"classLabel\":\"dog\",\"regionLabel\":[],\"retestset\":1,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
 
-                    store.ImportAnnotationJsonIntoSet(json, target.Id, true, true, true, false, false, false);
+                    store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, false);
 
                     Assert.AreEqual(existing.Id, store.GetClaClassId(target.Id, images[0].Id));
                     Assert.AreEqual("rgba(18, 52, 86, 1)", store.GetClasses(target.Id).Single(value => value.Name == "cat").Color);
@@ -2428,17 +2428,18 @@ namespace Neurocle.Tests
                     Assert.AreEqual(canUndoBeforeImport, store.CanUndo(target.Id), "JSON import must not create Undo history.");
 
                     string datasetOnly = json.Replace("second.png", "third.png");
-                    store.ImportAnnotationJsonIntoSet(datasetOnly, target.Id, false, false, true, false, false, false);
+                    store.ImportAnnotationJsonIntoSet(datasetOnly, target.Id, false, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, false);
                     Assert.IsNull(store.GetClaClassId(target.Id, images[2].Id), "Dataset-only import must not write CLA annotations.");
                     Assert.AreEqual(DatasetAssignmentStatus.Test, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[2].Id).Status);
 
                     string replaceJson = json.Replace("\"classLabel\":\"cat\"", "\"classLabel\":\"\"").Replace("second.png", "third.png");
-                    store.ImportAnnotationJsonIntoSet(replaceJson, target.Id, true, true, true, true, true, false);
+                    store.ImportAnnotationJsonIntoSet(replaceJson, target.Id, true, AnnotationImportMode.ReplaceMatchingImages, true, DatasetImportMode.ReplaceMatchingImages, false);
                     Assert.IsNull(store.GetClaClassId(target.Id, images[0].Id), "Replace mode must clear an explicitly empty CLA annotation.");
                     Assert.AreEqual(omittedImageClassId, store.GetClaClassId(target.Id, images[1].Id), "Images omitted from JSON must retain their existing annotation.");
 
                     string mismatched = json.Replace("\"label_type\":\"cla\"", "\"label_type\":\"seg\"");
-                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJsonIntoSet(mismatched, target.Id, true, true, true, false, false, false));
+                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJsonIntoSet(mismatched, target.Id, true, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, false));
+                    Assert.ThrowsException<JsonAnnotationImportException>(() => store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, false), "CLA must not accept the OBD/SEG-only add-to-all mode.");
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(first)) File.Delete(first); if (File.Exists(second)) File.Delete(second); if (File.Exists(third)) File.Delete(third); }
@@ -2457,12 +2458,14 @@ namespace Neurocle.Tests
                     ProjectImage image = store.ImportFiles(new[] { source }).Single();
                     AnnotationSet obd = store.CreateAnnotationSet("obd", AnnotationSetType.Obd);
                     string obdJson = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":2,\"width\":3,\"height\":4}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
-                    store.ImportAnnotationJsonIntoSet(obdJson, obd.Id, true, true, false, false, false, false);
+                    store.ImportAnnotationJsonIntoSet(obdJson, obd.Id, true, AnnotationImportMode.AddToEmptyImages, false, DatasetImportMode.AddToUnassignedImages, false);
                     Assert.AreEqual(1, store.GetObdAnnotations(obd.Id, image.Id).Count);
+                    store.ImportAnnotationJsonIntoSet(obdJson, obd.Id, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, false);
+                    Assert.AreEqual(2, store.GetObdAnnotations(obd.Id, image.Id).Count, "Add-to-all mode must append JSON objects without removing existing OBD annotations.");
 
                     AnnotationSet seg = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
                     string segJson = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[1,2],[3,4]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
-                    store.ImportAnnotationJsonIntoSet(segJson, seg.Id, true, true, false, false, false, false);
+                    store.ImportAnnotationJsonIntoSet(segJson, seg.Id, true, AnnotationImportMode.AddToEmptyImages, false, DatasetImportMode.AddToUnassignedImages, false);
                     Assert.AreEqual(1, store.GetSegRegions(seg.Id, image.Id).Count);
                     Assert.AreEqual(SegRegionType.PolyLine, store.GetSegRegions(seg.Id, image.Id).Single().Type);
                 }

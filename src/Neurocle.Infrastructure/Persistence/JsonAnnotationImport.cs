@@ -274,6 +274,47 @@ namespace Neurocle.Infrastructure.Persistence
         public JsonAnnotationImportException(string message, Exception innerException = null) : base(message, innerException) { }
     }
 
+    // 提供設定視窗所需的已驗證 JSON 摘要，不暴露原始 JSON 內容。
+    public sealed class AnnotationJsonImportPreview
+    {
+        private AnnotationJsonImportPreview(AnnotationSetType type, IReadOnlyList<string> classNames, IReadOnlyList<string> setValues, bool hasRetest, IReadOnlyList<AnnotationJsonImportPreviewImage> images, IReadOnlyList<string> unknownFields)
+        {
+            Type = type;
+            ClassNames = classNames;
+            SetValues = setValues;
+            HasRetest = hasRetest;
+            Images = images;
+            UnknownFields = unknownFields;
+        }
+
+        public AnnotationSetType Type { get; }
+        public IReadOnlyList<string> ClassNames { get; }
+        public IReadOnlyList<string> SetValues { get; }
+        public bool HasRetest { get; }
+        public IReadOnlyList<AnnotationJsonImportPreviewImage> Images { get; }
+        public IReadOnlyList<string> UnknownFields { get; }
+
+        public static AnnotationJsonImportPreview Parse(string json)
+        {
+            ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
+            return new AnnotationJsonImportPreview(
+                imported.Type,
+                Array.AsReadOnly(imported.Classes.Select(value => value.Name).ToArray()),
+                Array.AsReadOnly(imported.Data.Select(value => value.Set).Distinct(StringComparer.Ordinal).ToArray()),
+                imported.Data.Any(value => value.Retest),
+                Array.AsReadOnly(imported.Data.Select(value => new AnnotationJsonImportPreviewImage(value.FileName, value.Width, value.Height)).ToArray()),
+                Array.AsReadOnly(imported.UnknownFields.ToArray()));
+        }
+    }
+
+    public sealed class AnnotationJsonImportPreviewImage
+    {
+        public AnnotationJsonImportPreviewImage(string fileName, int width, int height) { FileName = fileName; Width = width; Height = height; }
+        public string FileName { get; }
+        public int Width { get; }
+        public int Height { get; }
+    }
+
     // 保存已驗證的標註集型別、類別、圖片及未知欄位資訊。
     internal sealed class ImportedAnnotationSet
     {

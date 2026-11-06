@@ -1108,6 +1108,13 @@ namespace Neurocle.WinForms
                     return;
                 }
             }
+            bool drawingTool = ObdEnabled && !ObdSelectMode
+                || SegEnabled && SegTool.HasValue && SegTool != SegToolKind.Select;
+            if (!panning && args.Button == MouseButtons.Left && image != null && drawingTool && !IsScreenPointInsideImage(args.Location))
+            {
+                base.OnMouseDown(args);
+                return;
+            }
             if (args.Button == MouseButtons.Left && ObdEnabled && !panning && image != null)
             {
                 PointF point = viewport.ScreenToImage(args.Location);
@@ -1467,7 +1474,17 @@ namespace Neurocle.WinForms
         /// <returns>若位於圖片範圍內則為 true。</returns>
         private bool IsPointerInsideImage()
         {
-            PointF point = viewport.ScreenToImage(lastMousePosition);
+            return IsScreenPointInsideImage(lastMousePosition);
+        }
+
+        /// <summary>
+        /// 判斷指定畫布座標是否位於目前圖片的顯示範圍內。
+        /// </summary>
+        /// <param name="location">要判斷的畫布座標。</param>
+        /// <returns>若座標落在圖片邊界內則為 true。</returns>
+        private bool IsScreenPointInsideImage(Point location)
+        {
+            PointF point = viewport.ScreenToImage(location);
             return point.X >= 0f && point.Y >= 0f && point.X <= viewport.ImageSize.Width && point.Y <= viewport.ImageSize.Height;
         }
 

@@ -83,11 +83,11 @@ namespace Neurocle.WinForms
         }
 
         public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool allowUnknownFields)
-            : this(filePath, annotationSetName, targetAnnotationSetId, targetAnnotationSetType, true, true, true, false, false, allowUnknownFields)
+            : this(filePath, annotationSetName, targetAnnotationSetId, targetAnnotationSetType, true, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, allowUnknownFields ? null : new string[0])
         {
         }
 
-        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool importAnnotations, bool importClasses, bool importDataset, bool replaceAnnotations, bool replaceDataset, bool allowUnknownFields)
+        public AnnotationJsonImportJobRequest(string filePath, string annotationSetName, string targetAnnotationSetId, AnnotationSetType? targetAnnotationSetType, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, IEnumerable<string> approvedUnknownFields)
             : base(ImportJobKind.AnnotationJson)
         {
             if (String.IsNullOrWhiteSpace(filePath)) throw new ArgumentException("A JSON file path is required.", nameof(filePath));
@@ -96,24 +96,23 @@ namespace Neurocle.WinForms
             AnnotationSetName = annotationSetName;
             TargetAnnotationSetId = targetAnnotationSetId;
             TargetAnnotationSetType = targetAnnotationSetType;
-            ImportAnnotations = importAnnotations;
-            ImportClasses = importClasses;
+            ImportAnnotationsAndClasses = importAnnotationsAndClasses;
+            AnnotationMode = annotationMode;
             ImportDataset = importDataset;
-            ReplaceAnnotations = replaceAnnotations;
-            ReplaceDataset = replaceDataset;
-            AllowUnknownFields = allowUnknownFields;
+            DatasetMode = datasetMode;
+            ApprovedUnknownFields = approvedUnknownFields == null ? null : Array.AsReadOnly(approvedUnknownFields.Distinct(StringComparer.Ordinal).ToArray());
         }
 
         public string FilePath { get; }
         public string AnnotationSetName { get; }
         public string TargetAnnotationSetId { get; }
         public AnnotationSetType? TargetAnnotationSetType { get; }
-        public bool ImportAnnotations { get; }
-        public bool ImportClasses { get; }
+        public bool ImportAnnotationsAndClasses { get; }
+        public AnnotationImportMode AnnotationMode { get; }
         public bool ImportDataset { get; }
-        public bool ReplaceAnnotations { get; }
-        public bool ReplaceDataset { get; }
-        public bool AllowUnknownFields { get; }
+        public DatasetImportMode DatasetMode { get; }
+        public IReadOnlyList<string> ApprovedUnknownFields { get; }
+        public bool AllowUnknownFields => ApprovedUnknownFields == null || ApprovedUnknownFields.Count > 0;
     }
 
     internal abstract class ExportJobRequest : ImportJobRequest
@@ -312,6 +311,25 @@ namespace Neurocle.WinForms
             }
             Publish();
             if (startWorker) Task.Run((Action)ProcessQueue);
+            return job.Id;
+        }
+
+        /// <summary>
+        /// 記錄一筆在排隊前即已確認失敗的工作，不占用活動工作名額。
+        /// </summary>
+        public Guid RecordFailure(ImportJobRequest request, string errorMessage)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(errorMessage)) throw new ArgumentException("An error message is required.", nameof(errorMessage));
+            var job = new Job(request) { Status = ImportJobStatus.Failed, ErrorMessage = errorMessage };
+            lock (gate)
+            {
+                ThrowIfDisposed();
+                TrimHistoryLocked();
+                jobs.Add(job);
+                TrimHistoryLocked();
+            }
+            Publish();
             return job.Id;
         }
 

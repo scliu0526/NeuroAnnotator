@@ -10,10 +10,29 @@ namespace Neurocle.WinForms
     internal sealed partial class ImportQueueForm : Form
     {
         private IReadOnlyList<ImportJobSnapshot> currentJobs = new ImportJobSnapshot[0];
+        private int fixedWidth;
 
         public ImportQueueForm()
         {
             InitializeComponent();
+            fixedWidth = Width;
+        }
+
+        protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+        {
+            if (fixedWidth > 0 && (specified & BoundsSpecified.Width) != 0) width = fixedWidth;
+            base.SetBoundsCore(x, y, width, height, specified);
+        }
+
+        protected override void OnDpiChanged(DpiChangedEventArgs args)
+        {
+            fixedWidth = ScaleFixedWidthForDpi(fixedWidth, args.DeviceDpiOld, args.DeviceDpiNew);
+            base.OnDpiChanged(args);
+        }
+
+        internal static int ScaleFixedWidthForDpi(int width, int oldDpi, int newDpi)
+        {
+            return oldDpi <= 0 || newDpi <= 0 ? width : (int)Math.Round(width * (double)newDpi / oldDpi);
         }
 
         public event Action<Guid> CancelRequested;

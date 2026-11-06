@@ -97,6 +97,22 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Preflight_failure_is_recorded_without_executing_or_consuming_active_capacity()
+        {
+            int executions = 0;
+            using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => { executions++; return new ImportJobResult(false, new string[0]); }))
+            {
+                Guid id = queue.RecordFailure(new AnnotationJsonImportJobRequest("bad.json", "target", false), "invalid JSON");
+                ImportJobSnapshot failure = queue.Jobs.Single();
+                Assert.AreEqual(id, failure.Id);
+                Assert.AreEqual(ImportJobStatus.Failed, failure.Status);
+                Assert.AreEqual("invalid JSON", failure.ErrorMessage);
+                Assert.AreEqual(0, executions);
+                Assert.IsFalse(queue.IsBusy);
+            }
+        }
+
+        [TestMethod]
         public void Queue_retains_only_the_fifty_most_recent_terminal_jobs()
         {
             using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => new ImportJobResult(false, new string[0])))
@@ -251,6 +267,10 @@ namespace Neurocle.Tests
             Assert.AreEqual("labels.json", request.FilePath);
             Assert.AreEqual("labels", request.AnnotationSetName);
             Assert.IsFalse(request.AllowUnknownFields);
+            string[] approved = { "root.future" };
+            var approvedRequest = new AnnotationJsonImportJobRequest("labels.json", "labels", null, null, true, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, approved);
+            approved[0] = "root.changed";
+            CollectionAssert.AreEqual(new[] { "root.future" }, approvedRequest.ApprovedUnknownFields.ToArray());
         }
 
         [TestMethod]
@@ -270,6 +290,30 @@ namespace Neurocle.Tests
                     Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
                     Assert.AreEqual(ImportJobStatus.Completed, queue.Jobs.Single().Status);
                     Assert.AreEqual(1, store.GetAnnotationSets().Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Json_job_executor_rejects_unknown_fields_added_after_preflight_consent()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "neurocle-json-drift-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string jsonPath = Path.Combine(directory, "labels.json");
+                File.WriteAllText(jsonPath, "{\"approved\":1,\"newField\":2,\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"class1\",\"color\":\"rgba(1, 2, 3, 1)\"}],\"data\":[]}");
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(directory, "queue.neurocle")))
+                using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => ExecuteMainFormImport(store, request, cancellationRequested, progress)))
+                {
+                    queue.Enqueue(new AnnotationJsonImportJobRequest(jsonPath, "labels", null, null, true, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, new[] { "root.approved" }));
+                    Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                    Assert.AreEqual(ImportJobStatus.Failed, queue.Jobs.Single().Status);
+                    Assert.AreEqual(0, store.GetAnnotationSets().Count);
                 }
             }
             finally

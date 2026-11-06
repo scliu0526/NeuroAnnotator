@@ -55,6 +55,12 @@
     <Compile Include="DiagnosticLog.cs" />
     <Compile Include="DiagnosticLogMessages.cs" />
     <Compile Include="ImportJobQueue.cs" />
+    <Compile Include="AnnotationJsonImportDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="AnnotationJsonImportDialog.Designer.cs">
+      <DependentUpon>AnnotationJsonImportDialog.cs</DependentUpon>
+    </Compile>
     <Compile Include="ImportQueueForm.cs">
       <SubType>Form</SubType>
     </Compile>

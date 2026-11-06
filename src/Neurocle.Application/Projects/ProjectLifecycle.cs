@@ -487,8 +487,8 @@ namespace Neurocle.Application.Projects
         /// <param name="allowUnknownFields">是否允許並忽略格式中未知欄位。</param>
         /// <returns>新建立的標註集摘要。</returns>
         AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields);
-        /// <summary>將 CLA JSON 匯入目前標註集的空白圖片。</summary>
-        void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotations, bool importClasses, bool importDataset, bool replaceAnnotations, bool replaceDataset, bool allowUnknownFields);
+        /// <summary>依指定模式將 JSON 標註、類別及資料集狀態匯入目前標註集。</summary>
+        void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, bool allowUnknownFields);
         /// <summary>
         /// 將指定標註集匯出至 JSON 檔案。
         /// </summary>
@@ -787,6 +787,21 @@ namespace Neurocle.Application.Projects
         /// <param name="annotationSetId">標註集識別碼。</param>
         /// <returns>有可重做操作時回傳 true。</returns>
         bool CanRedo(string annotationSetId);
+    }
+
+    // JSON 標註與類別寫入目前標註集的方式。
+    public enum AnnotationImportMode
+    {
+        AddToEmptyImages,
+        AddToAllImages,
+        ReplaceMatchingImages
+    }
+
+    // JSON 資料集狀態寫入目前標註集的方式。
+    public enum DatasetImportMode
+    {
+        AddToUnassignedImages,
+        ReplaceMatchingImages
     }
 
     // 圖片在單一標註集中的資料集分配狀態。

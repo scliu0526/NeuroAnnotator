@@ -65,15 +65,15 @@ namespace Neurocle.WinForms
             this.cardsPanel.Name = "cardsPanel";
             this.cardsPanel.WrapContents = false;
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
-            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
+            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.Sizable;
             this.MaximizeBox = false;
             this.ClientSize = new System.Drawing.Size(520, 420);
             this.Controls.Add(this.cardsPanel);
             this.Controls.Add(this.jobsList);
             this.Controls.Add(this.clearCompletedButton);
             this.Controls.Add(this.cancelButton);
-            this.MinimumSize = new System.Drawing.Size(520, 260);
-            this.MaximumSize = new System.Drawing.Size(536, 1000);
+            this.MinimumSize = new System.Drawing.Size(536, 260);
+            this.MaximumSize = new System.Drawing.Size(0, 0);
             this.Name = "ImportQueueForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             this.Text = Strings.ImportQueueTitle;
