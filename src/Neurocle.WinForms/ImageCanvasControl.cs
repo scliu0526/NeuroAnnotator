@@ -903,7 +903,7 @@ namespace Neurocle.WinForms
                     graphics.DrawLine(pen, center.X + 2f, center.Y, center.X + 6f, center.Y);
                     graphics.DrawLine(pen, center.X, center.Y - 6f, center.X, center.Y - 2f);
                     graphics.DrawLine(pen, center.X, center.Y + 2f, center.X, center.Y + 6f);
-                    if ((CurrentModifierKeys & Keys.Control) == Keys.Control)
+                    if (SegEnabled && (CurrentModifierKeys & Keys.Control) == Keys.Control)
                     {
                         using (var font = new Font(Font.FontFamily, 9f, FontStyle.Bold))
                         using (var brush = new SolidBrush(Color.White))

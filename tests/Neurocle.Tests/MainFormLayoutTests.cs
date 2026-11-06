@@ -3096,8 +3096,83 @@ namespace Neurocle.Tests
                                         "{0} points must remain inside the image at zoom {1} toward {2}.", tool, zoom, outsideImage);
                                 }
                             }
+
+                            canvas.DiscardUnfinishedShape();
+                            canvas.SegTool = ImageCanvasControl.SegToolKind.Line;
+                            segPath = null;
+                            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, start.X, start.Y, 0));
+                            RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, outside.X, outside.Y, 0));
+                            int lineInset = (canvas.SegStrokeWidth + 1) / 2;
+                            PointF lineEnd = new PointF(
+                                Math.Max(lineInset, Math.Min(100 - lineInset, outsideImage.X)),
+                                Math.Max(lineInset, Math.Min(100 - lineInset, outsideImage.Y)));
+                            Point lineEndScreen = Point.Round(new PointF(origin.X + lineEnd.X * scale, origin.Y + lineEnd.Y * scale));
+                            Assert.IsTrue(CountNonBlackPixels(canvas, new Rectangle(lineEndScreen.X - 5, lineEndScreen.Y - 5, 11, 11)) > 0,
+                                "Line preview must reach the clamped edge at zoom {0} toward {1}.", zoom, outsideImage);
+                            PointF lineMidpoint = new PointF((50 + lineEnd.X) / 2f, (50 + lineEnd.Y) / 2f);
+                            Point lineMidpointScreen = Point.Round(new PointF(origin.X + lineMidpoint.X * scale, origin.Y + lineMidpoint.Y * scale));
+                            Assert.IsTrue(CountNonBlackPixels(canvas, new Rectangle(lineMidpointScreen.X - 5, lineMidpointScreen.Y - 5, 11, 11)) > 0,
+                                "Line preview must reach the clamped edge at zoom {0} toward {1}.", zoom, outsideImage);
+                            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, lineEndScreen.X, lineEndScreen.Y, 0));
+                            Assert.IsNotNull(segPath, "Line must complete at zoom {0} toward {1}.", zoom, outsideImage);
+                            Assert.AreEqual((int)Math.Round(lineEnd.X, MidpointRounding.AwayFromZero), segPath[1].X, "Line must clamp its endpoint X at zoom {0} toward {1}.", zoom, outsideImage);
+                            Assert.AreEqual((int)Math.Round(lineEnd.Y, MidpointRounding.AwayFromZero), segPath[1].Y, "Line must clamp its endpoint Y at zoom {0} toward {1}.", zoom, outsideImage);
+
+                            canvas.DiscardUnfinishedShape();
+                            canvas.SegTool = ImageCanvasControl.SegToolKind.Polygon;
+                            segPath = null;
+                            Point polygonStart = Point.Round(new PointF(origin.X + 30 * scale, origin.Y + 30 * scale));
+                            Point polygonSecond = Point.Round(new PointF(origin.X + 70 * scale, origin.Y + 30 * scale));
+                            Point polygonThird = Point.Round(new PointF(origin.X + 50 * scale, origin.Y + 70 * scale));
+                            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, polygonStart.X, polygonStart.Y, 0));
+                            RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, outside.X, outside.Y, 0));
+                            RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, outside.X, outside.Y, 0));
+                            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, polygonSecond.X, polygonSecond.Y, 0));
+                            RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, polygonSecond.X, polygonSecond.Y, 0));
+                            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, polygonThird.X, polygonThird.Y, 0));
+                            RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, polygonThird.X, polygonThird.Y, 0));
+                            RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, polygonStart.X, polygonStart.Y, 0));
+                            Assert.IsNotNull(segPath, "Polygon must complete at zoom {0} toward {1}.", zoom, outsideImage);
+                            Assert.IsTrue(segPath.All(point => point.X >= 0 && point.Y >= 0 && point.X <= 100 && point.Y <= 100),
+                                "Polygon points must remain inside the image at zoom {0} toward {1}.", zoom, outsideImage);
+                            Assert.AreEqual((int)Math.Round(Math.Max(0, Math.Min(100, outsideImage.X)), MidpointRounding.AwayFromZero), segPath[1].X,
+                                "Polygon must clamp its dragged vertex X at zoom {0} toward {1}.", zoom, outsideImage);
+                            Assert.AreEqual((int)Math.Round(Math.Max(0, Math.Min(100, outsideImage.Y)), MidpointRounding.AwayFromZero), segPath[1].Y,
+                                "Polygon must clamp its dragged vertex Y at zoom {0} toward {1}.", zoom, outsideImage);
                         }
                     }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Ctrl_cursor_minus_is_shown_for_seg_erase_but_not_obd_rectangle()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 100);
+                using (var canvas = new ImageCanvasControl { Size = new Size(200, 200), ObdEnabled = true })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.ObdSelectMode = false;
+                    canvas.ModifierKeysProvider = () => Keys.Control;
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(0, CountNonBlackPixels(canvas, new Rectangle(57, 57, 16, 16)), "Ctrl+OBD rectangle must not show an erase minus.");
+
+                    canvas.ObdEnabled = false;
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.IsTrue(CountNonBlackPixels(canvas, new Rectangle(57, 57, 16, 16)) > 0, "Ctrl+SEG rectangle must retain its erase minus.");
                 }
             }
             finally
