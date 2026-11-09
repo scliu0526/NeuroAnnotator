@@ -616,13 +616,15 @@ namespace Neurocle.Infrastructure.Persistence
             object setValue = ExecuteScalar(connection, "SELECT AnnotationSetId FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
             if (setValue == null || setValue == DBNull.Value) return;
             string setId = Convert.ToString(setValue);
+            object typeValue = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", setId));
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE AnnotationSetId = $set;", new SqliteParameter("$set", setId))) <= 1) throw new InvalidOperationException("An annotation set must retain one class.");
             AnnotationClass deleted = GetClass(classId);
             var assignments = GetClaAssignments(classId);
             var obdAnnotations = GetObdAnnotationsForClass(classId);
             var segRegions = GetSegRegionsForClass(classId);
             Execute(connection, null, "DELETE FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
-            Record(setId, () => { InsertClassRaw(deleted); foreach (var assignment in assignments) SetClaRaw(setId, assignment, classId); foreach (var annotation in obdAnnotations) InsertObdRaw(annotation); foreach (var region in segRegions) InsertSegRegionRaw(region); }, () => DeleteClassRaw(classId), EstimateHistoryBytes(deleted.Id, deleted.AnnotationSetId, deleted.Name, deleted.Color) + EstimateHistoryBytes(assignments) + EstimateHistoryBytes(obdAnnotations) + EstimateHistoryBytes(segRegions));
+            if (Convert.ToInt32(typeValue) != (int)AnnotationSetType.Cla || assignments.Count == 0)
+                Record(setId, () => { InsertClassRaw(deleted); foreach (var assignment in assignments) SetClaRaw(setId, assignment, classId); foreach (var annotation in obdAnnotations) InsertObdRaw(annotation); foreach (var region in segRegions) InsertSegRegionRaw(region); }, () => DeleteClassRaw(classId), EstimateHistoryBytes(deleted.Id, deleted.AnnotationSetId, deleted.Name, deleted.Color) + EstimateHistoryBytes(assignments) + EstimateHistoryBytes(obdAnnotations) + EstimateHistoryBytes(segRegions));
         }
 
         /// <inheritdoc />
@@ -631,9 +633,7 @@ namespace Neurocle.Infrastructure.Persistence
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
             if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Cla) throw new ArgumentException("The annotation set is not CLA.", nameof(annotationSetId));
             if (classId != null && Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
-            string previous = GetClaClassId(annotationSetId, imageId);
             SetClaRaw(annotationSetId, imageId, classId);
-            Record(annotationSetId, () => SetClaRaw(annotationSetId, imageId, previous), () => SetClaRaw(annotationSetId, imageId, classId), EstimateHistoryBytes(annotationSetId, imageId, previous, classId));
         }
 
         /// <inheritdoc />

@@ -1216,7 +1216,7 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
-        public void Annotation_history_is_isolated_restores_deleted_classes_and_is_cleared_after_reopen()
+        public void Cla_assignment_and_class_deletion_do_not_join_undo_history()
         {
             string path = TemporaryProjectPath();
             string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
@@ -1227,6 +1227,7 @@ namespace Neurocle.Tests
                 string secondSetId;
                 string imageId;
                 string deletedClassId;
+                string secondClassId;
                 using (var store = ProjectStore.Create(path))
                 {
                     imageId = store.ImportFiles(new[] { source })[0].Id;
@@ -1235,32 +1236,41 @@ namespace Neurocle.Tests
                     firstSetId = first.Id;
                     secondSetId = second.Id;
                     AnnotationClass firstClass = store.AddClass(first.Id, "cat", "#123456");
-                    AnnotationClass secondClass = store.AddClass(second.Id, "dog", "#654321");
+                    AnnotationClass secondClass = store.GetClasses(second.Id).Single();
+                    secondClassId = secondClass.Id;
+                    AnnotationClass otherClass = store.AddClass(first.Id, "other", "#654321");
+                    store.RenameClass(otherClass.Id, "renamed");
+                    Assert.IsTrue(store.Undo(first.Id));
+                    Assert.IsTrue(store.CanUndo(first.Id));
+                    Assert.IsTrue(store.CanRedo(first.Id));
 
                     store.SetClaClass(first.Id, imageId, firstClass.Id);
-                    store.SetClaClass(second.Id, imageId, secondClass.Id);
-                    Assert.IsTrue(store.CanUndo(first.Id));
-                    Assert.IsTrue(store.CanUndo(second.Id));
-                    Assert.IsTrue(store.Undo(first.Id));
-                    Assert.IsNull(store.GetClaClassId(first.Id, imageId));
-                    Assert.AreEqual(secondClass.Id, store.GetClaClassId(second.Id, imageId));
-                    Assert.IsTrue(store.CanRedo(first.Id));
-                    Assert.IsTrue(store.Redo(first.Id));
                     Assert.AreEqual(firstClass.Id, store.GetClaClassId(first.Id, imageId));
+                    store.SetClaClass(first.Id, imageId, otherClass.Id);
+                    Assert.AreEqual(otherClass.Id, store.GetClaClassId(first.Id, imageId));
+                    store.SetClaClass(first.Id, imageId, null);
+                    Assert.IsNull(store.GetClaClassId(first.Id, imageId));
+                    Assert.IsTrue(store.CanUndo(first.Id), "CLA assignment, replacement and clearing must not add undo history.");
+                    Assert.IsTrue(store.CanRedo(first.Id), "CLA assignment, replacement and clearing must preserve redo history.");
+
+                    store.SetClaClass(second.Id, imageId, secondClass.Id);
+                    Assert.IsTrue(store.Redo(first.Id));
+                    Assert.AreEqual("renamed", store.GetClasses(first.Id).Single(item => item.Id == otherClass.Id).Name);
+                    Assert.IsNull(store.GetClaClassId(first.Id, imageId), "Redo must replay the prior class rename, not a CLA assignment.");
+                    Assert.IsFalse(store.CanUndo(second.Id));
+                    Assert.IsFalse(store.CanRedo(second.Id));
 
                     deletedClassId = firstClass.Id;
+                    store.SetClaClass(first.Id, imageId, firstClass.Id);
                     store.DeleteClass(firstClass.Id);
                     Assert.IsNull(store.GetClaClassId(first.Id, imageId));
-                    Assert.AreEqual(1, store.GetClasses(first.Id).Count);
+                    Assert.IsFalse(store.GetClasses(first.Id).Any(item => item.Id == deletedClassId));
                     Assert.IsTrue(store.Undo(first.Id));
-                    Assert.AreEqual(deletedClassId, store.GetClaClassId(first.Id, imageId));
-                    Assert.AreEqual("cat", store.GetClasses(first.Id).Single(item => item.Id == deletedClassId).Name);
+                    Assert.IsFalse(store.GetClasses(first.Id).Any(item => item.Id == deletedClassId), "Undo must not restore a deleted CLA class.");
+                    Assert.IsNull(store.GetClaClassId(first.Id, imageId), "Undo must not restore the deleted class assignment.");
                     Assert.IsTrue(store.Redo(first.Id));
                     Assert.IsNull(store.GetClaClassId(first.Id, imageId));
-
-                    store.Undo(first.Id);
-                    store.SetClaClass(first.Id, imageId, null);
-                    Assert.IsFalse(store.CanRedo(first.Id));
+                    Assert.IsFalse(store.GetClasses(first.Id).Any(item => item.Id == deletedClassId));
                     store.Save();
                 }
 
@@ -1270,9 +1280,31 @@ namespace Neurocle.Tests
                     Assert.IsFalse(reopened.CanRedo(firstSetId));
                     Assert.IsFalse(reopened.CanUndo(secondSetId));
                     Assert.IsNull(reopened.GetClaClassId(firstSetId, imageId));
+                    Assert.IsFalse(reopened.GetClasses(firstSetId).Any(item => item.Id == deletedClassId));
+                    Assert.AreEqual(secondClassId, reopened.GetClaClassId(secondSetId, imageId));
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Deleting_an_unused_cla_class_remains_undoable()
+        {
+            string path = TemporaryProjectPath();
+            try
+            {
+                using (var store = ProjectStore.Create(path))
+                {
+                    AnnotationSet set = store.CreateAnnotationSet("classes", AnnotationSetType.Cla);
+                    AnnotationClass value = store.AddClass(set.Id, "unused", "#123456");
+                    store.DeleteClass(value.Id);
+
+                    Assert.IsTrue(store.CanUndo(set.Id));
+                    Assert.IsTrue(store.Undo(set.Id));
+                    Assert.IsTrue(store.GetClasses(set.Id).Any(item => item.Id == value.Id));
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
         }
 
         [TestMethod]
