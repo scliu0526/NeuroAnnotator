@@ -5,6 +5,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -704,6 +705,83 @@ namespace Neurocle.Tests
                 browser.SelectImages(new[] { "one", "three" });
                 CollectionAssert.AreEquivalent(new[] { "one", "three" }, browser.SelectedImageIds.ToArray());
                 Assert.AreEqual(string.Empty, search.Text);
+            }
+        }
+
+        [STATestMethod]
+        public void Image_browser_shift_wheel_scrolls_horizontally_without_changing_selection_or_filter()
+        {
+            using (var form = new Form { ClientSize = new Size(260, 230), ShowInTaskbar = false })
+            using (var browser = new ImageBrowserControl { Dock = DockStyle.Fill })
+            {
+                form.Controls.Add(browser);
+                var images = Enumerable.Range(0, 40).Select(index => new ProjectImage(
+                    "image-" + index.ToString("D2"), "image-" + (40 - index).ToString("D2") + ".png", "image-" + (40 - index).ToString("D2") + ".png",
+                    "sha-" + index, 10, 10, index + 1)).ToArray();
+                browser.LoadImages(images, Path.GetTempPath());
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+
+                ListView list = Field<ListView>(browser, "list");
+                Assert.IsTrue(list.IsHandleCreated);
+                TextBox search = Field<TextBox>(browser, "search");
+                search.Text = "image-";
+                Invoke(browser, "List_ColumnClick", list, new ColumnClickEventArgs(1));
+                System.Windows.Forms.Application.DoEvents();
+                ScrollInfo horizontalBefore = ReadScrollInfo(list, 0);
+                Assert.IsTrue(HasScrollRange(horizontalBefore), "The narrow list must have a horizontal scroll range.");
+                ScrollInfo verticalBefore = ReadScrollInfo(list, 1);
+                Assert.IsTrue(HasScrollRange(verticalBefore), "The populated list must have a vertical scroll range.");
+
+                int selectionChanges = 0;
+                string currentImageId = null;
+                browser.ImageSelected += (sender, args) =>
+                {
+                    selectionChanges++;
+                    currentImageId = args.Image.Id;
+                };
+                list.SelectedIndices.Add(0);
+                list.SelectedIndices.Add(1);
+                System.Windows.Forms.Application.DoEvents();
+                string[] selectedBefore = browser.SelectedImageIds.ToArray();
+                string searchBefore = search.Text;
+                string firstFileNameBefore = list.Items[0].SubItems[1].Text;
+                int selectionChangesBefore = selectionChanges;
+                string currentImageBefore = currentImageId;
+
+                SendMouseWheel(list, -120, shift: false);
+                System.Windows.Forms.Application.DoEvents();
+                ScrollInfo verticalAfterNormalWheel = ReadScrollInfo(list, 1);
+                Assert.IsTrue(verticalAfterNormalWheel.Position > verticalBefore.Position, "An unmodified wheel must keep scrolling vertically.");
+
+                ScrollInfo horizontalBeforeShiftWheel = ReadScrollInfo(list, 0);
+                SendMouseWheel(list, -120, shift: true);
+                System.Windows.Forms.Application.DoEvents();
+                ScrollInfo horizontalAfterNegativeWheel = ReadScrollInfo(list, 0);
+                Assert.IsTrue(horizontalAfterNegativeWheel.Position > horizontalBeforeShiftWheel.Position, "A negative Shift+wheel delta must move toward later columns.");
+                Assert.AreEqual(verticalAfterNormalWheel.Position, ReadScrollInfo(list, 1).Position, "Shift+wheel must not scroll vertically.");
+
+                SendMouseWheel(list, 120, shift: true);
+                System.Windows.Forms.Application.DoEvents();
+                ScrollInfo horizontalAfterPositiveWheel = ReadScrollInfo(list, 0);
+                Assert.IsTrue(horizontalAfterPositiveWheel.Position < horizontalAfterNegativeWheel.Position, "A positive Shift+wheel delta must move toward earlier columns.");
+                CollectionAssert.AreEquivalent(selectedBefore, browser.SelectedImageIds.ToArray());
+                Assert.AreEqual(currentImageBefore, currentImageId);
+                Assert.AreEqual(selectionChangesBefore, selectionChanges, "Scrolling must not raise an image selection change.");
+                Assert.AreEqual(searchBefore, search.Text);
+                Assert.AreEqual(firstFileNameBefore, list.Items[0].SubItems[1].Text, "Scrolling must not alter the current sort order.");
+
+                form.ClientSize = new Size(1000, 230);
+                System.Windows.Forms.Application.DoEvents();
+                ScrollInfo horizontalWithoutRange = ReadScrollInfo(list, 0);
+                Assert.IsFalse(HasScrollRange(horizontalWithoutRange), "The wide list must not have a horizontal scroll range.");
+                int verticalBeforeNoRangeWheel = ReadScrollInfo(list, 1).Position;
+                SendMouseWheel(list, -120, shift: true);
+                System.Windows.Forms.Application.DoEvents();
+                Assert.AreEqual(verticalBeforeNoRangeWheel, ReadScrollInfo(list, 1).Position, "Shift+wheel without a horizontal range must not fall back to vertical scrolling.");
+                CollectionAssert.AreEquivalent(selectedBefore, browser.SelectedImageIds.ToArray());
+                Assert.AreEqual(selectionChangesBefore, selectionChanges, "A no-range Shift+wheel must not navigate to another image.");
+                Assert.AreEqual(currentImageBefore, currentImageId);
             }
         }
 
@@ -5353,6 +5431,46 @@ namespace Neurocle.Tests
             while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Neurocle.sln"))) directory = directory.Parent;
             Assert.IsNotNull(directory, "Could not locate the repository root from the test output directory.");
             return directory.FullName;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ScrollInfo
+        {
+            public uint Size;
+            public uint Mask;
+            public int Minimum;
+            public int Maximum;
+            public uint Page;
+            public int Position;
+            public int TrackPosition;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool GetScrollInfo(IntPtr handle, int bar, ref ScrollInfo info);
+
+        [DllImport("user32.dll", EntryPoint = "SendMessage", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendWheelMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
+
+        private static ScrollInfo ReadScrollInfo(Control control, int bar)
+        {
+            var info = new ScrollInfo { Size = (uint)Marshal.SizeOf(typeof(ScrollInfo)), Mask = 0x0017 };
+            Assert.IsTrue(GetScrollInfo(control.Handle, bar, ref info), "The control must expose the requested scrollbar information.");
+            return info;
+        }
+
+        private static bool HasScrollRange(ScrollInfo info)
+        {
+            long maximumPosition = (long)info.Maximum - Math.Max(0L, (long)info.Page - 1L);
+            return maximumPosition > info.Minimum;
+        }
+
+        private static void SendMouseWheel(Control control, int delta, bool shift)
+        {
+            const int mouseWheelMessage = 0x020A;
+            const int shiftKey = 0x0004;
+            long keyState = shift ? shiftKey : 0;
+            long wheelParameter = keyState | ((long)unchecked((ushort)(short)delta) << 16);
+            SendWheelMessage(control.Handle, mouseWheelMessage, new IntPtr(wheelParameter), IntPtr.Zero);
         }
 
         private static T Field<T>(object target, string fieldName)
