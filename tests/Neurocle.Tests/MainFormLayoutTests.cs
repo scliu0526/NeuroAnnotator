@@ -502,6 +502,12 @@ namespace Neurocle.Tests
             {
                 Assert.AreEqual(AnnotationSetType.Cla, MainForm.PreflightAnnotationJson(path, AnnotationSetType.Cla).Type);
                 Assert.ThrowsException<JsonAnnotationImportException>(() => MainForm.PreflightAnnotationJson(path, AnnotationSetType.Seg));
+                string invalidColor = json.Replace("#FF0000", "not-a-color");
+                File.WriteAllText(path, invalidColor);
+                AnnotationJsonPreflightResult newClassResult = MainForm.InspectAnnotationJson(path, AnnotationSetType.Cla);
+                Assert.IsNotNull(newClassResult.ErrorMessage, "An invalid color for a new class must stop preflight.");
+                AnnotationJsonPreflightResult existingClassResult = MainForm.InspectAnnotationJson(path, AnnotationSetType.Cla, new[] { new AnnotationClass("class", "set", "part", "#123456") });
+                Assert.IsNull(existingClassResult.ErrorMessage, "An existing same-name class keeps its current color and ignores the JSON color.");
             }
             finally { File.Delete(path); }
         }

@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Neurocle.Application.Projects
 {
@@ -488,7 +489,7 @@ namespace Neurocle.Application.Projects
         /// <returns>新建立的標註集摘要。</returns>
         AnnotationSet ImportAnnotationJson(string json, string annotationSetName, bool allowUnknownFields);
         /// <summary>依指定模式將 JSON 標註、類別及資料集狀態匯入目前標註集。</summary>
-        void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, bool allowUnknownFields);
+        AnnotationJsonImportResult ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, bool allowUnknownFields);
         /// <summary>
         /// 將指定標註集匯出至 JSON 檔案。
         /// </summary>
@@ -802,6 +803,35 @@ namespace Neurocle.Application.Projects
     {
         AddToUnassignedImages,
         ReplaceMatchingImages
+    }
+
+    public enum AnnotationJsonImportWarningReason
+    {
+        AmbiguousImageFileName
+    }
+
+    public sealed class AnnotationJsonImportWarning
+    {
+        public AnnotationJsonImportWarning(string fileName, string sourceLocation, AnnotationJsonImportWarningReason reason)
+        {
+            FileName = fileName;
+            SourceLocation = sourceLocation;
+            Reason = reason;
+        }
+
+        public string FileName { get; }
+        public string SourceLocation { get; }
+        public AnnotationJsonImportWarningReason Reason { get; }
+    }
+
+    public sealed class AnnotationJsonImportResult
+    {
+        public AnnotationJsonImportResult(IEnumerable<AnnotationJsonImportWarning> warnings)
+        {
+            Warnings = Array.AsReadOnly((warnings ?? new AnnotationJsonImportWarning[0]).ToArray());
+        }
+
+        public IReadOnlyList<AnnotationJsonImportWarning> Warnings { get; }
     }
 
     // 圖片在單一標註集中的資料集分配狀態。

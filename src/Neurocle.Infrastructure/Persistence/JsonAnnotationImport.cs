@@ -44,7 +44,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (data.Any(value => !(value is JObject))) throw new JsonAnnotationImportException("data is invalid.");
             var classNames = new HashSet<string>(importedClasses.Select(value => value.Name), StringComparer.Ordinal);
             ImportedImage[] images = data.Cast<JObject>().Select((value, index) => ParseImage(value, annotationType, classNames, unknownFields, index)).ToArray();
-            if (images.Select(value => value.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != images.Length) throw new JsonAnnotationImportException("data contains duplicate fileName values.");
+            if (images.Select(value => value.FileName).Distinct(StringComparer.Ordinal).Count() != images.Length) throw new JsonAnnotationImportException("data contains duplicate fileName values.");
             return new ImportedAnnotationSet(annotationType, importedClasses, images, unknownFields);
         }
 
@@ -277,10 +277,11 @@ namespace Neurocle.Infrastructure.Persistence
     // 提供設定視窗所需的已驗證 JSON 摘要，不暴露原始 JSON 內容。
     public sealed class AnnotationJsonImportPreview
     {
-        private AnnotationJsonImportPreview(AnnotationSetType type, IReadOnlyList<string> classNames, IReadOnlyList<string> setValues, bool hasRetest, IReadOnlyList<AnnotationJsonImportPreviewImage> images, IReadOnlyList<string> unknownFields)
+        private AnnotationJsonImportPreview(AnnotationSetType type, IReadOnlyList<AnnotationJsonImportPreviewClass> classes, IReadOnlyList<string> setValues, bool hasRetest, IReadOnlyList<AnnotationJsonImportPreviewImage> images, IReadOnlyList<string> unknownFields)
         {
             Type = type;
-            ClassNames = classNames;
+            Classes = classes;
+            ClassNames = Array.AsReadOnly(classes.Select(value => value.Name).ToArray());
             SetValues = setValues;
             HasRetest = hasRetest;
             Images = images;
@@ -288,6 +289,7 @@ namespace Neurocle.Infrastructure.Persistence
         }
 
         public AnnotationSetType Type { get; }
+        public IReadOnlyList<AnnotationJsonImportPreviewClass> Classes { get; }
         public IReadOnlyList<string> ClassNames { get; }
         public IReadOnlyList<string> SetValues { get; }
         public bool HasRetest { get; }
@@ -299,12 +301,19 @@ namespace Neurocle.Infrastructure.Persistence
             ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
             return new AnnotationJsonImportPreview(
                 imported.Type,
-                Array.AsReadOnly(imported.Classes.Select(value => value.Name).ToArray()),
+                Array.AsReadOnly(imported.Classes.Select(value => new AnnotationJsonImportPreviewClass(value.Name, value.Color)).ToArray()),
                 Array.AsReadOnly(imported.Data.Select(value => value.Set).Distinct(StringComparer.Ordinal).ToArray()),
                 imported.Data.Any(value => value.Retest),
                 Array.AsReadOnly(imported.Data.Select(value => new AnnotationJsonImportPreviewImage(value.FileName, value.Width, value.Height)).ToArray()),
                 Array.AsReadOnly(imported.UnknownFields.ToArray()));
         }
+    }
+
+    public sealed class AnnotationJsonImportPreviewClass
+    {
+        public AnnotationJsonImportPreviewClass(string name, string color) { Name = name; Color = color; }
+        public string Name { get; }
+        public string Color { get; }
     }
 
     public sealed class AnnotationJsonImportPreviewImage

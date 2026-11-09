@@ -1523,7 +1523,8 @@ namespace Neurocle.WinForms
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || importJobQueue == null || selected == null) return;
-            using (var options = new AnnotationJsonImportDialog(selected.Type, filePath => InspectAnnotationJson(filePath, selected.Type)))
+            AnnotationClass[] existingClasses = project.GetClasses(selected.Id).ToArray();
+            using (var options = new AnnotationJsonImportDialog(selected.Type, filePath => InspectAnnotationJson(filePath, selected.Type, existingClasses)))
             {
                 if (options.ShowDialog(this) != DialogResult.OK) return;
                 if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
@@ -1532,14 +1533,14 @@ namespace Neurocle.WinForms
             }
         }
 
-        internal static AnnotationJsonImportPreview PreflightAnnotationJson(string filePath, AnnotationSetType targetType)
+        internal static AnnotationJsonImportPreview PreflightAnnotationJson(string filePath, AnnotationSetType targetType, IReadOnlyCollection<AnnotationClass> existingClasses = null)
         {
-            AnnotationJsonPreflightResult result = InspectAnnotationJson(filePath, targetType);
+            AnnotationJsonPreflightResult result = InspectAnnotationJson(filePath, targetType, existingClasses);
             if (!String.IsNullOrEmpty(result.ErrorMessage)) throw new JsonAnnotationImportException(result.ErrorMessage);
             return result.Preview;
         }
 
-        internal static AnnotationJsonPreflightResult InspectAnnotationJson(string filePath, AnnotationSetType targetType)
+        internal static AnnotationJsonPreflightResult InspectAnnotationJson(string filePath, AnnotationSetType targetType, IReadOnlyCollection<AnnotationClass> existingClasses = null)
         {
             AnnotationJsonImportPreview preview;
             try { preview = AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath)); }
@@ -1548,6 +1549,13 @@ namespace Neurocle.WinForms
                 return new AnnotationJsonPreflightResult(null, exception.Message);
             }
             if (preview.Type != targetType) return new AnnotationJsonPreflightResult(preview, Strings.ImportJsonTypeMismatch);
+            var existingClassNames = new HashSet<string>((existingClasses ?? new AnnotationClass[0]).Select(value => value.Name), StringComparer.Ordinal);
+            foreach (AnnotationJsonImportPreviewClass value in preview.Classes)
+            {
+                if (existingClassNames.Contains(value.Name)) continue;
+                try { AnnotationColorFormat.Normalize(value.Color); }
+                catch (ArgumentException exception) { return new AnnotationJsonPreflightResult(preview, exception.Message); }
+            }
             return new AnnotationJsonPreflightResult(preview, null);
         }
 

@@ -2507,6 +2507,80 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Cla_json_import_matches_exact_display_names_and_skips_unmatched_or_ambiguous_names()
+        {
+            string path = TemporaryProjectPath();
+            string directory = Path.GetDirectoryName(path);
+            string upperPath = Path.Combine(directory, "upper-source.png");
+            string lowerPath = Path.Combine(directory, "lower-source.png");
+            string duplicateOne = Path.Combine(directory, "duplicate-one-source.png");
+            string duplicateTwo = Path.Combine(directory, "duplicate-two-source.png");
+            try
+            {
+                CreateBitmap(upperPath, Color.Red, ImageFormat.Png, 20, 20);
+                CreateBitmap(lowerPath, Color.Blue, ImageFormat.Png, 20, 20);
+                CreateBitmap(duplicateOne, Color.Green, ImageFormat.Png, 20, 20);
+                CreateBitmap(duplicateTwo, Color.Yellow, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] importedImages = store.ImportFiles(new[] { upperPath, lowerPath, duplicateOne, duplicateTwo }).ToArray();
+                    store.CompleteOperation((connection, transaction) =>
+                    {
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "UPDATE ImageRecord SET OriginalFileName = $name WHERE Id = $id;";
+                            command.Parameters.AddWithValue("$name", "Case.png");
+                            command.Parameters.AddWithValue("$id", importedImages.Single(value => value.OriginalFileName == "upper-source.png").Id);
+                            command.ExecuteNonQuery();
+                            command.Parameters.Clear();
+                            command.Parameters.AddWithValue("$name", "case.png");
+                            command.Parameters.AddWithValue("$id", importedImages.Single(value => value.OriginalFileName == "lower-source.png").Id);
+                            command.ExecuteNonQuery();
+                            command.Parameters.Clear();
+                            command.Parameters.AddWithValue("$name", "same.png");
+                            command.Parameters.AddWithValue("$id", importedImages.Single(value => value.OriginalFileName == "duplicate-one-source.png").Id);
+                            command.ExecuteNonQuery();
+                            command.Parameters.Clear();
+                            command.Parameters.AddWithValue("$name", "same.png");
+                            command.Parameters.AddWithValue("$id", importedImages.Single(value => value.OriginalFileName == "duplicate-two-source.png").Id);
+                            command.ExecuteNonQuery();
+                        }
+                    });
+                    ProjectImage[] images = store.GetImages().ToArray();
+                    ProjectImage upperImage = images.Single(value => value.OriginalFileName == "Case.png");
+                    ProjectImage lowerImage = images.Single(value => value.OriginalFileName == "case.png");
+                    ProjectImage[] ambiguousImages = images.Where(value => value.OriginalFileName == "same.png").ToArray();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Cla);
+                    AnnotationClass upperClass = store.AddClass(target.Id, "upper", "#FF0000");
+                    AnnotationClass lowerClass = store.AddClass(target.Id, "lower", "#0000FF");
+                    string json = "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"upper\",\"color\":\"#FF0000\"},{\"name\":\"lower\",\"color\":\"#0000FF\"},{\"name\":\"ambiguous\",\"color\":\"#00FF00\"}],\"data\":[{\"fileName\":\"Case.png\",\"set\":\"\",\"classLabel\":\"upper\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"case.png\",\"set\":\"\",\"classLabel\":\"lower\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"CASE.png\",\"set\":\"\",\"classLabel\":\"upper\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"same.png\",\"set\":\"\",\"classLabel\":\"ambiguous\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+
+                    AnnotationJsonImportResult importResult = store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.AddToEmptyImages, false, DatasetImportMode.AddToUnassignedImages, false);
+
+                    Assert.AreEqual(upperClass.Id, store.GetClaClassId(target.Id, upperImage.Id));
+                    Assert.AreEqual(lowerClass.Id, store.GetClaClassId(target.Id, lowerImage.Id));
+                    Assert.AreEqual(2, ambiguousImages.Length);
+                    foreach (ProjectImage image in ambiguousImages) Assert.IsNull(store.GetClaClassId(target.Id, image.Id), "A duplicated display name is ambiguous and must not label either image.");
+                    AnnotationJsonImportWarning warning = importResult.Warnings.Single();
+                    Assert.AreEqual("same.png", warning.FileName);
+                    Assert.AreEqual("data[3]", warning.SourceLocation);
+                    Assert.AreEqual(AnnotationJsonImportWarningReason.AmbiguousImageFileName, warning.Reason);
+                    Assert.IsTrue(store.GetClasses(target.Id).Any(value => value.Name == "ambiguous"), "All imported CLASS definitions are kept when at least one image uniquely matches.");
+
+                    string zeroMatch = json.Replace("Case.png", " Case.png").Replace("case.png", "case").Replace("CASE.png", "CASE").Replace("same.png", "same").Replace("ambiguous", "unused");
+                    int classCountBefore = store.GetClasses(target.Id).Count;
+                    AnnotationJsonImportResult zeroMatchResult = store.ImportAnnotationJsonIntoSet(zeroMatch, target.Id, true, AnnotationImportMode.ReplaceMatchingImages, false, DatasetImportMode.AddToUnassignedImages, false);
+                    Assert.AreEqual(0, zeroMatchResult.Warnings.Count, "Unmatched images must be skipped without warnings.");
+                    Assert.AreEqual(classCountBefore, store.GetClasses(target.Id).Count, "A zero-match import must not add classes.");
+                    Assert.AreEqual(upperClass.Id, store.GetClaClassId(target.Id, upperImage.Id), "A zero-match import must not clear existing annotations.");
+                    Assert.AreEqual(lowerClass.Id, store.GetClaClassId(target.Id, lowerImage.Id), "A zero-match import must not clear existing annotations.");
+                }
+            }
+            finally { DeleteTemporaryProject(path); }
+        }
+
+        [TestMethod]
         public void Json_import_into_obd_and_seg_selected_sets_preserves_model_and_geometry()
         {
             string path = TemporaryProjectPath();
@@ -2521,14 +2595,24 @@ namespace Neurocle.Tests
                     string obdJson = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":2,\"width\":3,\"height\":4}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     store.ImportAnnotationJsonIntoSet(obdJson, obd.Id, true, AnnotationImportMode.AddToEmptyImages, false, DatasetImportMode.AddToUnassignedImages, false);
                     Assert.AreEqual(1, store.GetObdAnnotations(obd.Id, image.Id).Count);
-                    store.ImportAnnotationJsonIntoSet(obdJson, obd.Id, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, false);
-                    Assert.AreEqual(2, store.GetObdAnnotations(obd.Id, image.Id).Count, "Add-to-all mode must append JSON objects without removing existing OBD annotations.");
+                    store.ImportAnnotationJsonIntoSet(obdJson, obd.Id, true, AnnotationImportMode.AddToEmptyImages, false, DatasetImportMode.AddToUnassignedImages, false);
+                    Assert.AreEqual(1, store.GetObdAnnotations(obd.Id, image.Id).Count, "Add-to-empty mode must leave a nonempty image unchanged.");
+                    string obdAppendJson = obdJson.Replace("\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":2,\"width\":3,\"height\":4}]", "\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":2,\"width\":3,\"height\":4},{\"className\":\"part\",\"type\":\"Rect\",\"x\":5,\"y\":2,\"width\":3,\"height\":4},{\"className\":\"part\",\"type\":\"Rect\",\"x\":9,\"y\":2,\"width\":3,\"height\":4}]");
+                    store.ImportAnnotationJsonIntoSet(obdAppendJson, obd.Id, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, false);
+                    ObdAnnotation[] obdAnnotations = store.GetObdAnnotations(obd.Id, image.Id).ToArray();
+                    Assert.AreEqual(4, obdAnnotations.Length, "Add-to-all mode must preserve old OBD annotations and append every JSON object.");
+                    CollectionAssert.AreEqual(new[] { 0, 1, 2, 3 }, obdAnnotations.Select(value => value.ZOrder).ToArray());
+                    CollectionAssert.AreEqual(new[] { 1, 1, 5, 9 }, obdAnnotations.Select(value => value.X).ToArray(), "New objects must retain source order above existing annotations.");
 
                     AnnotationSet seg = store.CreateAnnotationSet("seg", AnnotationSetType.Seg);
                     string segJson = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[1,2],[3,4]]}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
                     store.ImportAnnotationJsonIntoSet(segJson, seg.Id, true, AnnotationImportMode.AddToEmptyImages, false, DatasetImportMode.AddToUnassignedImages, false);
                     Assert.AreEqual(1, store.GetSegRegions(seg.Id, image.Id).Count);
                     Assert.AreEqual(SegRegionType.PolyLine, store.GetSegRegions(seg.Id, image.Id).Single().Type);
+                    store.ImportAnnotationJsonIntoSet(segJson, seg.Id, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, false);
+                    SegRegion[] segRegions = store.GetSegRegions(seg.Id, image.Id).ToArray();
+                    Assert.AreEqual(2, segRegions.Length, "Overlapping appended SEG regions must remain separate.");
+                    CollectionAssert.AreEqual(new[] { 0, 1 }, segRegions.Select(value => value.ZOrder).ToArray());
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }

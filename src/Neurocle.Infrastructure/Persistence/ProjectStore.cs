@@ -436,7 +436,7 @@ namespace Neurocle.Infrastructure.Persistence
         /// <summary>
         /// 依指定模式將 JSON 的標註、類別與資料集分配匯入目前標註集；此操作不建立 Undo 歷程。
         /// </summary>
-        public void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, bool allowUnknownFields)
+        public AnnotationJsonImportResult ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, bool allowUnknownFields)
         {
             ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
             if (!allowUnknownFields && imported.UnknownFields.Count > 0) throw new JsonAnnotationImportException("JSON contains unknown fields.");
@@ -445,11 +445,19 @@ namespace Neurocle.Infrastructure.Persistence
             if (target.Type != imported.Type) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
             if (target.Type == AnnotationSetType.Cla && annotationMode == AnnotationImportMode.AddToAllImages) throw new JsonAnnotationImportException("CLA does not support adding annotations to all images.");
             ProjectImage[] images = GetImages().ToArray();
-            var imageByName = images.GroupBy(image => image.OriginalFileName, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
-            foreach (ImportedImage item in imported.Data)
+            var imageByName = images.GroupBy(image => image.OriginalFileName, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+            var warnings = new List<AnnotationJsonImportWarning>();
+            for (int index = 0; index < imported.Data.Count; index++)
             {
+                ImportedImage item = imported.Data[index];
                 ProjectImage[] matches;
-                if (!imageByName.TryGetValue(item.FileName, out matches) || matches.Length != 1 || matches[0].Width != item.Width || matches[0].Height != item.Height) throw new JsonAnnotationImportException("JSON image does not map to exactly one project image.");
+                if (!imageByName.TryGetValue(item.FileName, out matches)) continue;
+                if (matches.Length > 1)
+                {
+                    warnings.Add(new AnnotationJsonImportWarning(item.FileName, "data[" + index + "]", AnnotationJsonImportWarningReason.AmbiguousImageFileName));
+                    continue;
+                }
+                if (matches[0].Width != item.Width || matches[0].Height != item.Height) throw new JsonAnnotationImportException("JSON image dimensions do not match the project image.");
             }
             AnnotationClass[] existing = GetClasses(target.Id).ToArray();
             var classByName = existing.ToDictionary(value => value.Name, StringComparer.Ordinal);
@@ -458,7 +466,10 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 if (classByName.ContainsKey(value.Name)) continue;
                 if (!importAnnotationsAndClasses) continue;
-                var created = new AnnotationClass(Guid.NewGuid().ToString("D"), target.Id, NormalizeName(value.Name), AnnotationColorFormat.Normalize(value.Color));
+                string color;
+                try { color = AnnotationColorFormat.Normalize(value.Color); }
+                catch (ArgumentException exception) { throw new JsonAnnotationImportException(exception.Message, exception); }
+                var created = new AnnotationClass(Guid.NewGuid().ToString("D"), target.Id, NormalizeName(value.Name), color);
                 classByName.Add(created.Name, created);
                 newClasses.Add(created);
             }
@@ -469,6 +480,7 @@ namespace Neurocle.Infrastructure.Persistence
                     ? "SELECT COUNT(*) FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;"
                     : "SELECT COUNT(*) FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;";
             var mapped = imported.Data
+                .Where(item => imageByName.ContainsKey(item.FileName) && imageByName[item.FileName].Length == 1)
                 .Select(item => new
                 {
                     Item = item,
@@ -476,6 +488,7 @@ namespace Neurocle.Infrastructure.Persistence
                     ExistingAnnotationCount = Convert.ToInt32(ExecuteScalar(connection, existingCountSql, new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageByName[item.FileName][0].Id)))
                 })
                 .ToArray();
+            if (mapped.Length == 0) return new AnnotationJsonImportResult(warnings);
             var nextZOrders = target.Type == AnnotationSetType.Cla
                 ? new Dictionary<string, int>(StringComparer.Ordinal)
                 : mapped.ToDictionary(value => value.ImageId, value => annotationMode == AnnotationImportMode.ReplaceMatchingImages ? 0 : (target.Type == AnnotationSetType.Obd ? GetObdAnnotations(target.Id, value.ImageId).Select(annotation => annotation.ZOrder).DefaultIfEmpty(-1).Max() : GetSegRegions(target.Id, value.ImageId).Select(region => region.ZOrder).DefaultIfEmpty(-1).Max()) + 1, StringComparer.Ordinal);
@@ -515,6 +528,7 @@ namespace Neurocle.Infrastructure.Persistence
                     }
                 }
             });
+            return new AnnotationJsonImportResult(warnings);
         }
 
         /// <inheritdoc />
