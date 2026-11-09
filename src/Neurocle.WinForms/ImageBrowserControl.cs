@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
 using Neurocle.WinForms.Resources;
@@ -206,5 +207,73 @@ namespace Neurocle.WinForms
         public ProjectImage Image { get; private set; }
         // 取得圖片受管理檔案的完整路徑。
         public string Path { get; private set; }
+    }
+
+    internal sealed class HorizontalWheelListView : ListView
+    {
+        private const int MouseWheelMessage = 0x020A;
+        private const int ShiftKey = 0x0004;
+        private const int ControlKey = 0x0008;
+        private const int HorizontalScrollBar = 0;
+        private const int ListViewScrollMessage = 0x1014;
+        private const int ScrollRangeAndPage = 0x0003;
+        private const int WheelDelta = 120;
+        private const int PixelsPerWheelNotch = 48;
+        private int horizontalWheelDelta;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ScrollInfo
+        {
+            public uint Size;
+            public uint Mask;
+            public int Minimum;
+            public int Maximum;
+            public uint Page;
+            public int Position;
+            public int TrackPosition;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool GetScrollInfo(IntPtr handle, int bar, ref ScrollInfo info);
+
+        [DllImport("user32.dll", EntryPoint = "SendMessage", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendListViewMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == MouseWheelMessage)
+            {
+                long keyState = message.WParam.ToInt64() & 0xffff;
+                if ((keyState & ShiftKey) != 0 && (keyState & ControlKey) == 0)
+                {
+                    ScrollHorizontally((short)((message.WParam.ToInt64() >> 16) & 0xffff));
+                    message.Result = IntPtr.Zero;
+                    return;
+                }
+                horizontalWheelDelta = 0;
+            }
+            base.WndProc(ref message);
+        }
+
+        private void ScrollHorizontally(int delta)
+        {
+            if (delta == 0 || !HasHorizontalScrollRange())
+            {
+                horizontalWheelDelta = 0;
+                return;
+            }
+            horizontalWheelDelta += delta;
+            int notches = horizontalWheelDelta / WheelDelta;
+            horizontalWheelDelta -= notches * WheelDelta;
+            if (notches != 0) SendListViewMessage(Handle, ListViewScrollMessage, new IntPtr(-notches * PixelsPerWheelNotch), IntPtr.Zero);
+        }
+
+        private bool HasHorizontalScrollRange()
+        {
+            var info = new ScrollInfo { Size = (uint)Marshal.SizeOf(typeof(ScrollInfo)), Mask = ScrollRangeAndPage };
+            if (!GetScrollInfo(Handle, HorizontalScrollBar, ref info)) return false;
+            long maximumPosition = (long)info.Maximum - Math.Max(0L, (long)info.Page - 1L);
+            return maximumPosition > info.Minimum;
+        }
     }
 }

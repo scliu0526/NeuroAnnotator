@@ -2,7 +2,9 @@ using System;
 using System.ComponentModel;
 using System.ComponentModel.Design;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
+using Neurocle.Application.Projects;
 using Neurocle.WinForms.Resources;
 
 namespace Neurocle.WinForms
@@ -91,7 +93,7 @@ namespace Neurocle.WinForms
         {
             job = value;
             sourceLabel.Text = KindText(value.Request) + "：" + SourceText(value.Request);
-            statusLabel.Text = StatusText(value.Status);
+            statusLabel.Text = StatusText(value.Status, value.Result);
             progressLabel.Text = value.Result == null
                 ? value.Status == ImportJobStatus.Waiting ? Strings.ImportQueueWaiting : value.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, value.Progress.ProcessedCount, value.Progress.TotalCount)
                 : value.Result.OutputPath != null ? Path.GetFileName(value.Result.OutputPath) : value.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, value.Result.ImportedImageIds.Count, value.Result.FailedCount, value.Result.UnprocessedCount);
@@ -104,13 +106,11 @@ namespace Neurocle.WinForms
                     : Math.Max(0, Math.Min(100, (int)Math.Round(value.Progress.ProcessedCount * 100d / value.Progress.TotalCount)));
             if (!progressUnknown) progressBar.Value = progress;
             toolTip.SetToolTip(sourceLabel, SourceText(value.Request));
-            detailsLabel.Text = value.ErrorMessage ?? string.Empty;
+            detailsLabel.Text = value.ErrorMessage ?? FormatWarnings(value.Result);
             toolTip.SetToolTip(detailsLabel, detailsLabel.Text);
             detailsLabel.Visible = detailsVisible && detailsLabel.Text.Length > 0;
-            detailsLabel.Dock = detailsLabel.Visible ? DockStyle.Top : DockStyle.None;
-            detailsLabel.Size = detailsLabel.Visible
-                ? new System.Drawing.Size(ClientSize.Width, 52)
-                : System.Drawing.Size.Empty;
+            copyDetailsButton.Visible = detailsLabel.Visible;
+            UpdateDetailsLayout();
             detailsButton.Text = detailsVisible ? Strings.HideDetails : Strings.ShowDetails;
             cancelButton.Enabled = value.Status == ImportJobStatus.Waiting || (value.Status == ImportJobStatus.Running && !(value.Request is AnnotationJsonImportJobRequest));
             bool isImageImport = value.Request is ImageFilesImportJobRequest || value.Request is FolderImportJobRequest;
@@ -136,6 +136,35 @@ namespace Neurocle.WinForms
         {
             detailsVisible = !detailsVisible;
             if (job != null) UpdateJob(job);
+        }
+
+        private void CopyDetailsButton_Click(object sender, EventArgs args)
+        {
+            if (detailsLabel.Text.Length > 0) Clipboard.SetText(detailsLabel.Text);
+        }
+
+        private void UpdateDetailsLayout()
+        {
+            int margin = ScaleLogical(8);
+            int actionHeight = ScaleLogical(26);
+            int textHeight = ScaleLogical(88);
+            int collapsedHeight = ScaleLogical(128);
+            int detailsTop = collapsedHeight + margin;
+            Height = detailsLabel.Visible ? collapsedHeight + margin + actionHeight + margin + textHeight + margin : collapsedHeight;
+            copyDetailsButton.Location = new System.Drawing.Point(Math.Max(margin, ClientSize.Width - copyDetailsButton.Width - margin), detailsTop);
+            detailsLabel.Location = new System.Drawing.Point(margin, detailsTop + actionHeight + margin);
+            detailsLabel.Size = new System.Drawing.Size(Math.Max(1, ClientSize.Width - margin * 2), textHeight);
+            if (Parent != null) Parent.PerformLayout();
+        }
+
+        private int ScaleLogical(int value)
+        {
+            return ScaleLogicalForDpi(value, DeviceDpi);
+        }
+
+        internal static int ScaleLogicalForDpi(int value, int dpi)
+        {
+            return dpi <= 0 ? value : (int)Math.Round(value * (dpi / 96d));
         }
 
         /// <summary>
@@ -214,16 +243,39 @@ namespace Neurocle.WinForms
         /// </summary>
         /// <param name="status">要顯示的匯入工作狀態。</param>
         /// <returns>對應狀態的顯示名稱。</returns>
-        private static string StatusText(ImportJobStatus status)
+        private static string StatusText(ImportJobStatus status, ImportJobResult result)
         {
             switch (status)
             {
                 case ImportJobStatus.Waiting: return Strings.ImportQueueWaiting;
                 case ImportJobStatus.Running: return Strings.ImportQueueRunning;
-                case ImportJobStatus.Completed: return Strings.ImportQueueCompleted;
+                case ImportJobStatus.Completed: return result != null && result.Warnings.Count > 0 ? Strings.ImportQueueCompletedWithWarnings : Strings.ImportQueueCompleted;
                 case ImportJobStatus.Failed: return Strings.ImportQueueFailed;
                 case ImportJobStatus.Canceled: return Strings.ImportQueueCanceled;
                 default: return status.ToString();
+            }
+        }
+
+        private static string FormatWarnings(ImportJobResult result)
+        {
+            if (result == null || result.Warnings.Count == 0) return string.Empty;
+            return string.Join(Environment.NewLine, result.Warnings.Select(warning => string.Format(
+                Strings.ImportJsonWarningItem,
+                warning.FileName,
+                warning.SourceLocation,
+                WarningReasonText(warning.Reason))));
+        }
+
+        private static string WarningReasonText(AnnotationJsonImportWarningReason reason)
+        {
+            switch (reason)
+            {
+                case AnnotationJsonImportWarningReason.AmbiguousImageFileName: return Strings.ImportJsonWarningAmbiguousImageFileName;
+                case AnnotationJsonImportWarningReason.ImageDimensionsMismatch: return Strings.ImportJsonWarningImageDimensionsMismatch;
+                case AnnotationJsonImportWarningReason.UnknownClassReference: return Strings.ImportJsonWarningUnknownClassReference;
+                case AnnotationJsonImportWarningReason.InvalidAnnotation: return Strings.ImportJsonWarningInvalidAnnotation;
+                case AnnotationJsonImportWarningReason.InvalidDatasetAssignment: return Strings.ImportJsonWarningInvalidDatasetAssignment;
+                default: return reason.ToString();
             }
         }
     }

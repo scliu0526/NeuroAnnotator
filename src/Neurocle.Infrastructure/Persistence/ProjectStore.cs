@@ -436,20 +436,39 @@ namespace Neurocle.Infrastructure.Persistence
         /// <summary>
         /// 依指定模式將 JSON 的標註、類別與資料集分配匯入目前標註集；此操作不建立 Undo 歷程。
         /// </summary>
-        public void ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, bool allowUnknownFields)
+        public AnnotationJsonImportResult ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, bool allowUnknownFields)
         {
-            ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
+            ImportedAnnotationSet imported = JsonAnnotationImport.ParseForSelectedSetImport(json);
             if (!allowUnknownFields && imported.UnknownFields.Count > 0) throw new JsonAnnotationImportException("JSON contains unknown fields.");
             AnnotationSet target = GetAnnotationSets().SingleOrDefault(value => value.Id == annotationSetId);
             if (target == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
             if (target.Type != imported.Type) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
             if (target.Type == AnnotationSetType.Cla && annotationMode == AnnotationImportMode.AddToAllImages) throw new JsonAnnotationImportException("CLA does not support adding annotations to all images.");
             ProjectImage[] images = GetImages().ToArray();
-            var imageByName = images.GroupBy(image => image.OriginalFileName, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
-            foreach (ImportedImage item in imported.Data)
+            var imageByName = images.GroupBy(image => image.OriginalFileName, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+            var warnings = new List<AnnotationJsonImportWarning>();
+            var uniqueMatches = new List<KeyValuePair<int, ProjectImage>>();
+            int uniqueFileNameMatchCount = 0;
+            for (int index = 0; index < imported.Data.Count; index++)
             {
+                ImportedImage item = imported.Data[index];
                 ProjectImage[] matches;
-                if (!imageByName.TryGetValue(item.FileName, out matches) || matches.Length != 1 || matches[0].Width != item.Width || matches[0].Height != item.Height) throw new JsonAnnotationImportException("JSON image does not map to exactly one project image.");
+                if (!imageByName.TryGetValue(item.FileName, out matches)) continue;
+                if (matches.Length > 1)
+                {
+                    warnings.Add(new AnnotationJsonImportWarning(item.FileName, "data[" + index + "]", AnnotationJsonImportWarningReason.AmbiguousImageFileName));
+                    continue;
+                }
+                uniqueFileNameMatchCount++;
+                if (!item.HasValidDimensions || matches[0].Width != item.Width || matches[0].Height != item.Height)
+                {
+                    warnings.Add(new AnnotationJsonImportWarning(item.FileName, "data[" + index + "]", AnnotationJsonImportWarningReason.ImageDimensionsMismatch));
+                    continue;
+                }
+                uniqueMatches.Add(new KeyValuePair<int, ProjectImage>(index, matches[0]));
+                warnings.AddRange(imported.Warnings.Where(value =>
+                    value.SourceLocation.StartsWith("data[" + index + "]", StringComparison.Ordinal) &&
+                    (value.Reason == AnnotationJsonImportWarningReason.InvalidDatasetAssignment ? importDataset : importAnnotationsAndClasses)));
             }
             AnnotationClass[] existing = GetClasses(target.Id).ToArray();
             var classByName = existing.ToDictionary(value => value.Name, StringComparer.Ordinal);
@@ -458,7 +477,10 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 if (classByName.ContainsKey(value.Name)) continue;
                 if (!importAnnotationsAndClasses) continue;
-                var created = new AnnotationClass(Guid.NewGuid().ToString("D"), target.Id, NormalizeName(value.Name), AnnotationColorFormat.Normalize(value.Color));
+                string color;
+                try { color = AnnotationColorFormat.Normalize(value.Color); }
+                catch (ArgumentException exception) { throw new JsonAnnotationImportException(exception.Message, exception); }
+                var created = new AnnotationClass(Guid.NewGuid().ToString("D"), target.Id, NormalizeName(value.Name), color);
                 classByName.Add(created.Name, created);
                 newClasses.Add(created);
             }
@@ -468,14 +490,42 @@ namespace Neurocle.Infrastructure.Persistence
                 : target.Type == AnnotationSetType.Obd
                     ? "SELECT COUNT(*) FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;"
                     : "SELECT COUNT(*) FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;";
-            var mapped = imported.Data
-                .Select(item => new
+            var validRegionsByRow = new Dictionary<int, IReadOnlyList<ImportedRegion>>();
+            foreach (KeyValuePair<int, ProjectImage> match in uniqueMatches)
+            {
+                ImportedImage item = imported.Data[match.Key];
+                if (!importAnnotationsAndClasses)
                 {
-                    Item = item,
-                    ImageId = imageByName[item.FileName][0].Id,
-                    ExistingAnnotationCount = Convert.ToInt32(ExecuteScalar(connection, existingCountSql, new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageByName[item.FileName][0].Id)))
+                    validRegionsByRow.Add(match.Key, item.Regions);
+                    continue;
+                }
+                var validRegions = new List<ImportedRegion>();
+                for (int regionIndex = 0; regionIndex < item.Regions.Count; regionIndex++)
+                {
+                    ImportedRegion region = item.Regions[regionIndex];
+                    try
+                    {
+                        if (target.Type == AnnotationSetType.Obd) ValidateObdGeometry(new Size(item.Width, item.Height), region.X, region.Y, region.Width, region.Height);
+                        else ValidateSegGeometry(new Size(item.Width, item.Height), new SegRegion("import", "import", "import", "import", region.Type, region.X, region.Y, region.Type == SegRegionType.Ellipse ? region.RadiusX : region.Width, region.Type == SegRegionType.Ellipse ? region.RadiusY : region.Height, 0, region.Points, region.StrokeWidth));
+                        validRegions.Add(region);
+                    }
+                    catch (ArgumentException)
+                    {
+                        warnings.Add(new AnnotationJsonImportWarning(item.FileName, "data[" + match.Key + "].regionLabel[" + region.SourceIndex + "]", AnnotationJsonImportWarningReason.InvalidAnnotation));
+                    }
+                }
+                validRegionsByRow.Add(match.Key, validRegions);
+            }
+            var mapped = uniqueMatches
+                .Select(match => new
+                {
+                    RowIndex = match.Key,
+                    Item = new ImportedImage(imported.Data[match.Key].FileName, imported.Data[match.Key].Set, imported.Data[match.Key].ClassLabel, imported.Data[match.Key].Retest, imported.Data[match.Key].Width, imported.Data[match.Key].Height, validRegionsByRow[match.Key], imported.Data[match.Key].HasValidDimensions, imported.Data[match.Key].HasValidDatasetAssignment),
+                    ImageId = match.Value.Id,
+                    ExistingAnnotationCount = Convert.ToInt32(ExecuteScalar(connection, existingCountSql, new SqliteParameter("$set", target.Id), new SqliteParameter("$image", match.Value.Id)))
                 })
                 .ToArray();
+            if (uniqueFileNameMatchCount == 0 || (mapped.Length == 0 && newClasses.Count == 0)) return new AnnotationJsonImportResult(warnings);
             var nextZOrders = target.Type == AnnotationSetType.Cla
                 ? new Dictionary<string, int>(StringComparer.Ordinal)
                 : mapped.ToDictionary(value => value.ImageId, value => annotationMode == AnnotationImportMode.ReplaceMatchingImages ? 0 : (target.Type == AnnotationSetType.Obd ? GetObdAnnotations(target.Id, value.ImageId).Select(annotation => annotation.ZOrder).DefaultIfEmpty(-1).Max() : GetSegRegions(target.Id, value.ImageId).Select(region => region.ZOrder).DefaultIfEmpty(-1).Max()) + 1, StringComparer.Ordinal);
@@ -487,8 +537,9 @@ namespace Neurocle.Infrastructure.Persistence
                     ImportedImage item = value.Item;
                     string imageId = value.ImageId;
                     DatasetAssignmentStatus status = item.Set == "train" ? DatasetAssignmentStatus.Train : item.Set == "test" ? DatasetAssignmentStatus.Test : item.Set == "not_used" ? DatasetAssignmentStatus.NotUsed : DatasetAssignmentStatus.Unassigned;
-                    bool retest = assignments.ContainsKey(imageId) && assignments[imageId].Retest;
-                    if (importDataset && (datasetMode == DatasetImportMode.ReplaceMatchingImages || !assignments.ContainsKey(imageId) || assignments[imageId].Status == DatasetAssignmentStatus.Unassigned)) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
+                    bool retest = item.Retest;
+                    bool isEmptyDatasetAssignment = assignments.TryGetValue(imageId, out DatasetAssignment assignment) && assignment.Status == DatasetAssignmentStatus.Unassigned && !assignment.Retest;
+                    if (importDataset && item.HasValidDatasetAssignment && (datasetMode == DatasetImportMode.ReplaceMatchingImages || isEmptyDatasetAssignment)) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
                     if (!importAnnotationsAndClasses) continue;
                     bool writeAnnotations = annotationMode != AnnotationImportMode.AddToEmptyImages || value.ExistingAnnotationCount == 0;
                     if (!writeAnnotations) continue;
@@ -515,6 +566,7 @@ namespace Neurocle.Infrastructure.Persistence
                     }
                 }
             });
+            return new AnnotationJsonImportResult(warnings);
         }
 
         /// <inheritdoc />
@@ -616,13 +668,15 @@ namespace Neurocle.Infrastructure.Persistence
             object setValue = ExecuteScalar(connection, "SELECT AnnotationSetId FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
             if (setValue == null || setValue == DBNull.Value) return;
             string setId = Convert.ToString(setValue);
+            object typeValue = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", setId));
             if (Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE AnnotationSetId = $set;", new SqliteParameter("$set", setId))) <= 1) throw new InvalidOperationException("An annotation set must retain one class.");
             AnnotationClass deleted = GetClass(classId);
             var assignments = GetClaAssignments(classId);
             var obdAnnotations = GetObdAnnotationsForClass(classId);
             var segRegions = GetSegRegionsForClass(classId);
             Execute(connection, null, "DELETE FROM AnnotationClass WHERE Id = $id;", new SqliteParameter("$id", classId));
-            Record(setId, () => { InsertClassRaw(deleted); foreach (var assignment in assignments) SetClaRaw(setId, assignment, classId); foreach (var annotation in obdAnnotations) InsertObdRaw(annotation); foreach (var region in segRegions) InsertSegRegionRaw(region); }, () => DeleteClassRaw(classId), EstimateHistoryBytes(deleted.Id, deleted.AnnotationSetId, deleted.Name, deleted.Color) + EstimateHistoryBytes(assignments) + EstimateHistoryBytes(obdAnnotations) + EstimateHistoryBytes(segRegions));
+            if (Convert.ToInt32(typeValue) != (int)AnnotationSetType.Cla || assignments.Count == 0)
+                Record(setId, () => { InsertClassRaw(deleted); foreach (var assignment in assignments) SetClaRaw(setId, assignment, classId); foreach (var annotation in obdAnnotations) InsertObdRaw(annotation); foreach (var region in segRegions) InsertSegRegionRaw(region); }, () => DeleteClassRaw(classId), EstimateHistoryBytes(deleted.Id, deleted.AnnotationSetId, deleted.Name, deleted.Color) + EstimateHistoryBytes(assignments) + EstimateHistoryBytes(obdAnnotations) + EstimateHistoryBytes(segRegions));
         }
 
         /// <inheritdoc />
@@ -631,9 +685,7 @@ namespace Neurocle.Infrastructure.Persistence
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
             if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Cla) throw new ArgumentException("The annotation set is not CLA.", nameof(annotationSetId));
             if (classId != null && Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
-            string previous = GetClaClassId(annotationSetId, imageId);
-            SetClaRaw(annotationSetId, imageId, classId);
-            Record(annotationSetId, () => SetClaRaw(annotationSetId, imageId, previous), () => SetClaRaw(annotationSetId, imageId, classId), EstimateHistoryBytes(annotationSetId, imageId, previous, classId));
+            CompleteOperation((db, transaction) => SetClaRaw(db, transaction, annotationSetId, imageId, classId));
         }
 
         /// <inheritdoc />
@@ -702,10 +754,8 @@ namespace Neurocle.Infrastructure.Persistence
             AnnotationSet set = GetAnnotationSets().Single(value => value.Id == annotationSetId);
             if (set.Type == AnnotationSetType.Cla)
             {
-                string[] previous = ids.Select(imageId => GetClaClassId(annotationSetId, imageId)).ToArray();
-                if (previous.All(value => value == null)) return;
+                if (ids.All(imageId => GetClaClassId(annotationSetId, imageId) == null)) return;
                 CompleteOperation((db, transaction) => { foreach (string imageId in ids) Execute(db, transaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); });
-                Record(annotationSetId, () => { for (int index = 0; index < ids.Length; index++) SetClaRaw(annotationSetId, ids[index], previous[index]); }, () => { foreach (string imageId in ids) SetClaRaw(annotationSetId, imageId, null); }, EstimateHistoryBytes(ids) + EstimateHistoryBytes(previous));
                 return;
             }
             if (set.Type == AnnotationSetType.Obd)
@@ -1055,8 +1105,13 @@ namespace Neurocle.Infrastructure.Persistence
         /// <param name="classId">類別識別碼。</param>
         private void SetClaRaw(string annotationSetId, string imageId, string classId)
         {
-            Execute(connection, historyTransaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
-            if (classId != null) Execute(connection, historyTransaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
+            SetClaRaw(connection, historyTransaction, annotationSetId, imageId, classId);
+        }
+
+        private static void SetClaRaw(SqliteConnection connection, SqliteTransaction transaction, string annotationSetId, string imageId, string classId)
+        {
+            Execute(connection, transaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
+            if (classId != null) Execute(connection, transaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
         }
 
         /// <summary>

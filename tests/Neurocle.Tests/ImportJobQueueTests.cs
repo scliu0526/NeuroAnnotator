@@ -299,6 +299,39 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Json_job_executor_carries_partial_import_warnings_into_the_result()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "neurocle-json-partial-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string imagePath = Path.Combine(directory, "image.png");
+                string jsonPath = Path.Combine(directory, "labels.json");
+                using (var bitmap = new Bitmap(20, 20)) bitmap.Save(imagePath, ImageFormat.Png);
+                File.WriteAllText(jsonPath, "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"image.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":3,\"height\":3},{\"className\":\"missing\",\"type\":\"Rect\",\"x\":5,\"y\":5,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}");
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(directory, "queue.neurocle")))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Obd);
+                    store.AddClass(target.Id, "part", "#ABCDEF");
+
+                    ImportJobResult result = ExecuteMainFormImport(
+                        store,
+                        new AnnotationJsonImportJobRequest(jsonPath, "target", target.Id, AnnotationSetType.Obd, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, new string[0]),
+                        () => false,
+                        value => { });
+
+                    Assert.AreEqual(1, result.Warnings.Count);
+                    Assert.AreEqual("image.png", result.Warnings[0].FileName);
+                    Assert.AreEqual("data[0].regionLabel[1]", result.Warnings[0].SourceLocation);
+                    Assert.AreEqual(AnnotationJsonImportWarningReason.UnknownClassReference, result.Warnings[0].Reason);
+                    Assert.AreEqual(1, store.GetObdAnnotations(target.Id, image.Id).Count);
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
+        [TestMethod]
         public void Json_job_executor_rejects_unknown_fields_added_after_preflight_consent()
         {
             string directory = Path.Combine(Path.GetTempPath(), "neurocle-json-drift-" + Guid.NewGuid().ToString("N"));
@@ -320,6 +353,45 @@ namespace Neurocle.Tests
             {
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
+        }
+
+        [TestMethod]
+        public void Json_job_executor_rejects_type_and_structure_drift_after_preflight_without_project_changes()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "neurocle-json-schema-drift-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string jsonPath = Path.Combine(directory, "labels.json");
+                string validObd = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[]}";
+                using (ProjectStore store = ProjectStore.Create(Path.Combine(directory, "queue.neurocle")))
+                {
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Obd);
+                    int classCount = store.GetClasses(target.Id).Count;
+                    bool canUndo = store.CanUndo(target.Id);
+                    using (var queue = new ImportJobQueue((request, cancellationRequested, progress) => ExecuteMainFormImport(store, request, cancellationRequested, progress)))
+                    {
+                        File.WriteAllText(jsonPath, validObd);
+                        var typeDriftRequest = new AnnotationJsonImportJobRequest(jsonPath, "target", target.Id, AnnotationSetType.Obd, true, AnnotationImportMode.ReplaceMatchingImages, true, DatasetImportMode.ReplaceMatchingImages, new string[0]);
+                        File.WriteAllText(jsonPath, validObd.Replace("\"label_type\":\"obd\"", "\"label_type\":\"seg\""));
+                        Guid typeDriftId = queue.Enqueue(typeDriftRequest);
+                        Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                        Assert.AreEqual(ImportJobStatus.Failed, queue.Jobs.Single(value => value.Id == typeDriftId).Status);
+
+                        File.WriteAllText(jsonPath, validObd);
+                        var structureDriftRequest = new AnnotationJsonImportJobRequest(jsonPath, "target", target.Id, AnnotationSetType.Obd, true, AnnotationImportMode.ReplaceMatchingImages, true, DatasetImportMode.ReplaceMatchingImages, new string[0]);
+                        File.WriteAllText(jsonPath, "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"data\":[]}");
+                        Guid structureDriftId = queue.Enqueue(structureDriftRequest);
+                        Assert.IsTrue(queue.WaitUntilIdle(TimeSpan.FromSeconds(5)));
+                        Assert.AreEqual(ImportJobStatus.Failed, queue.Jobs.Single(value => value.Id == structureDriftId).Status);
+                    }
+
+                    Assert.AreEqual(classCount, store.GetClasses(target.Id).Count);
+                    Assert.IsTrue(store.GetDatasetAssignments(target.Id).All(value => value.Status == DatasetAssignmentStatus.Unassigned && !value.Retest));
+                    Assert.AreEqual(canUndo, store.CanUndo(target.Id));
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
 
         [TestMethod]

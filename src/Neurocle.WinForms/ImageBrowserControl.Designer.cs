@@ -5,7 +5,7 @@ namespace Neurocle.WinForms
     partial class ImageBrowserControl
     {
         private System.Windows.Forms.TextBox search;
-        private System.Windows.Forms.ListView list;
+        private HorizontalWheelListView list;
         private System.Windows.Forms.ColumnHeader sequenceColumn;
         private System.Windows.Forms.ColumnHeader fileNameColumn;
         private System.Windows.Forms.ColumnHeader classColumn;
@@ -14,7 +14,7 @@ namespace Neurocle.WinForms
         private void InitializeComponent()
         {
             this.search = new System.Windows.Forms.TextBox();
-            this.list = new System.Windows.Forms.ListView();
+            this.list = new HorizontalWheelListView();
             this.sequenceColumn = new System.Windows.Forms.ColumnHeader();
             this.fileNameColumn = new System.Windows.Forms.ColumnHeader();
             this.classColumn = new System.Windows.Forms.ColumnHeader();

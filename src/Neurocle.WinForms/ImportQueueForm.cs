@@ -65,7 +65,7 @@ namespace Neurocle.WinForms
                     ? job.Progress == null ? string.Empty : string.Format(Strings.ImportQueueProgress, job.Progress.ProcessedCount, job.Progress.TotalCount)
                     : job.Result.WasCanceledDuringScan ? Strings.ImportScanCancelled : string.Format(Strings.ImportQueueResultSummary, job.Result.ImportedImageIds.Count, job.Result.FailedCount, job.Result.UnprocessedCount);
                 var item = new ListViewItem(source) { Tag = job.Id };
-                item.SubItems.Add(StatusText(job.Status));
+                item.SubItems.Add(StatusText(job.Status, job.Result));
                 item.SubItems.Add(progress);
                 jobsList.Items.Add(item);
                 if (selected == job.Id) item.Selected = true;
@@ -137,13 +137,13 @@ namespace Neurocle.WinForms
         /// </summary>
         /// <param name="status">要轉換為顯示文字的工作狀態。</param>
         /// <returns>對應工作狀態的本地化名稱。</returns>
-        private static string StatusText(ImportJobStatus status)
+        private static string StatusText(ImportJobStatus status, ImportJobResult result)
         {
             switch (status)
             {
                 case ImportJobStatus.Waiting: return Strings.ImportQueueWaiting;
                 case ImportJobStatus.Running: return Strings.ImportQueueRunning;
-                case ImportJobStatus.Completed: return Strings.ImportQueueCompleted;
+                case ImportJobStatus.Completed: return result != null && result.Warnings.Count > 0 ? Strings.ImportQueueCompletedWithWarnings : Strings.ImportQueueCompleted;
                 case ImportJobStatus.Failed: return Strings.ImportQueueFailed;
                 case ImportJobStatus.Canceled: return Strings.ImportQueueCanceled;
                 default: return status.ToString();

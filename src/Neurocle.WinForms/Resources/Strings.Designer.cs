@@ -27,6 +27,25 @@ namespace Neurocle.WinForms.Resources
         internal static string ProjectOperationFailed { get { return ResourceManager.GetString("ProjectOperationFailed", CultureInfo.CurrentUICulture); } }
         internal static string ImportImages { get { return ResourceManager.GetString("ImportImages", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationJson { get { return ResourceManager.GetString("ImportAnnotationJson", CultureInfo.CurrentUICulture); } }
+        internal static string ImportFile { get { return ResourceManager.GetString("ImportFile", CultureInfo.CurrentUICulture); } }
+        internal static string ChooseFiles { get { return ResourceManager.GetString("ChooseFiles", CultureInfo.CurrentUICulture); } }
+        internal static string Clear { get { return ResourceManager.GetString("Clear", CultureInfo.CurrentUICulture); } }
+        internal static string ImportClassAndAnnotations { get { return ResourceManager.GetString("ImportClassAndAnnotations", CultureInfo.CurrentUICulture); } }
+        internal static string ImportDatasetAndRetest { get { return ResourceManager.GetString("ImportDatasetAndRetest", CultureInfo.CurrentUICulture); } }
+        internal static string ImportAddToEmptyImages { get { return ResourceManager.GetString("ImportAddToEmptyImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportAddToAllImages { get { return ResourceManager.GetString("ImportAddToAllImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportReplaceMatchingImages { get { return ResourceManager.GetString("ImportReplaceMatchingImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportAddToUnassignedImages { get { return ResourceManager.GetString("ImportAddToUnassignedImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportIgnoreUnknownFields { get { return ResourceManager.GetString("ImportIgnoreUnknownFields", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonPreview { get { return ResourceManager.GetString("ImportJsonPreview", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonValidating { get { return ResourceManager.GetString("ImportJsonValidating", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonTypeMismatch { get { return ResourceManager.GetString("ImportJsonTypeMismatch", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningItem { get { return ResourceManager.GetString("ImportJsonWarningItem", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningAmbiguousImageFileName { get { return ResourceManager.GetString("ImportJsonWarningAmbiguousImageFileName", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningImageDimensionsMismatch { get { return ResourceManager.GetString("ImportJsonWarningImageDimensionsMismatch", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningUnknownClassReference { get { return ResourceManager.GetString("ImportJsonWarningUnknownClassReference", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningInvalidAnnotation { get { return ResourceManager.GetString("ImportJsonWarningInvalidAnnotation", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningInvalidDatasetAssignment { get { return ResourceManager.GetString("ImportJsonWarningInvalidDatasetAssignment", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationUnknownFields { get { return ResourceManager.GetString("ImportAnnotationUnknownFields", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationIrreversiblePrompt { get { return ResourceManager.GetString("ImportAnnotationIrreversiblePrompt", CultureInfo.CurrentUICulture); } }
         internal static string ImageFileFilter { get { return ResourceManager.GetString("ImageFileFilter", CultureInfo.CurrentUICulture); } }
@@ -50,6 +69,7 @@ namespace Neurocle.WinForms.Resources
         internal static string ImportQueueWaiting { get { return ResourceManager.GetString("ImportQueueWaiting", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueRunning { get { return ResourceManager.GetString("ImportQueueRunning", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueCompleted { get { return ResourceManager.GetString("ImportQueueCompleted", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueCompletedWithWarnings { get { return ResourceManager.GetString("ImportQueueCompletedWithWarnings", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueFailed { get { return ResourceManager.GetString("ImportQueueFailed", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueCanceled { get { return ResourceManager.GetString("ImportQueueCanceled", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueCapacityReached { get { return ResourceManager.GetString("ImportQueueCapacityReached", CultureInfo.CurrentUICulture); } }
@@ -78,6 +98,11 @@ namespace Neurocle.WinForms.Resources
         internal static string RelinkSourceNotFound { get { return ResourceManager.GetString("RelinkSourceNotFound", CultureInfo.CurrentUICulture); } }
         internal static string RelinkContentMismatch { get { return ResourceManager.GetString("RelinkContentMismatch", CultureInfo.CurrentUICulture); } }
         internal static string Close { get { return ResourceManager.GetString("Close", CultureInfo.CurrentUICulture); } }
+        internal static string CopyFailures { get { return ResourceManager.GetString("CopyFailures", CultureInfo.CurrentUICulture); } }
+        internal static string CopyDetails { get { return ResourceManager.GetString("CopyDetails", CultureInfo.CurrentUICulture); } }
+        internal static string ClaBatchAssignmentResultTitle { get { return ResourceManager.GetString("ClaBatchAssignmentResultTitle", CultureInfo.CurrentUICulture); } }
+        internal static string ClaBatchAssignmentResultSummary { get { return ResourceManager.GetString("ClaBatchAssignmentResultSummary", CultureInfo.CurrentUICulture); } }
+        internal static string ClaBatchAssignmentFailures { get { return ResourceManager.GetString("ClaBatchAssignmentFailures", CultureInfo.CurrentUICulture); } }
         internal static string ManageBackups { get { return ResourceManager.GetString("ManageBackups", CultureInfo.CurrentUICulture); } }
         internal static string BackupManagementTitle { get { return ResourceManager.GetString("BackupManagementTitle", CultureInfo.CurrentUICulture); } }
         internal static string RestoreBackup { get { return ResourceManager.GetString("RestoreBackup", CultureInfo.CurrentUICulture); } }

@@ -187,6 +187,34 @@ namespace Neurocle.WinForms
         }
 
         /// <summary>
+        /// 在主視窗預覽 Ctrl 按下時立即更新標註畫布游標，即使畫布目前沒有鍵盤焦點。
+        /// </summary>
+        /// <param name="args">包含按鍵及修飾鍵狀態的事件資料。</param>
+        protected override void OnKeyDown(KeyEventArgs args)
+        {
+            if (IsControlKey(args.KeyCode)) canvas?.SetControlModifierState(true);
+            base.OnKeyDown(args);
+        }
+
+        /// <summary>
+        /// 在主視窗預覽 Ctrl 放開時立即恢復標註畫布游標。
+        /// </summary>
+        /// <param name="args">包含按鍵及修飾鍵狀態的事件資料。</param>
+        protected override void OnKeyUp(KeyEventArgs args)
+        {
+            if (IsControlKey(args.KeyCode)) canvas?.SetControlModifierState(false);
+            base.OnKeyUp(args);
+        }
+
+        /// <summary>
+        /// 判斷按鍵是否為任一 Ctrl 修飾鍵。
+        /// </summary>
+        private static bool IsControlKey(Keys keyCode)
+        {
+            return keyCode == Keys.ControlKey || keyCode == Keys.LControlKey || keyCode == Keys.RControlKey;
+        }
+
+        /// <summary>
         /// 在主視窗關閉前確認匯入佇列，並避免正在匯出或標註操作時離開。
         /// </summary>
         /// <param name="sender">正在關閉的主視窗。</param>
@@ -236,8 +264,16 @@ namespace Neurocle.WinForms
         {
             if (!args.Control) return;
             if (HasTextInputFocus() && (args.KeyCode == Keys.Z || args.KeyCode == Keys.Y)) return;
-            if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
-            else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
+            if (args.KeyCode == Keys.Z)
+            {
+                if (!(pages.SelectedTab == annotationPage && canvas.TryHandlePencilHistoryShortcut(args.Shift)))
+                    UndoOrRedoSelectedAnnotationSet(args.Shift);
+            }
+            else if (args.KeyCode == Keys.Y)
+            {
+                if (!(pages.SelectedTab == annotationPage && canvas.TryHandlePencilHistoryShortcut(true)))
+                    UndoOrRedoSelectedAnnotationSet(true);
+            }
             else if (args.KeyCode == Keys.C && !HasTextInputFocus()) CopySelectedAnnotations();
             else if (args.KeyCode == Keys.V && !HasTextInputFocus()) PasteCopiedAnnotations();
             else if (args.KeyCode == Keys.A && pages.SelectedTab == annotationPage && !HasTextInputFocus()) SelectAllAnnotations();
@@ -1307,11 +1343,7 @@ namespace Neurocle.WinForms
                     annotationToolTips.SetToolTip(button, value.Name);
                     button.Click += (sender, args) =>
                     {
-                        if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() =>
-                        {
-                            project.SetClaClass(selected.Id, selectedImageId, value.Id);
-                            RefreshAnnotationClasses();
-                        });
+                        if (selected.Type == AnnotationSetType.Cla) AssignClaClassToSelectedImages(selected, value);
                         else if (selected.Type == AnnotationSetType.Obd)
                         {
                             selectedObdClassId = value.Id;
@@ -1350,6 +1382,38 @@ namespace Neurocle.WinForms
                 button.Invalidate();
             }
             RefreshImageBrowser();
+        }
+
+        private void AssignClaClassToSelectedImages(AnnotationSet selected, AnnotationClass value)
+        {
+            if (project == null || selected == null || value == null) return;
+            string[] imageIds = imageBrowser.SelectedImageIds.ToArray();
+            if (imageIds.Length == 0 && selectedImageId != null) imageIds = new[] { selectedImageId };
+            if (imageIds.Length == 0) return;
+
+            Dictionary<string, string> displayNames = imageBrowser.Rows.ToDictionary(row => row.Image.Id, row => row.Image.OriginalFileName, StringComparer.Ordinal);
+            var failures = new List<string>();
+            int succeededCount = 0;
+            foreach (string imageId in imageIds)
+            {
+                try
+                {
+                    project.SetClaClass(selected.Id, imageId, value.Id);
+                    succeededCount++;
+                }
+                catch (System.Exception exception)
+                {
+                    string fileName;
+                    string reason = string.IsNullOrWhiteSpace(exception.Message) ? Strings.ProjectOperationFailed : exception.Message;
+                    failures.Add((displayNames.TryGetValue(imageId, out fileName) ? fileName : imageId) + ": " + reason);
+                }
+            }
+
+            RefreshAnnotationClasses();
+            if (failures.Count > 0)
+            {
+                using (var dialog = new ClaBatchResultDialog(succeededCount, failures)) dialog.ShowDialog(this);
+            }
         }
 
         // 取得目前選取的標註集模型。
@@ -1491,50 +1555,44 @@ namespace Neurocle.WinForms
         /// <summary>
         /// 選取標註 JSON 並將其加入目前專案的匯入佇列。
         /// </summary>
-        private async void QueueAnnotationJson()
+        private void QueueAnnotationJson()
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || importJobQueue == null || selected == null) return;
-            IProjectSession targetProject = project;
-            ImportJobQueue targetQueue = importJobQueue;
-            using (var dialog = new OpenFileDialog { Filter = "JSON (*.json)|*.json", Multiselect = false })
+            AnnotationClass[] existingClasses = project.GetClasses(selected.Id).ToArray();
+            using (var options = new AnnotationJsonImportDialog(selected.Type, filePath => InspectAnnotationJson(filePath, selected.Type, existingClasses)))
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                AnnotationJsonImportPreview preview;
-                ProjectImage[] projectImages = targetProject.GetImages().ToArray();
-                try
-                {
-                    preview = await Task.Run(() => PreflightAnnotationJson(dialog.FileName, selected.Type, projectImages));
-                }
-                catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is JsonAnnotationImportException)
-                {
-                    if (!ReferenceEquals(project, targetProject) || importJobQueue != targetQueue || SelectedAnnotationSet?.Id != selected.Id) return;
-                    targetQueue.RecordFailure(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, false), exception.Message);
-                    ShowImportQueue();
-                    return;
-                }
-                if (!ReferenceEquals(project, targetProject) || importJobQueue != targetQueue || SelectedAnnotationSet?.Id != selected.Id) return;
-                using (var options = new AnnotationJsonImportDialog(dialog.FileName, preview))
-                {
-                    if (options.ShowDialog(this) != DialogResult.OK) return;
-                    if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
-                    IEnumerable<string> approvedUnknownFields = options.AllowUnknownFields ? preview.UnknownFields : new string[0];
-                    TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, options.ImportAnnotationsAndClasses, options.AnnotationMode, options.ImportDataset, options.DatasetMode, approvedUnknownFields));
-                }
+                if (options.ShowDialog(this) != DialogResult.OK) return;
+                if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+                IEnumerable<string> approvedUnknownFields = options.AllowUnknownFields ? options.SourcePreview.UnknownFields : new string[0];
+                TryEnqueueImportJob(new AnnotationJsonImportJobRequest(options.FilePath, selected.Name, selected.Id, selected.Type, options.ImportAnnotationsAndClasses, options.AnnotationMode, options.ImportDataset, options.DatasetMode, approvedUnknownFields));
             }
         }
 
-        internal static AnnotationJsonImportPreview PreflightAnnotationJson(string filePath, AnnotationSetType targetType, IReadOnlyList<ProjectImage> projectImages)
+        internal static AnnotationJsonImportPreview PreflightAnnotationJson(string filePath, AnnotationSetType targetType, IReadOnlyCollection<AnnotationClass> existingClasses = null)
         {
-            AnnotationJsonImportPreview preview = AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath));
-            if (preview.Type != targetType) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
-            foreach (AnnotationJsonImportPreviewImage image in preview.Images)
+            AnnotationJsonPreflightResult result = InspectAnnotationJson(filePath, targetType, existingClasses);
+            if (!String.IsNullOrEmpty(result.ErrorMessage)) throw new JsonAnnotationImportException(result.ErrorMessage);
+            return result.Preview;
+        }
+
+        internal static AnnotationJsonPreflightResult InspectAnnotationJson(string filePath, AnnotationSetType targetType, IReadOnlyCollection<AnnotationClass> existingClasses = null)
+        {
+            AnnotationJsonImportPreview preview;
+            try { preview = AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath)); }
+            catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is JsonAnnotationImportException)
             {
-                ProjectImage[] matches = projectImages.Where(value => String.Equals(value.OriginalFileName, image.FileName, StringComparison.OrdinalIgnoreCase)).ToArray();
-                if (matches.Length != 1) throw new JsonAnnotationImportException("JSON image does not map to exactly one project image: " + image.FileName);
-                if (matches[0].Width != image.Width || matches[0].Height != image.Height) throw new JsonAnnotationImportException("JSON image dimensions do not match the project image: " + image.FileName);
+                return new AnnotationJsonPreflightResult(null, exception.Message);
             }
-            return preview;
+            if (preview.Type != targetType) return new AnnotationJsonPreflightResult(preview, Strings.ImportJsonTypeMismatch);
+            var existingClassNames = new HashSet<string>((existingClasses ?? new AnnotationClass[0]).Select(value => value.Name), StringComparer.Ordinal);
+            foreach (AnnotationJsonImportPreviewClass value in preview.Classes)
+            {
+                if (existingClassNames.Contains(value.Name)) continue;
+                try { AnnotationColorFormat.Normalize(value.Color); }
+                catch (ArgumentException exception) { return new AnnotationJsonPreflightResult(preview, exception.Message); }
+            }
+            return new AnnotationJsonPreflightResult(preview, null);
         }
 
         /// <summary>
@@ -2106,9 +2164,13 @@ namespace Neurocle.WinForms
                     allowUnknownFields = executionPreview.UnknownFields.Count > 0;
                 }
                 if (jsonRequest.TargetAnnotationSetType.HasValue && session.GetAnnotationSets().SingleOrDefault(value => value.Id == jsonRequest.TargetAnnotationSetId)?.Type != jsonRequest.TargetAnnotationSetType.Value) throw new JsonAnnotationImportException("Target annotation set changed or model type does not match.");
-                if (String.IsNullOrWhiteSpace(jsonRequest.TargetAnnotationSetId)) session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, allowUnknownFields);
-                else session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotationsAndClasses, jsonRequest.AnnotationMode, jsonRequest.ImportDataset, jsonRequest.DatasetMode, allowUnknownFields);
-                return new ImportJobResult(false, new string[0]);
+                if (String.IsNullOrWhiteSpace(jsonRequest.TargetAnnotationSetId))
+                {
+                    session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, allowUnknownFields);
+                    return new ImportJobResult(false, new string[0]);
+                }
+                AnnotationJsonImportResult importResult = session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotationsAndClasses, jsonRequest.AnnotationMode, jsonRequest.ImportDataset, jsonRequest.DatasetMode, allowUnknownFields);
+                return new ImportJobResult(false, new string[0], warnings: importResult.Warnings);
             }
             return new ImportJobResult(
                 report.UnprocessedCount > 0 || report.WasCancelledDuringScan,

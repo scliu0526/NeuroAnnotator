@@ -41,6 +41,25 @@
   <data name="ProjectOperationFailed" xml:space="preserve"><value>專案操作失敗。請確認專案位置與檔案狀態後再試一次。</value></data>
   <data name="ImportImages" xml:space="preserve"><value>匯入圖片</value></data>
   <data name="ImportAnnotationJson" xml:space="preserve"><value>匯入標註 JSON</value></data>
+  <data name="ImportFile" xml:space="preserve"><value>匯入檔案：</value></data>
+  <data name="ChooseFiles" xml:space="preserve"><value>選擇 JSON...</value></data>
+  <data name="Clear" xml:space="preserve"><value>清除</value></data>
+  <data name="ImportClassAndAnnotations" xml:space="preserve"><value>CLASS 類別與標註</value></data>
+  <data name="ImportDatasetAndRetest" xml:space="preserve"><value>SET 資料集與 Retest</value></data>
+  <data name="ImportAddToEmptyImages" xml:space="preserve"><value>添加到空白圖像</value></data>
+  <data name="ImportAddToAllImages" xml:space="preserve"><value>添加到所有圖像</value></data>
+  <data name="ImportReplaceMatchingImages" xml:space="preserve"><value>覆蓋所有圖像</value></data>
+  <data name="ImportAddToUnassignedImages" xml:space="preserve"><value>添加到空白圖像</value></data>
+  <data name="ImportIgnoreUnknownFields" xml:space="preserve"><value>略過以上未知欄位並繼續</value></data>
+  <data name="ImportJsonPreview" xml:space="preserve"><value>JSON 內容預覽</value></data>
+  <data name="ImportJsonValidating" xml:space="preserve"><value>正在驗證 JSON...</value></data>
+  <data name="ImportJsonTypeMismatch" xml:space="preserve"><value>此標註集類型與目前標註集不同</value></data>
+  <data name="ImportJsonWarningItem" xml:space="preserve"><value>{0}（{1}）：{2}</value></data>
+  <data name="ImportJsonWarningAmbiguousImageFileName" xml:space="preserve"><value>顯示檔名不唯一，略過此項目。</value></data>
+  <data name="ImportJsonWarningImageDimensionsMismatch" xml:space="preserve"><value>圖片尺寸不符，略過整張圖片。</value></data>
+  <data name="ImportJsonWarningUnknownClassReference" xml:space="preserve"><value>類別不在 JSON 的 CLASS 清單中，略過此標註。</value></data>
+  <data name="ImportJsonWarningInvalidAnnotation" xml:space="preserve"><value>標註欄位或幾何無效，略過此標註。</value></data>
+  <data name="ImportJsonWarningInvalidDatasetAssignment" xml:space="preserve"><value>SET 或 Retest 無效，保留圖片原有資料集狀態與 Retest。</value></data>
   <data name="ImportAnnotationUnknownFields" xml:space="preserve"><value>JSON 包含未知欄位，這些欄位不會保存。是否繼續匯入？</value></data>
   <data name="ImportAnnotationIrreversiblePrompt" xml:space="preserve"><value>匯入將直接寫入目前標註集，且無法使用 Undo/Redo 復原。是否繼續？</value></data>
   <data name="ImageFileFilter" xml:space="preserve"><value>圖片 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp</value></data>
@@ -64,6 +83,7 @@
   <data name="ImportQueueWaiting" xml:space="preserve"><value>等待中</value></data>
   <data name="ImportQueueRunning" xml:space="preserve"><value>執行中</value></data>
   <data name="ImportQueueCompleted" xml:space="preserve"><value>已完成</value></data>
+  <data name="ImportQueueCompletedWithWarnings" xml:space="preserve"><value>完成但有警告</value></data>
   <data name="ImportQueueFailed" xml:space="preserve"><value>失敗</value></data>
   <data name="ImportQueueCanceled" xml:space="preserve"><value>已取消</value></data>
   <data name="ImportQueueCapacityReached" xml:space="preserve"><value>匯入佇列已達十筆等待中或執行中的上限。</value></data>
@@ -92,6 +112,11 @@
   <data name="RelinkSourceNotFound" xml:space="preserve"><value>找不到選取的重新連結檔案。</value></data>
   <data name="RelinkContentMismatch" xml:space="preserve"><value>選取檔案的 SHA-256 與原始圖片不相同，無法重新連結。</value></data>
   <data name="Close" xml:space="preserve"><value>關閉</value></data>
+  <data name="CopyFailures" xml:space="preserve"><value>複製失敗清單</value></data>
+  <data name="CopyDetails" xml:space="preserve"><value>複製詳細資訊</value></data>
+  <data name="ClaBatchAssignmentResultTitle" xml:space="preserve"><value>CLA 批次標註結果</value></data>
+  <data name="ClaBatchAssignmentResultSummary" xml:space="preserve"><value>成功：{0} 張；失敗：{1} 張</value></data>
+  <data name="ClaBatchAssignmentFailures" xml:space="preserve"><value>失敗圖片與原因</value></data>
   <data name="ManageBackups" xml:space="preserve"><value>管理備份</value></data>
   <data name="BackupManagementTitle" xml:space="preserve"><value>資料庫備份</value></data>
   <data name="RestoreBackup" xml:space="preserve"><value>還原選取備份</value></data>
