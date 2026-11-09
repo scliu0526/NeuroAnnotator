@@ -1692,7 +1692,7 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
-        public void Each_released_brush_stroke_can_be_undone_and_redone_independently()
+        public void Completed_brush_paths_can_be_undone_and_redone_independently()
         {
             string path = TemporaryProjectPath();
             string source = Path.Combine(Path.GetDirectoryName(path), "source.png");

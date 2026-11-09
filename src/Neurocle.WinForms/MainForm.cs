@@ -236,8 +236,16 @@ namespace Neurocle.WinForms
         {
             if (!args.Control) return;
             if (HasTextInputFocus() && (args.KeyCode == Keys.Z || args.KeyCode == Keys.Y)) return;
-            if (args.KeyCode == Keys.Z) UndoOrRedoSelectedAnnotationSet(args.Shift);
-            else if (args.KeyCode == Keys.Y) UndoOrRedoSelectedAnnotationSet(true);
+            if (args.KeyCode == Keys.Z)
+            {
+                if (!(pages.SelectedTab == annotationPage && canvas.TryHandlePencilHistoryShortcut(args.Shift)))
+                    UndoOrRedoSelectedAnnotationSet(args.Shift);
+            }
+            else if (args.KeyCode == Keys.Y)
+            {
+                if (!(pages.SelectedTab == annotationPage && canvas.TryHandlePencilHistoryShortcut(true)))
+                    UndoOrRedoSelectedAnnotationSet(true);
+            }
             else if (args.KeyCode == Keys.C && !HasTextInputFocus()) CopySelectedAnnotations();
             else if (args.KeyCode == Keys.V && !HasTextInputFocus()) PasteCopiedAnnotations();
             else if (args.KeyCode == Keys.A && pages.SelectedTab == annotationPage && !HasTextInputFocus()) SelectAllAnnotations();

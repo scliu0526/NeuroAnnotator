@@ -91,6 +91,10 @@ namespace Neurocle.WinForms
         private RectangleF? segPreview;
         // 保存目前畫筆、線形或多邊形的路徑點。
         private readonly List<PointF> segPath = new List<PointF>();
+        // 保存已完成畫筆落筆在未閉合路徑中的起始索引。
+        private readonly List<int> segPencilStrokeStarts = new List<int>();
+        // 保存目前尚未放開的畫筆落筆起始索引；沒有進行中落筆時為 -1。
+        private int segPencilStrokeStart = -1;
         // 指出目前是否按住滑鼠持續繪製 SEG 路徑。
         private bool segPathDragging;
         // 保存線形工具目前線段的固定起點。
@@ -579,6 +583,8 @@ namespace Neurocle.WinForms
             selectionPreview = null;
             segPreview = null;
             segPath.Clear();
+            segPencilStrokeStarts.Clear();
+            segPencilStrokeStart = -1;
             segPathStrokeWidth = 0;
             segPathDragging = false;
             segLineStart = null;
@@ -598,6 +604,30 @@ namespace Neurocle.WinForms
             RefreshToolCursor();
             ApplyToolCursor();
             Invalidate();
+        }
+
+        /// <summary>
+        /// 在畫筆標註尚未閉合時優先處理局部 Undo，並攔截 Redo。
+        /// </summary>
+        /// <param name="redo">指出目前快捷鍵是否要求重做。</param>
+        /// <returns>若目前存在未完成畫筆階段且已處理或攔截快捷鍵則為 true。</returns>
+        internal bool TryHandlePencilHistoryShortcut(bool redo)
+        {
+            if (!SegEnabled || SegTool != SegToolKind.Polygon || segPath.Count == 0) return false;
+            if (redo || Capture || segPencilStrokeStarts.Count == 0) return true;
+
+            int start = segPencilStrokeStarts[segPencilStrokeStarts.Count - 1];
+            segPencilStrokeStarts.RemoveAt(segPencilStrokeStarts.Count - 1);
+            segPath.RemoveRange(start, segPath.Count - start);
+            segPathDragging = false;
+            if (segPath.Count == 0)
+            {
+                segPathStrokeWidth = 0;
+                SetThumbnailHiddenForGesture(false);
+            }
+            else SetThumbnailHiddenForGesture(true);
+            Invalidate();
+            return true;
         }
 
         /// <summary>
@@ -1260,11 +1290,14 @@ namespace Neurocle.WinForms
                         if ((CurrentModifierKeys & Keys.Control) == Keys.Control) SegGeometryEraseRequested?.Invoke(SegRegionType.PolyGon, Rectangle.Empty, polygon, 0);
                         else SegPathCreated?.Invoke(SegRegionType.PolyGon, polygon, 0);
                         segPath.Clear();
+                        segPencilStrokeStarts.Clear();
+                        segPencilStrokeStart = -1;
                         SetThumbnailHiddenForGesture(false);
                         Invalidate();
                         base.OnMouseDown(args);
                         return;
                     }
+                    if (SegTool == SegToolKind.Polygon) segPencilStrokeStart = segPath.Count;
                     if (segPath.Count == 0) { segPathStrokeWidth = SegTool == SegToolKind.Brush || SegTool == SegToolKind.Eraser ? SegStrokeWidth : 0; segPath.Add(point); SetThumbnailHiddenForGesture(true); }
                     else segPath.Add(point);
                     segPathDragging = false;
@@ -1664,6 +1697,13 @@ namespace Neurocle.WinForms
                     if ((CurrentModifierKeys & Keys.Control) == Keys.Control) SegGeometryEraseRequested?.Invoke(SegRegionType.PolyGon, Rectangle.Empty, polygon, 0);
                     else SegPathCreated?.Invoke(SegRegionType.PolyGon, polygon, 0);
                     segPath.Clear();
+                    segPencilStrokeStarts.Clear();
+                    segPencilStrokeStart = -1;
+                }
+                else if (SegTool == SegToolKind.Polygon && segPencilStrokeStart >= 0)
+                {
+                    segPencilStrokeStarts.Add(segPencilStrokeStart);
+                    segPencilStrokeStart = -1;
                 }
                 else if (SegTool == SegToolKind.Brush)
                 {
@@ -1683,7 +1723,7 @@ namespace Neurocle.WinForms
                     segPathStrokeWidth = 0;
                 }
                 segPathDragging = false;
-                SetThumbnailHiddenForGesture(false);
+                SetThumbnailHiddenForGesture(SegTool == SegToolKind.Polygon && segPath.Count > 0);
                 Invalidate();
             }
             if (panning) Capture = false;

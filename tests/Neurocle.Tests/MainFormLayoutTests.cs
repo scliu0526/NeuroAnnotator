@@ -5030,7 +5030,134 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
-        public void Each_released_seg_brush_path_is_one_ctrl_z_history_step()
+        public void Unfinished_seg_pencil_strokes_undo_by_release_and_suppress_redo_until_completion()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 100);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                store.AddSegRegion(set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 5, 5, 10, 10);
+                Assert.IsTrue(store.Undo(set.Id));
+                Assert.IsTrue(store.CanRedo(set.Id), "The unfinished pencil stage must be able to prove that Redo is suppressed.");
+                ProjectStore activeStore = store;
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Size = new Size(1200, 800);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    form.ImageBrowser.SelectImage(image.Id);
+                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, Path.Combine(activeStore.ImagesDirectory, image.ManagedFileName)));
+                    ComboBox sets = Field<ComboBox>(form, "annotationSets");
+                    sets.SelectedItem = AnnotationSet(sets, set.Id);
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(activeStore.ImagesDirectory, image.ManagedFileName));
+                    Field<Button>(form, "segPolygon").PerformClick();
+
+                    ImageCanvasControl canvas = form.AnnotationCanvas;
+                    IReadOnlyList<SegPoint> submittedPolygon = null;
+                    canvas.SegPathCreated += (type, points, width) =>
+                    {
+                        if (type == SegRegionType.PolyGon) submittedPolygon = points.ToArray();
+                    };
+                    Point first = ImagePointToScreen(canvas, 20, 20);
+                    Point draggedStart = ImagePointToScreen(canvas, 60, 20);
+                    Point draggedMiddle = ImagePointToScreen(canvas, 70, 30);
+                    Point draggedEnd = ImagePointToScreen(canvas, 70, 40);
+                    Point discardedThird = ImagePointToScreen(canvas, 70, 70);
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, first.X, first.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, first.X, first.Y, 0));
+                    Assert.IsTrue(Field<bool>(canvas, "thumbnailHiddenForGesture"), "The thumbnail must stay hidden between pencil strokes.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Undoing the only pencil stroke must end the unfinished stage.");
+                    Assert.AreEqual(0, activeStore.GetSegRegions(set.Id, image.Id).Count);
+                    Assert.IsTrue(activeStore.CanRedo(set.Id), "Local pencil Undo must not consume global Redo history.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Y));
+                    Assert.AreEqual(1, activeStore.GetSegRegions(set.Id, image.Id).Count, "After the pencil stage ends, Redo must return to global history.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+                    Assert.AreEqual(0, activeStore.GetSegRegions(set.Id, image.Id).Count);
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, first.X, first.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, first.X, first.Y, 0));
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, draggedStart.X, draggedStart.Y, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, draggedMiddle.X, draggedMiddle.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, draggedEnd.X, draggedEnd.Y, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, discardedThird.X, discardedThird.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, discardedThird.X, discardedThird.Y, 0));
+
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Y));
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Shift | Keys.Z));
+                    Assert.AreEqual(0, activeStore.GetSegRegions(set.Id, image.Id).Count, "Redo shortcuts must not reach global history during an unfinished pencil stage.");
+                    Assert.IsTrue(activeStore.CanRedo(set.Id));
+
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+
+                    Point replacementSecond = ImagePointToScreen(canvas, 80, 20);
+                    Point replacementThird = ImagePointToScreen(canvas, 80, 80);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, replacementSecond.X, replacementSecond.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, replacementSecond.X, replacementSecond.Y, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, replacementThird.X, replacementThird.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, replacementThird.X, replacementThird.Y, 0));
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, first.X, first.Y, 0));
+
+                    CollectionAssert.AreEqual(
+                        new[] { 20, 80, 80 },
+                        submittedPolygon.Select(point => point.X).ToArray(),
+                        "Undo must remove the complete third stroke and the complete dragged second stroke before replacement points are added.");
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Completing the pencil annotation must restore the thumbnail.");
+
+                    DateTime timeout = DateTime.UtcNow.AddSeconds(5);
+                    while (Field<bool>(form, "annotationOperationInProgress") && DateTime.UtcNow < timeout)
+                    {
+                        System.Windows.Forms.Application.DoEvents();
+                        Thread.Sleep(1);
+                    }
+                    Assert.AreEqual(1, activeStore.GetSegRegions(set.Id, image.Id).Count, "The closed pencil path must be one completed annotation.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+                    Assert.AreEqual(0, activeStore.GetSegRegions(set.Id, image.Id).Count, "After completion, Undo must remove the whole annotation.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Y));
+                    Assert.AreEqual(1, activeStore.GetSegRegions(set.Id, image.Id).Count, "After completion, Redo must restore the whole annotation.");
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, first.X, first.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, first.X, first.Y, 0));
+                    RaiseEvent(canvas, "OnKeyDown", new KeyEventArgs(Keys.Escape));
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Esc must end the unfinished pencil stage.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+                    Assert.AreEqual(0, activeStore.GetSegRegions(set.Id, image.Id).Count, "After Esc, Undo must return to completed annotation history.");
+
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Y));
+                    Assert.AreEqual(1, activeStore.GetSegRegions(set.Id, image.Id).Count);
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, first.X, first.Y, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, first.X, first.Y, 0));
+                    RaiseKey(form, new KeyEventArgs(Keys.B));
+                    Assert.AreEqual(ImageCanvasControl.SegToolKind.Brush, canvas.SegTool);
+                    Assert.IsFalse(Field<bool>(canvas, "thumbnailHiddenForGesture"), "Switching tools must end the unfinished pencil stage.");
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.Z));
+                    Assert.AreEqual(0, activeStore.GetSegRegions(set.Id, image.Id).Count, "After switching tools, Undo must return to completed annotation history.");
+                    form.Close();
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Released_seg_brush_paths_remain_independent_completed_history_steps()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
             string projectPath = Path.Combine(directory, "project.neurocle");

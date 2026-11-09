@@ -13,8 +13,8 @@ Neurocle is a fully offline Windows desktop application for manually annotating 
 - Hold Shift while using the mouse wheel in the image list to scroll horizontally without changing selection.
 - Create multiple isolated CLA, OBD, and SEG annotation sets from one dialog, then switch annotation sets from either the annotation or dataset page.
 - View and sort each image by its present annotation classes and annotation count.
-- Annotate CLA labels, OBD rectangles, and SEG rectangles, ellipses, polygons, brushes, lines, and local erasing. New drawing gestures must start inside the image; a gesture started inside can continue outside and is clamped to the image edge. The canvas thumbnail stays hidden until the brush annotation is completed or canceled.
-- Undo each released SEG brush stroke while the region is being drawn; once completed, undo treats the whole region as one action. CLA assignment, replacement, and clearing never add Undo or Redo actions.
+- Annotate CLA labels, OBD rectangles, and SEG rectangles, ellipses, polygons, brushes, lines, and local erasing. New drawing gestures must start inside the image; a gesture started inside can continue outside and is clamped to the image edge. The canvas thumbnail stays hidden until the pencil annotation is completed or canceled.
+- Before a SEG pencil (P) region is closed, undo each released pencil stroke independently; redo is unavailable during this stage. After closure, the whole annotation is one Undo/Redo action. Each brush (B) release still completes an annotation immediately. CLA assignment, replacement, and clearing never add Undo or Redo actions.
 - Apply a CLA class to all selected images. Batch processing continues after an image fails and reports the affected images and reasons.
 - Show expanded import-job details beneath the card actions, increasing the card height so the details do not cover other controls.
 - Show the minus cursor hint for SEG erase tools; OBD rectangle drawing does not show it when Ctrl is held.
