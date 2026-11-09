@@ -633,7 +633,7 @@ namespace Neurocle.Infrastructure.Persistence
             object setType = ExecuteScalar(connection, "SELECT Type FROM AnnotationSet WHERE Id = $set;", new SqliteParameter("$set", annotationSetId));
             if (setType == null || Convert.ToInt32(setType) != (int)AnnotationSetType.Cla) throw new ArgumentException("The annotation set is not CLA.", nameof(annotationSetId));
             if (classId != null && Convert.ToInt32(ExecuteScalar(connection, "SELECT COUNT(*) FROM AnnotationClass WHERE Id = $class AND AnnotationSetId = $set;", new SqliteParameter("$class", classId), new SqliteParameter("$set", annotationSetId))) != 1) throw new ArgumentException("The class does not belong to the annotation set.", nameof(classId));
-            SetClaRaw(annotationSetId, imageId, classId);
+            CompleteOperation((db, transaction) => SetClaRaw(db, transaction, annotationSetId, imageId, classId));
         }
 
         /// <inheritdoc />
@@ -1055,8 +1055,13 @@ namespace Neurocle.Infrastructure.Persistence
         /// <param name="classId">類別識別碼。</param>
         private void SetClaRaw(string annotationSetId, string imageId, string classId)
         {
-            Execute(connection, historyTransaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
-            if (classId != null) Execute(connection, historyTransaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
+            SetClaRaw(connection, historyTransaction, annotationSetId, imageId, classId);
+        }
+
+        private static void SetClaRaw(SqliteConnection connection, SqliteTransaction transaction, string annotationSetId, string imageId, string classId)
+        {
+            Execute(connection, transaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId));
+            if (classId != null) Execute(connection, transaction, "INSERT INTO ClaAnnotation (AnnotationSetId, ImageId, ClassId) VALUES ($set, $image, $class);", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId), new SqliteParameter("$class", classId));
         }
 
         /// <summary>

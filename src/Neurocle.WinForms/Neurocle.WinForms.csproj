@@ -121,6 +121,7 @@
     <Compile Include="ImageBrowserControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="ClaBatchResultDialog.cs" />
     <Compile Include="ImageBrowserControl.Designer.cs">
       <DependentUpon>ImageBrowserControl.cs</DependentUpon>
     </Compile>

@@ -71,7 +71,10 @@ namespace Neurocle.Tests
                 using (var form = new MainForm(new ProjectLifecycle()))
                 {
                     Invoke(form, "ReplaceProject", store);
-                    Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(image, null));
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    Field<ListView>(form.ImageBrowser, "list").SelectedIndices.Add(0);
+                    System.Windows.Forms.Application.DoEvents();
                     FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
                     Click(classes.Controls.OfType<Button>().Single(button => button.Text == "class1"));
                     CollectionAssert.AreEqual(new[] { "class1" }, form.ImageBrowser.Rows.Single().ClassNames.ToArray());
@@ -79,6 +82,94 @@ namespace Neurocle.Tests
                     CollectionAssert.AreEqual(new[] { other.Name }, form.ImageBrowser.Rows.Single().ClassNames.ToArray());
                     Invoke(form, "ClearDatasetClasses", (IReadOnlyList<string>)new[] { image.Id });
                     Assert.AreEqual(0, form.ImageBrowser.Rows.Single().ClassNames.Count);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Cla_batch_assignment_continues_after_failures_and_reports_copyable_results()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(directory, "project.neurocle");
+            string[] sources = { Path.Combine(directory, "first.png"), Path.Combine(directory, "second.png"), Path.Combine(directory, "third.png") };
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                foreach (string source in sources) CreateSolidImage(source, Color.Red);
+                store = ProjectStore.Create(path);
+                ProjectImage[] images = store.ImportFiles(sources).ToArray();
+                AnnotationSet set = store.CreateAnnotationSet("classes", AnnotationSetType.Cla);
+                AnnotationClass original = store.GetClasses(set.Id).Single();
+                AnnotationClass target = store.AddClass(set.Id, "target", "#123456");
+                AnnotationClass rejectedTarget = store.AddClass(set.Id, "rejected", "#654321");
+                foreach (ProjectImage image in images) store.SetClaClass(set.Id, image.Id, original.Id);
+                store.Save();
+                store.Dispose();
+                store = ProjectStore.Open(path);
+                CreateClaAssignmentTrigger(store, "FailSecondClaAssignment", images[1].Id);
+
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    ListView list = Field<ListView>(form.ImageBrowser, "list");
+                    for (int index = 0; index < images.Length; index++) list.SelectedIndices.Add(index);
+                    System.Windows.Forms.Application.DoEvents();
+                    CollectionAssert.AreEquivalent(images.Select(image => image.Id).ToArray(), form.ImageBrowser.SelectedImageIds.ToArray());
+                    Assert.AreEqual(images[0].Id, Field<string>(form, "selectedImageId"), "The first selected image must remain the current canvas image.");
+
+                    string partialSummary = null;
+                    string partialDetails = null;
+                    string copiedDetails = null;
+                    ClickClassAndInspectResult(form, target.Name, dialog =>
+                    {
+                        partialSummary = dialog.Controls.Find("claBatchSummary", true).OfType<Label>().Single().Text;
+                        TextBox details = dialog.Controls.Find("failureDetails", true).OfType<TextBox>().Single();
+                        partialDetails = details.Text;
+                        Click(dialog.Controls.Find("copyFailures", true).OfType<Button>().Single());
+                        copiedDetails = Clipboard.GetText();
+                        Click(dialog.Controls.Find("close", true).OfType<Button>().Single());
+                    });
+
+                    StringAssert.Contains(partialSummary, "成功：2 張；失敗：1 張");
+                    StringAssert.Contains(partialDetails, "second.png");
+                    StringAssert.Contains(partialDetails, "injected CLA batch failure");
+                    Assert.AreEqual(partialDetails, copiedDetails, "The failure details must be copyable.");
+                    Assert.AreEqual(target.Id, store.GetClaClassId(set.Id, images[0].Id));
+                    Assert.AreEqual(original.Id, store.GetClaClassId(set.Id, images[1].Id), "The failed image must keep its prior class.");
+                    Assert.AreEqual(target.Id, store.GetClaClassId(set.Id, images[2].Id), "Processing must continue after the failed image.");
+                    CollectionAssert.AreEquivalent(images.Select(image => image.Id).ToArray(), form.ImageBrowser.SelectedImageIds.ToArray());
+                    CollectionAssert.AreEqual(new[] { target.Name }, form.ImageBrowser.Rows.Single(row => row.Image.Id == images[0].Id).ClassNames.ToArray());
+                    Assert.IsFalse(store.CanUndo(set.Id));
+                    Assert.IsFalse(store.CanRedo(set.Id));
+
+                    DropClaAssignmentTrigger(store);
+                    CreateClaAssignmentTrigger(store, "FailAllClaAssignments", null);
+                    string failureSummary = null;
+                    string failureDetails = null;
+                    ClickClassAndInspectResult(form, rejectedTarget.Name, dialog =>
+                    {
+                        failureSummary = dialog.Controls.Find("claBatchSummary", true).OfType<Label>().Single().Text;
+                        failureDetails = dialog.Controls.Find("failureDetails", true).OfType<TextBox>().Single().Text;
+                        Click(dialog.Controls.Find("close", true).OfType<Button>().Single());
+                    });
+                    StringAssert.Contains(failureSummary, "成功：0 張；失敗：3 張");
+                    foreach (ProjectImage image in images) StringAssert.Contains(failureDetails, image.OriginalFileName);
+                    Assert.AreEqual(target.Id, store.GetClaClassId(set.Id, images[0].Id));
+                    Assert.AreEqual(original.Id, store.GetClaClassId(set.Id, images[1].Id));
+                    Assert.AreEqual(target.Id, store.GetClaClassId(set.Id, images[2].Id));
+
+                    DropClaAssignmentTrigger(store);
+                    ClickClass(form, target.Name);
+                    Assert.AreEqual(0, System.Windows.Forms.Application.OpenForms.OfType<ClaBatchResultDialog>().Count(), "An all-success batch must not show a result summary.");
+                    foreach (ProjectImage image in images) Assert.AreEqual(target.Id, store.GetClaClassId(set.Id, image.Id));
                 }
             }
             finally
@@ -335,6 +426,63 @@ namespace Neurocle.Tests
                 store?.Dispose();
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
+        }
+
+        private static void CreateClaAssignmentTrigger(ProjectStore store, string triggerName, string imageId)
+        {
+            store.CompleteOperation((connection, transaction) =>
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    string imageCondition = imageId == null ? string.Empty : " WHEN NEW.ImageId = '" + imageId.Replace("'", "''") + "'";
+                    command.CommandText = "CREATE TRIGGER " + triggerName + " BEFORE INSERT ON ClaAnnotation" + imageCondition + " BEGIN SELECT RAISE(ABORT, 'injected CLA batch failure'); END;";
+                    command.ExecuteNonQuery();
+                }
+            });
+        }
+
+        private static void DropClaAssignmentTrigger(ProjectStore store)
+        {
+            store.CompleteOperation((connection, transaction) =>
+            {
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = "DROP TRIGGER IF EXISTS FailSecondClaAssignment; DROP TRIGGER IF EXISTS FailAllClaAssignments;";
+                    command.ExecuteNonQuery();
+                }
+            });
+        }
+
+        private static void ClickClass(MainForm form, string className)
+        {
+            FlowLayoutPanel classes = Field<FlowLayoutPanel>(form, "annotationClasses");
+            Click(classes.Controls.OfType<Button>().Single(button => button.Text == className));
+        }
+
+        private static void ClickClassAndInspectResult(MainForm form, string className, Action<ClaBatchResultDialog> inspect)
+        {
+            Exception failure = null;
+            bool foundDialog = false;
+            using (var timer = new System.Windows.Forms.Timer { Interval = 25 })
+            {
+                timer.Tick += (sender, args) =>
+                {
+                    ClaBatchResultDialog dialog = System.Windows.Forms.Application.OpenForms.OfType<ClaBatchResultDialog>().FirstOrDefault();
+                    if (dialog == null) return;
+                    foundDialog = true;
+                    timer.Stop();
+                    try { inspect(dialog); }
+                    catch (Exception exception) { failure = exception; }
+                    finally { dialog.Close(); }
+                };
+                timer.Start();
+                ClickClass(form, className);
+                timer.Stop();
+            }
+            Assert.IsTrue(foundDialog, "The CLA failure result dialog did not open.");
+            if (failure != null) throw failure;
         }
 
         private static void CreateSolidImage(string path, Color color)

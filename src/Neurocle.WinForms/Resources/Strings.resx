@@ -92,6 +92,10 @@
   <data name="RelinkSourceNotFound" xml:space="preserve"><value>找不到選取的重新連結檔案。</value></data>
   <data name="RelinkContentMismatch" xml:space="preserve"><value>選取檔案的 SHA-256 與原始圖片不相同，無法重新連結。</value></data>
   <data name="Close" xml:space="preserve"><value>關閉</value></data>
+  <data name="CopyFailures" xml:space="preserve"><value>複製失敗清單</value></data>
+  <data name="ClaBatchAssignmentResultTitle" xml:space="preserve"><value>CLA 批次標註結果</value></data>
+  <data name="ClaBatchAssignmentResultSummary" xml:space="preserve"><value>成功：{0} 張；失敗：{1} 張</value></data>
+  <data name="ClaBatchAssignmentFailures" xml:space="preserve"><value>失敗圖片與原因</value></data>
   <data name="ManageBackups" xml:space="preserve"><value>管理備份</value></data>
   <data name="BackupManagementTitle" xml:space="preserve"><value>資料庫備份</value></data>
   <data name="RestoreBackup" xml:space="preserve"><value>還原選取備份</value></data>

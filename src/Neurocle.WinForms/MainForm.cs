@@ -1307,11 +1307,7 @@ namespace Neurocle.WinForms
                     annotationToolTips.SetToolTip(button, value.Name);
                     button.Click += (sender, args) =>
                     {
-                        if (selected.Type == AnnotationSetType.Cla && selectedImageId != null) RunAnnotationCommand(() =>
-                        {
-                            project.SetClaClass(selected.Id, selectedImageId, value.Id);
-                            RefreshAnnotationClasses();
-                        });
+                        if (selected.Type == AnnotationSetType.Cla) AssignClaClassToSelectedImages(selected, value);
                         else if (selected.Type == AnnotationSetType.Obd)
                         {
                             selectedObdClassId = value.Id;
@@ -1350,6 +1346,38 @@ namespace Neurocle.WinForms
                 button.Invalidate();
             }
             RefreshImageBrowser();
+        }
+
+        private void AssignClaClassToSelectedImages(AnnotationSet selected, AnnotationClass value)
+        {
+            if (project == null || selected == null || value == null) return;
+            string[] imageIds = imageBrowser.SelectedImageIds.ToArray();
+            if (imageIds.Length == 0 && selectedImageId != null) imageIds = new[] { selectedImageId };
+            if (imageIds.Length == 0) return;
+
+            Dictionary<string, string> displayNames = imageBrowser.Rows.ToDictionary(row => row.Image.Id, row => row.Image.OriginalFileName, StringComparer.Ordinal);
+            var failures = new List<string>();
+            int succeededCount = 0;
+            foreach (string imageId in imageIds)
+            {
+                try
+                {
+                    project.SetClaClass(selected.Id, imageId, value.Id);
+                    succeededCount++;
+                }
+                catch (System.Exception exception)
+                {
+                    string fileName;
+                    string reason = string.IsNullOrWhiteSpace(exception.Message) ? Strings.ProjectOperationFailed : exception.Message;
+                    failures.Add((displayNames.TryGetValue(imageId, out fileName) ? fileName : imageId) + ": " + reason);
+                }
+            }
+
+            RefreshAnnotationClasses();
+            if (failures.Count > 0)
+            {
+                using (var dialog = new ClaBatchResultDialog(succeededCount, failures)) dialog.ShowDialog(this);
+            }
         }
 
         // 取得目前選取的標註集模型。

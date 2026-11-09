@@ -78,6 +78,10 @@ namespace Neurocle.WinForms.Resources
         internal static string RelinkSourceNotFound { get { return ResourceManager.GetString("RelinkSourceNotFound", CultureInfo.CurrentUICulture); } }
         internal static string RelinkContentMismatch { get { return ResourceManager.GetString("RelinkContentMismatch", CultureInfo.CurrentUICulture); } }
         internal static string Close { get { return ResourceManager.GetString("Close", CultureInfo.CurrentUICulture); } }
+        internal static string CopyFailures { get { return ResourceManager.GetString("CopyFailures", CultureInfo.CurrentUICulture); } }
+        internal static string ClaBatchAssignmentResultTitle { get { return ResourceManager.GetString("ClaBatchAssignmentResultTitle", CultureInfo.CurrentUICulture); } }
+        internal static string ClaBatchAssignmentResultSummary { get { return ResourceManager.GetString("ClaBatchAssignmentResultSummary", CultureInfo.CurrentUICulture); } }
+        internal static string ClaBatchAssignmentFailures { get { return ResourceManager.GetString("ClaBatchAssignmentFailures", CultureInfo.CurrentUICulture); } }
         internal static string ManageBackups { get { return ResourceManager.GetString("ManageBackups", CultureInfo.CurrentUICulture); } }
         internal static string BackupManagementTitle { get { return ResourceManager.GetString("BackupManagementTitle", CultureInfo.CurrentUICulture); } }
         internal static string RestoreBackup { get { return ResourceManager.GetString("RestoreBackup", CultureInfo.CurrentUICulture); } }
