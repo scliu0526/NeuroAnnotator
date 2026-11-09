@@ -2485,6 +2485,7 @@ namespace Neurocle.Tests
                     Assert.AreEqual("dog", store.GetClasses(target.Id).Single(value => value.Name == "dog").Name);
                     Assert.AreEqual(store.GetClasses(target.Id).Single(value => value.Name == "dog").Id, store.GetClaClassId(target.Id, images[1].Id));
                     Assert.AreEqual(DatasetAssignmentStatus.Test, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[1].Id).Status);
+                    Assert.IsTrue(store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[1].Id).Retest, "SET import must apply the JSON Retest value.");
                     string omittedImageClassId = store.GetClaClassId(target.Id, images[1].Id);
                     Assert.AreEqual(canUndoBeforeImport, store.CanUndo(target.Id), "JSON import must not create Undo history.");
 
@@ -2492,10 +2493,15 @@ namespace Neurocle.Tests
                     store.ImportAnnotationJsonIntoSet(datasetOnly, target.Id, false, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, false);
                     Assert.IsNull(store.GetClaClassId(target.Id, images[2].Id), "Dataset-only import must not write CLA annotations.");
                     Assert.AreEqual(DatasetAssignmentStatus.Test, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[2].Id).Status);
+                    Assert.IsTrue(store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[2].Id).Retest);
 
                     string replaceJson = json.Replace("\"classLabel\":\"cat\"", "\"classLabel\":\"\"").Replace("second.png", "third.png");
+                    store.SetDatasetAssignments(target.Id, new[] { images[0].Id }, DatasetAssignmentStatus.Test);
+                    store.SetRetest(target.Id, new[] { images[0].Id }, true);
                     store.ImportAnnotationJsonIntoSet(replaceJson, target.Id, true, AnnotationImportMode.ReplaceMatchingImages, true, DatasetImportMode.ReplaceMatchingImages, false);
                     Assert.IsNull(store.GetClaClassId(target.Id, images[0].Id), "Replace mode must clear an explicitly empty CLA annotation.");
+                    Assert.AreEqual(DatasetAssignmentStatus.Train, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[0].Id).Status);
+                    Assert.IsFalse(store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == images[0].Id).Retest, "Replace mode must update Retest to the JSON value.");
                     Assert.AreEqual(omittedImageClassId, store.GetClaClassId(target.Id, images[1].Id), "Images omitted from JSON must retain their existing annotation.");
 
                     string mismatched = json.Replace("\"label_type\":\"cla\"", "\"label_type\":\"seg\"");
@@ -2705,6 +2711,47 @@ namespace Neurocle.Tests
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(validPath)) File.Delete(validPath); }
+        }
+
+        [TestMethod]
+        public void Json_dataset_add_to_empty_requires_unassigned_and_retest_zero_for_every_set_type()
+        {
+            string path = TemporaryProjectPath();
+            string directory = Path.GetDirectoryName(path);
+            string[] imagePaths = { Path.Combine(directory, "one.png"), Path.Combine(directory, "two.png"), Path.Combine(directory, "three.png") };
+            try
+            {
+                CreateBitmap(imagePaths[0], Color.Red, ImageFormat.Png, 20, 20);
+                CreateBitmap(imagePaths[1], Color.Green, ImageFormat.Png, 20, 20);
+                CreateBitmap(imagePaths[2], Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    Dictionary<string, string> imageIds = store.ImportFiles(imagePaths).ToDictionary(value => value.OriginalFileName, value => value.Id, StringComparer.Ordinal);
+                    foreach (AnnotationSetType type in Enum.GetValues(typeof(AnnotationSetType)))
+                    {
+                        AnnotationSet target = store.CreateAnnotationSet("set-" + type, type);
+                        store.SetDatasetAssignments(target.Id, new[] { imageIds["one.png"] }, DatasetAssignmentStatus.Train);
+                        store.SetRetest(target.Id, new[] { imageIds["one.png"], imageIds["two.png"] }, true);
+                        string labelType = type == AnnotationSetType.Cla ? "cla" : type == AnnotationSetType.Obd ? "obd" : "seg";
+                        string json = "{\"label_type\":\"" + labelType + "\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[" +
+                            "{\"fileName\":\"one.png\",\"set\":\"test\",\"classLabel\":\"\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}," +
+                            "{\"fileName\":\"two.png\",\"set\":\"test\",\"classLabel\":\"\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}," +
+                            "{\"fileName\":\"three.png\",\"set\":\"test\",\"classLabel\":\"\",\"regionLabel\":[],\"retestset\":1,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+                        Assert.IsTrue(AnnotationJsonImportPreview.Parse(json).HasRetest, type + " preview must parse source Retest.");
+
+                        store.ImportAnnotationJsonIntoSet(json, target.Id, false, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.AddToUnassignedImages, false);
+
+                        DatasetAssignment[] assignments = store.GetDatasetAssignments(target.Id).ToArray();
+                        Assert.AreEqual(DatasetAssignmentStatus.Train, assignments.Single(value => value.ImageId == imageIds["one.png"]).Status, type + " must preserve assigned images.");
+                        Assert.IsTrue(assignments.Single(value => value.ImageId == imageIds["one.png"]).Retest);
+                        Assert.AreEqual(DatasetAssignmentStatus.Unassigned, assignments.Single(value => value.ImageId == imageIds["two.png"]).Status, type + " must preserve unassigned images with Retest enabled.");
+                        Assert.IsTrue(assignments.Single(value => value.ImageId == imageIds["two.png"]).Retest);
+                        Assert.AreEqual(DatasetAssignmentStatus.Test, assignments.Single(value => value.ImageId == imageIds["three.png"]).Status, type + " must update empty dataset assignments.");
+                        Assert.IsTrue(assignments.Single(value => value.ImageId == imageIds["three.png"]).Retest, type + " must import the source Retest value.");
+                    }
+                }
+            }
+            finally { DeleteTemporaryProject(path); foreach (string imagePath in imagePaths) if (File.Exists(imagePath)) File.Delete(imagePath); }
         }
 
         [TestMethod]

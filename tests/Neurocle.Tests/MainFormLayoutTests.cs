@@ -513,6 +513,19 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Annotation_json_import_dialog_offers_only_empty_and_replace_modes_for_set_on_every_annotation_type()
+        {
+            foreach (AnnotationSetType type in Enum.GetValues(typeof(AnnotationSetType)))
+            {
+                using (var dialog = new AnnotationJsonImportDialog(type, filePath => new AnnotationJsonPreflightResult(null, null)))
+                {
+                    ComboBox datasetMode = Field<ComboBox>(dialog, "datasetMode");
+                    CollectionAssert.AreEqual(new[] { "添加到空白圖像", "覆蓋所有圖像" }, datasetMode.Items.Cast<string>().ToArray());
+                }
+            }
+        }
+
+        [STATestMethod]
         public void Import_queue_updates_each_existing_card_without_resetting_other_progress()
         {
             using (var form = new ImportQueueForm())

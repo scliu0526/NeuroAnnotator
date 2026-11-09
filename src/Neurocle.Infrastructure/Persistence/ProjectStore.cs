@@ -537,8 +537,9 @@ namespace Neurocle.Infrastructure.Persistence
                     ImportedImage item = value.Item;
                     string imageId = value.ImageId;
                     DatasetAssignmentStatus status = item.Set == "train" ? DatasetAssignmentStatus.Train : item.Set == "test" ? DatasetAssignmentStatus.Test : item.Set == "not_used" ? DatasetAssignmentStatus.NotUsed : DatasetAssignmentStatus.Unassigned;
-                    bool retest = assignments.ContainsKey(imageId) && assignments[imageId].Retest;
-                    if (importDataset && item.HasValidDatasetAssignment && (datasetMode == DatasetImportMode.ReplaceMatchingImages || !assignments.ContainsKey(imageId) || assignments[imageId].Status == DatasetAssignmentStatus.Unassigned)) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
+                    bool retest = item.Retest;
+                    bool isEmptyDatasetAssignment = assignments.TryGetValue(imageId, out DatasetAssignment assignment) && assignment.Status == DatasetAssignmentStatus.Unassigned && !assignment.Retest;
+                    if (importDataset && item.HasValidDatasetAssignment && (datasetMode == DatasetImportMode.ReplaceMatchingImages || isEmptyDatasetAssignment)) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
                     if (!importAnnotationsAndClasses) continue;
                     bool writeAnnotations = annotationMode != AnnotationImportMode.AddToEmptyImages || value.ExistingAnnotationCount == 0;
                     if (!writeAnnotations) continue;
