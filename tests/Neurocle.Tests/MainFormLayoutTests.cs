@@ -654,6 +654,14 @@ namespace Neurocle.Tests
                 Assert.IsTrue(detailsBox.Multiline);
                 Assert.IsTrue(detailsBox.WordWrap);
                 Assert.AreEqual(ScrollBars.Vertical, detailsBox.ScrollBars);
+                detailsBox.Select(0, 0);
+                detailsBox.ScrollToCaret();
+                int firstVisibleCharacter = detailsBox.GetCharIndexFromPosition(new Point(2, 2));
+                detailsBox.Select(detailsBox.TextLength, 0);
+                detailsBox.ScrollToCaret();
+                System.Windows.Forms.Application.DoEvents();
+                int lastVisibleCharacter = detailsBox.GetCharIndexFromPosition(new Point(2, 2));
+                Assert.IsTrue(lastVisibleCharacter > firstVisibleCharacter, "Scrolling the details must reveal later diagnostic text.");
                 Assert.IsTrue(detailsBox.Bounds.Bottom <= jobCards[0].ClientSize.Height, "Details must remain within the card's bottom edge.");
                 Assert.IsTrue(detailsBox.Top >= Field<Button>(jobCards[0], "viewImportedImagesButton").Bottom, "Details must be below the card's operation buttons.");
                 Assert.IsTrue(copy.Visible);
