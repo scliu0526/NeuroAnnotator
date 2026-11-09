@@ -3452,6 +3452,54 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Main_form_ctrl_key_immediately_repaints_stationary_seg_cursor()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateFilledImage(imagePath, Color.Black, 100);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    form.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    form.Controls.OfType<TabControl>().Single().SelectedIndex = 1;
+                    ImageCanvasControl canvas = form.AnnotationCanvas;
+                    canvas.SegEnabled = true;
+                    canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+
+                    Keys modifiers = Keys.None;
+                    canvas.ModifierKeysProvider = () => modifiers;
+                    Point cursor = ImagePointToScreen(canvas, 50, 50);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, cursor.X, cursor.Y, 0));
+                    var invalidated = new List<Rectangle>();
+                    canvas.Invalidated += (sender, args) => invalidated.Add(args.InvalidRect);
+
+                    modifiers = Keys.Control;
+                    RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.ControlKey));
+
+                    Assert.AreEqual(1, invalidated.Count, "Pressing Ctrl through the main window must repaint a stationary SEG cursor immediately.");
+                    Assert.IsTrue(invalidated[0].Contains(cursor), "The immediate Ctrl repaint must cover the stationary cursor.");
+                    Rectangle symbolBounds = new Rectangle(cursor.X + 7, cursor.Y + 4, 16, 16);
+                    Assert.IsTrue(CountNonBlackPixels(canvas, symbolBounds) > 0, "Pressing Ctrl must immediately display the SEG erase minus without pointer movement.");
+
+                    modifiers = Keys.None;
+                    RaiseKeyUp(form, new KeyEventArgs(Keys.ControlKey));
+                    Assert.AreEqual(2, invalidated.Count, "Releasing Ctrl through the main window must restore the stationary SEG cursor immediately.");
+                    Assert.AreEqual(0, CountNonBlackPixels(canvas, symbolBounds), "Releasing Ctrl must immediately remove the SEG erase minus.");
+                    form.Close();
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
         public void Annotation_cursor_invalidates_its_old_pixels_when_pointer_leaves_image_or_enters_thumbnail()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

@@ -1739,12 +1739,7 @@ namespace Neurocle.WinForms
         {
             if (IsControlKey(args.KeyCode))
             {
-                if (!controlModifierDown)
-                {
-                    controlModifierDown = true;
-                    RefreshToolCursor();
-                    InvalidateToolCursor();
-                }
+                SetControlModifierState(true);
                 base.OnKeyDown(args);
                 return;
             }
@@ -1773,17 +1768,25 @@ namespace Neurocle.WinForms
         protected override void OnKeyUp(KeyEventArgs args)
         {
             if (IsControlKey(args.KeyCode))
-            {
-                controlModifierDown = false;
-                RefreshToolCursor();
-                InvalidateToolCursor();
-            }
+                SetControlModifierState(false);
             else
             {
                 RefreshToolCursor();
                 Invalidate();
             }
             base.OnKeyUp(args);
+        }
+
+        /// <summary>
+        /// 同步主視窗或畫布收到的 Ctrl 狀態，並只重繪目前工具游標。
+        /// </summary>
+        /// <param name="pressed">指出 Ctrl 是否處於按下狀態。</param>
+        internal void SetControlModifierState(bool pressed)
+        {
+            if (controlModifierDown == pressed) return;
+            controlModifierDown = pressed;
+            RefreshToolCursor();
+            InvalidateToolCursor();
         }
 
         /// <summary>

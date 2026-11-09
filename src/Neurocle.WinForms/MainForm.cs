@@ -187,6 +187,34 @@ namespace Neurocle.WinForms
         }
 
         /// <summary>
+        /// 在主視窗預覽 Ctrl 按下時立即更新標註畫布游標，即使畫布目前沒有鍵盤焦點。
+        /// </summary>
+        /// <param name="args">包含按鍵及修飾鍵狀態的事件資料。</param>
+        protected override void OnKeyDown(KeyEventArgs args)
+        {
+            if (IsControlKey(args.KeyCode)) canvas?.SetControlModifierState(true);
+            base.OnKeyDown(args);
+        }
+
+        /// <summary>
+        /// 在主視窗預覽 Ctrl 放開時立即恢復標註畫布游標。
+        /// </summary>
+        /// <param name="args">包含按鍵及修飾鍵狀態的事件資料。</param>
+        protected override void OnKeyUp(KeyEventArgs args)
+        {
+            if (IsControlKey(args.KeyCode)) canvas?.SetControlModifierState(false);
+            base.OnKeyUp(args);
+        }
+
+        /// <summary>
+        /// 判斷按鍵是否為任一 Ctrl 修飾鍵。
+        /// </summary>
+        private static bool IsControlKey(Keys keyCode)
+        {
+            return keyCode == Keys.ControlKey || keyCode == Keys.LControlKey || keyCode == Keys.RControlKey;
+        }
+
+        /// <summary>
         /// 在主視窗關閉前確認匯入佇列，並避免正在匯出或標註操作時離開。
         /// </summary>
         /// <param name="sender">正在關閉的主視窗。</param>
