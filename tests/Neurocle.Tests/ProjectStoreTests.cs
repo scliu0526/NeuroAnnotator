@@ -2458,6 +2458,67 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Selected_set_json_import_rolls_back_classes_annotations_and_dataset_assignment_on_persisted_failure()
+        {
+            string path = TemporaryProjectPath();
+            string firstPath = Path.Combine(Path.GetDirectoryName(path), "first.png");
+            string secondPath = Path.Combine(Path.GetDirectoryName(path), "second.png");
+            try
+            {
+                CreateBitmap(firstPath, Color.Red, ImageFormat.Png, 20, 20);
+                CreateBitmap(secondPath, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    Dictionary<string, string> imageIds = store.ImportFiles(new[] { firstPath, secondPath }).ToDictionary(value => value.OriginalFileName, value => value.Id, StringComparer.Ordinal);
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Obd);
+                    AnnotationClass existingClass = store.AddClass(target.Id, "old", "#123456");
+                    store.AddObdAnnotation(target.Id, imageIds["first.png"], existingClass.Id, 1, 1, 4, 4);
+                    store.AddObdAnnotation(target.Id, imageIds["second.png"], existingClass.Id, 1, 1, 4, 4);
+                    store.SetDatasetAssignments(target.Id, new[] { imageIds["first.png"] }, DatasetAssignmentStatus.Train);
+                    store.SetRetest(target.Id, new[] { imageIds["first.png"] }, true);
+                    store.SetDatasetAssignments(target.Id, new[] { imageIds["second.png"] }, DatasetAssignmentStatus.NotUsed);
+                    bool canUndoBefore = store.CanUndo(target.Id);
+                    bool canRedoBefore = store.CanRedo(target.Id);
+                    string[] classIdsBefore = store.GetClasses(target.Id).Select(value => value.Id).ToArray();
+                    string[] firstAnnotationIds = store.GetObdAnnotations(target.Id, imageIds["first.png"]).Select(value => value.Id).ToArray();
+                    string[] secondAnnotationIds = store.GetObdAnnotations(target.Id, imageIds["second.png"]).Select(value => value.Id).ToArray();
+                    store.CompleteOperation((db, transaction) =>
+                    {
+                        using (var command = db.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "CREATE TRIGGER FailSecondJsonImport BEFORE INSERT ON ObdAnnotation WHEN NEW.ImageId = '" + imageIds["second.png"] + "' BEGIN SELECT RAISE(ABORT, 'injected JSON import failure'); END;";
+                            command.ExecuteNonQuery();
+                        }
+                    });
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"fresh\",\"color\":\"#ABCDEF\"}],\"data\":[" +
+                        "{\"fileName\":\"first.png\",\"set\":\"test\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"fresh\",\"type\":\"Rect\",\"x\":2,\"y\":2,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}," +
+                        "{\"fileName\":\"second.png\",\"set\":\"train\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"fresh\",\"type\":\"Rect\",\"x\":6,\"y\":6,\"width\":3,\"height\":3}],\"retestset\":1,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+
+                    Assert.ThrowsException<SqliteException>(() => store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.ReplaceMatchingImages, true, DatasetImportMode.ReplaceMatchingImages, false));
+
+                    CollectionAssert.AreEqual(classIdsBefore, store.GetClasses(target.Id).Select(value => value.Id).ToArray(), "A failed import must roll back newly inserted classes.");
+                    CollectionAssert.AreEqual(firstAnnotationIds, store.GetObdAnnotations(target.Id, imageIds["first.png"]).Select(value => value.Id).ToArray(), "A failed import must roll back earlier replacement writes.");
+                    CollectionAssert.AreEqual(secondAnnotationIds, store.GetObdAnnotations(target.Id, imageIds["second.png"]).Select(value => value.Id).ToArray(), "A failed import must restore annotations deleted before the failure.");
+                    DatasetAssignment[] assignments = store.GetDatasetAssignments(target.Id).ToArray();
+                    Assert.AreEqual(DatasetAssignmentStatus.Train, assignments.Single(value => value.ImageId == imageIds["first.png"]).Status);
+                    Assert.IsTrue(assignments.Single(value => value.ImageId == imageIds["first.png"]).Retest);
+                    Assert.AreEqual(DatasetAssignmentStatus.NotUsed, assignments.Single(value => value.ImageId == imageIds["second.png"]).Status);
+                    Assert.IsFalse(assignments.Single(value => value.ImageId == imageIds["second.png"]).Retest);
+                    Assert.AreEqual(canUndoBefore, store.CanUndo(target.Id));
+                    Assert.AreEqual(canRedoBefore, store.CanRedo(target.Id));
+                    Assert.IsTrue(store.Undo(target.Id), "The pre-import dataset change must remain at the top of Undo history after the failed import.");
+                    DatasetAssignment undoneAssignment = store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == imageIds["second.png"]);
+                    Assert.AreEqual(DatasetAssignmentStatus.Unassigned, undoneAssignment.Status);
+                    Assert.IsFalse(undoneAssignment.Retest);
+                    CollectionAssert.AreEqual(firstAnnotationIds, store.GetObdAnnotations(target.Id, imageIds["first.png"]).Select(value => value.Id).ToArray());
+                    CollectionAssert.AreEqual(secondAnnotationIds, store.GetObdAnnotations(target.Id, imageIds["second.png"]).Select(value => value.Id).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(firstPath)) File.Delete(firstPath); if (File.Exists(secondPath)) File.Delete(secondPath); }
+        }
+
+        [TestMethod]
         public void Cla_json_import_into_selected_set_adds_only_empty_images_and_reuses_existing_class_color()
         {
             string path = TemporaryProjectPath();
@@ -2642,6 +2703,7 @@ namespace Neurocle.Tests
                     AnnotationClass importedClass = store.AddClass(target.Id, "part", "#ABCDEF");
                     store.AddObdAnnotation(target.Id, images[0].Id, oldClass.Id, 1, 1, 3, 3);
                     store.AddObdAnnotation(target.Id, images[1].Id, oldClass.Id, 1, 1, 3, 3);
+                    bool canUndoBeforeImport = store.CanUndo(target.Id);
                     string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"mismatch.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":2,\"y\":2,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":19,\"height\":20},{\"fileName\":\"valid.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":2,\"y\":2,\"width\":3,\"height\":3},{\"className\":\"part\",\"type\":\"Rect\",\"x\":18,\"y\":2,\"width\":4,\"height\":3},{\"className\":\"missing\",\"type\":\"Rect\",\"x\":8,\"y\":8,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
 
                     AnnotationJsonImportResult result = store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.ReplaceMatchingImages, false, DatasetImportMode.AddToUnassignedImages, false);
@@ -2659,6 +2721,9 @@ namespace Neurocle.Tests
                     Assert.AreEqual(AnnotationJsonImportWarningReason.InvalidAnnotation, result.Warnings[1].Reason);
                     Assert.AreEqual("data[1].regionLabel[2]", result.Warnings[2].SourceLocation);
                     Assert.AreEqual(AnnotationJsonImportWarningReason.UnknownClassReference, result.Warnings[2].Reason);
+                    Assert.AreEqual(canUndoBeforeImport, store.CanUndo(target.Id), "A partial-success JSON import must not add Undo history.");
+                    Assert.IsTrue(store.Undo(target.Id));
+                    Assert.AreEqual(importedClass.Id, store.GetObdAnnotations(target.Id, images[1].Id).Single().ClassId, "Undo must act on the pre-import annotation change; valid imported data must remain.");
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(mismatchPath)) File.Delete(mismatchPath); if (File.Exists(validPath)) File.Delete(validPath); }
