@@ -1519,50 +1519,36 @@ namespace Neurocle.WinForms
         /// <summary>
         /// 選取標註 JSON 並將其加入目前專案的匯入佇列。
         /// </summary>
-        private async void QueueAnnotationJson()
+        private void QueueAnnotationJson()
         {
             AnnotationSet selected = SelectedAnnotationSet;
             if (project == null || importJobQueue == null || selected == null) return;
-            IProjectSession targetProject = project;
-            ImportJobQueue targetQueue = importJobQueue;
-            using (var dialog = new OpenFileDialog { Filter = "JSON (*.json)|*.json", Multiselect = false })
+            using (var options = new AnnotationJsonImportDialog(selected.Type, filePath => InspectAnnotationJson(filePath, selected.Type)))
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                AnnotationJsonImportPreview preview;
-                ProjectImage[] projectImages = targetProject.GetImages().ToArray();
-                try
-                {
-                    preview = await Task.Run(() => PreflightAnnotationJson(dialog.FileName, selected.Type, projectImages));
-                }
-                catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is JsonAnnotationImportException)
-                {
-                    if (!ReferenceEquals(project, targetProject) || importJobQueue != targetQueue || SelectedAnnotationSet?.Id != selected.Id) return;
-                    targetQueue.RecordFailure(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, false), exception.Message);
-                    ShowImportQueue();
-                    return;
-                }
-                if (!ReferenceEquals(project, targetProject) || importJobQueue != targetQueue || SelectedAnnotationSet?.Id != selected.Id) return;
-                using (var options = new AnnotationJsonImportDialog(dialog.FileName, preview))
-                {
-                    if (options.ShowDialog(this) != DialogResult.OK) return;
-                    if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
-                    IEnumerable<string> approvedUnknownFields = options.AllowUnknownFields ? preview.UnknownFields : new string[0];
-                    TryEnqueueImportJob(new AnnotationJsonImportJobRequest(dialog.FileName, selected.Name, selected.Id, selected.Type, options.ImportAnnotationsAndClasses, options.AnnotationMode, options.ImportDataset, options.DatasetMode, approvedUnknownFields));
-                }
+                if (options.ShowDialog(this) != DialogResult.OK) return;
+                if (MessageBox.Show(this, Strings.ImportAnnotationIrreversiblePrompt, Strings.ImportAnnotationJson, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+                IEnumerable<string> approvedUnknownFields = options.AllowUnknownFields ? options.SourcePreview.UnknownFields : new string[0];
+                TryEnqueueImportJob(new AnnotationJsonImportJobRequest(options.FilePath, selected.Name, selected.Id, selected.Type, options.ImportAnnotationsAndClasses, options.AnnotationMode, options.ImportDataset, options.DatasetMode, approvedUnknownFields));
             }
         }
 
-        internal static AnnotationJsonImportPreview PreflightAnnotationJson(string filePath, AnnotationSetType targetType, IReadOnlyList<ProjectImage> projectImages)
+        internal static AnnotationJsonImportPreview PreflightAnnotationJson(string filePath, AnnotationSetType targetType)
         {
-            AnnotationJsonImportPreview preview = AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath));
-            if (preview.Type != targetType) throw new JsonAnnotationImportException("JSON label type does not match the target annotation set.");
-            foreach (AnnotationJsonImportPreviewImage image in preview.Images)
+            AnnotationJsonPreflightResult result = InspectAnnotationJson(filePath, targetType);
+            if (!String.IsNullOrEmpty(result.ErrorMessage)) throw new JsonAnnotationImportException(result.ErrorMessage);
+            return result.Preview;
+        }
+
+        internal static AnnotationJsonPreflightResult InspectAnnotationJson(string filePath, AnnotationSetType targetType)
+        {
+            AnnotationJsonImportPreview preview;
+            try { preview = AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath)); }
+            catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is JsonAnnotationImportException)
             {
-                ProjectImage[] matches = projectImages.Where(value => String.Equals(value.OriginalFileName, image.FileName, StringComparison.OrdinalIgnoreCase)).ToArray();
-                if (matches.Length != 1) throw new JsonAnnotationImportException("JSON image does not map to exactly one project image: " + image.FileName);
-                if (matches[0].Width != image.Width || matches[0].Height != image.Height) throw new JsonAnnotationImportException("JSON image dimensions do not match the project image: " + image.FileName);
+                return new AnnotationJsonPreflightResult(null, exception.Message);
             }
-            return preview;
+            if (preview.Type != targetType) return new AnnotationJsonPreflightResult(preview, Strings.ImportJsonTypeMismatch);
+            return new AnnotationJsonPreflightResult(preview, null);
         }
 
         /// <summary>

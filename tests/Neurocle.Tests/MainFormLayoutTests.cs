@@ -286,7 +286,7 @@ namespace Neurocle.Tests
                 using (var progress = new ImportProgressForm())
                 using (var shortcuts = new KeyboardShortcutsForm())
                 using (var missing = new MissingImagesForm())
-                using (var jsonImport = new AnnotationJsonImportDialog())
+                using (var jsonImport = new AnnotationJsonImportDialog(AnnotationSetType.Cla, filePath => new AnnotationJsonPreflightResult(null, String.Empty)))
                 {
                     foreach (Form form in new Form[] { backup, diagnostics, progress, shortcuts, missing, jsonImport })
                     {
@@ -405,58 +405,103 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
-        public void Annotation_json_import_dialog_uses_mode_dropdowns_and_a_concise_class_and_set_preview()
+        public void Annotation_json_import_dialog_selects_reselects_and_clears_files_with_inline_type_validation()
         {
             string claJson = "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"scratch\",\"color\":\"#FF0000\"},{\"name\":\"毛邊\",\"color\":\"#00FF00\"}],\"data\":[{\"fileName\":\"one.png\",\"set\":\"not_used\",\"classLabel\":\"scratch\",\"regionLabel\":[],\"retestset\":1,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"two.png\",\"set\":\"train\",\"classLabel\":\"毛邊\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"three.png\",\"set\":\"test\",\"classLabel\":\"\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
-            using (var dialog = new AnnotationJsonImportDialog("labels.json", AnnotationJsonImportPreview.Parse(claJson)))
-            {
-                ComboBox annotationMode = Field<ComboBox>(dialog, "annotationMode");
-                ComboBox datasetMode = Field<ComboBox>(dialog, "datasetMode");
-                TreeView preview = Field<TreeView>(dialog, "preview");
-                CollectionAssert.AreEqual(new[] { "只加入空白圖片", "取代所有對應圖片" }, annotationMode.Items.Cast<string>().ToArray());
-                CollectionAssert.AreEqual(new[] { "只加入未分配圖片", "取代所有對應圖片" }, datasetMode.Items.Cast<string>().ToArray());
-                Assert.AreEqual("Class: 2", preview.Nodes[0].Text);
-                CollectionAssert.AreEqual(new[] { "scratch", "毛邊" }, preview.Nodes[0].Nodes.Cast<TreeNode>().Select(node => node.Text).ToArray());
-                Assert.AreEqual("Set: Not used, Retest, Train, Test", preview.Nodes[1].Text);
-                Assert.AreEqual(0, GetDescendants(dialog).OfType<TextBox>().Count(), "The dialog must not show the complete raw JSON text.");
-
-                Field<CheckBox>(dialog, "annotationsAndClasses").Checked = false;
-                Field<CheckBox>(dialog, "dataset").Checked = false;
-                Assert.IsFalse(Field<Button>(dialog, "importButton").Enabled, "At least one import group must remain selected.");
-            }
-
             string obdJson = claJson.Replace("\"label_type\":\"cla\"", "\"label_type\":\"obd\"").Replace("\"classLabel\":\"scratch\",\"regionLabel\":[]", "\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"scratch\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":2,\"height\":2}]").Replace("\"classLabel\":\"毛邊\"", "\"classLabel\":\"\"");
-            using (var dialog = new AnnotationJsonImportDialog("labels.json", AnnotationJsonImportPreview.Parse(obdJson)))
-            {
-                CollectionAssert.AreEqual(new[] { "只加入空白圖片", "加入所有圖片", "取代所有對應圖片" }, Field<ComboBox>(dialog, "annotationMode").Items.Cast<string>().ToArray());
-            }
-
             string unknownJson = claJson.Insert(1, "\"futureField\":true,");
-            using (var dialog = new AnnotationJsonImportDialog("labels.json", AnnotationJsonImportPreview.Parse(unknownJson)))
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string claPath = Path.Combine(directory, "labels.json");
+            string obdPath = Path.Combine(directory, "other.json");
+            string unknownPath = Path.Combine(directory, "unknown.json");
+            File.WriteAllText(claPath, claJson);
+            File.WriteAllText(obdPath, obdJson);
+            File.WriteAllText(unknownPath, unknownJson);
+            try
             {
-                ListBox unknownFields = Field<ListBox>(dialog, "unknownFields");
-                CheckBox allowUnknownFields = Field<CheckBox>(dialog, "allowUnknownFields");
-                Assert.AreEqual("root.futureField", unknownFields.Items.Cast<string>().Single());
-                Assert.IsFalse(Field<Button>(dialog, "importButton").Enabled, "Unknown fields must require explicit consent before import can be queued.");
-                allowUnknownFields.Checked = true;
-                Assert.IsTrue(Field<Button>(dialog, "importButton").Enabled);
-                Assert.IsTrue(dialog.AllowUnknownFields);
+                Func<string, AnnotationJsonPreflightResult> parse = filePath =>
+                {
+                    AnnotationJsonImportPreview value = AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath));
+                    return new AnnotationJsonPreflightResult(value, value.Type == AnnotationSetType.Cla ? null : "此標註集類型與目前標註集不同");
+                };
+                using (var dialog = new AnnotationJsonImportDialog(AnnotationSetType.Cla, parse))
+                {
+                    WaitForTask(dialog.SelectFileAsync(claPath));
+                    ComboBox annotationMode = Field<ComboBox>(dialog, "annotationMode");
+                    ComboBox datasetMode = Field<ComboBox>(dialog, "datasetMode");
+                    TreeView preview = Field<TreeView>(dialog, "preview");
+                    CollectionAssert.AreEqual(new[] { "添加到空白圖像", "覆蓋所有圖像" }, annotationMode.Items.Cast<string>().ToArray());
+                    CollectionAssert.AreEqual(new[] { "添加到空白圖像", "覆蓋所有圖像" }, datasetMode.Items.Cast<string>().ToArray());
+                    Assert.AreEqual("JSON type: CLA", preview.Nodes[0].Text);
+                    Assert.AreEqual("CLASS: 2", preview.Nodes[1].Text);
+                    CollectionAssert.AreEqual(new[] { "scratch", "毛邊" }, preview.Nodes[1].Nodes.Cast<TreeNode>().Select(node => node.Text).ToArray());
+                    Assert.AreEqual("SET: Not used, Retest, Train, Test", preview.Nodes[2].Text);
+                    Assert.AreEqual("labels.json", Field<TextBox>(dialog, "sourcePath").Text);
+                    Assert.IsTrue(Field<Button>(dialog, "importButton").Enabled);
+                    annotationMode.SelectedIndex = 1;
+                    Assert.AreEqual(AnnotationImportMode.ReplaceMatchingImages, dialog.AnnotationMode);
+                    datasetMode.SelectedIndex = 1;
+                    Assert.AreEqual(DatasetImportMode.ReplaceMatchingImages, dialog.DatasetMode);
+                    annotationMode.SelectedIndex = 0;
+                    datasetMode.SelectedIndex = 0;
+                    Assert.AreEqual(0, GetDescendants(dialog).OfType<TextBox>().Count(textBox => !textBox.ReadOnly), "The dialog must not show raw JSON text as editable content.");
+
+                    Field<CheckBox>(dialog, "annotationsAndClasses").Checked = false;
+                    Field<CheckBox>(dialog, "dataset").Checked = false;
+                    Assert.IsFalse(Field<Button>(dialog, "importButton").Enabled, "At least one import group must remain selected.");
+
+                    WaitForTask(dialog.SelectFileAsync(unknownPath));
+                    ListBox unknownFields = Field<ListBox>(dialog, "unknownFields");
+                    CheckBox allowUnknownFields = Field<CheckBox>(dialog, "allowUnknownFields");
+                    Assert.AreEqual("root.futureField", unknownFields.Items.Cast<string>().Single());
+                    Assert.IsFalse(Field<Button>(dialog, "importButton").Enabled, "Unknown fields must require explicit consent before import can be queued.");
+                    allowUnknownFields.Checked = true;
+                    Field<CheckBox>(dialog, "annotationsAndClasses").Checked = true;
+                    Assert.IsTrue(Field<Button>(dialog, "importButton").Enabled);
+                    Assert.IsTrue(dialog.AllowUnknownFields);
+
+                    WaitForTask(dialog.SelectFileAsync(obdPath));
+                    dialog.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    Assert.AreEqual("此標註集類型與目前標註集不同", Field<Label>(dialog, "validationMessage").Text);
+                    Assert.AreEqual("JSON type: OBD", preview.Nodes[0].Text, "A mismatched JSON must still show its parsed summary.");
+                    Assert.IsFalse(Field<Button>(dialog, "importButton").Enabled);
+                    Assert.IsFalse(Field<CheckBox>(dialog, "annotationsAndClasses").Enabled);
+                    Assert.AreEqual(1, System.Windows.Forms.Application.OpenForms.Cast<Form>().Count(form => form == dialog), "Type mismatch validation must stay inline without opening another window.");
+
+                    WaitForTask(dialog.SelectFileAsync(null));
+                    Assert.IsNull(dialog.FilePath);
+                    Assert.AreEqual(String.Empty, Field<TextBox>(dialog, "sourcePath").Text);
+                    Assert.AreEqual(0, preview.Nodes.Count);
+                    Assert.IsFalse(Field<Button>(dialog, "importButton").Enabled);
+                }
+
+                using (var dialog = new AnnotationJsonImportDialog(AnnotationSetType.Obd, filePath => new AnnotationJsonPreflightResult(AnnotationJsonImportPreview.Parse(File.ReadAllText(filePath)), null)))
+                {
+                    WaitForTask(dialog.SelectFileAsync(obdPath));
+                    CollectionAssert.AreEqual(new[] { "添加到空白圖像", "添加到所有圖像", "覆蓋所有圖像" }, Field<ComboBox>(dialog, "annotationMode").Items.Cast<string>().ToArray());
+                    CollectionAssert.AreEqual(new[] { "添加到空白圖像", "覆蓋所有圖像" }, Field<ComboBox>(dialog, "datasetMode").Items.Cast<string>().ToArray());
+                    Field<ComboBox>(dialog, "annotationMode").SelectedIndex = 1;
+                    Assert.AreEqual(AnnotationImportMode.AddToAllImages, dialog.AnnotationMode);
+                    Field<ComboBox>(dialog, "annotationMode").SelectedIndex = 2;
+                    Assert.AreEqual(AnnotationImportMode.ReplaceMatchingImages, dialog.AnnotationMode);
+                    Assert.IsTrue(Field<Button>(dialog, "importButton").Enabled);
+                }
             }
+            finally { Directory.Delete(directory, true); }
         }
 
         [TestMethod]
-        public void Annotation_json_preflight_rejects_model_mapping_and_dimension_mismatches_before_queueing()
+        public void Annotation_json_preflight_rejects_type_mismatch_before_queueing()
         {
             string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
             string json = "{\"label_type\":\"cla\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"sample.png\",\"set\":\"train\",\"classLabel\":\"part\",\"regionLabel\":[],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
             File.WriteAllText(path, json);
             try
             {
-                var image = new ProjectImage("id", "sample.png", "managed.png", "hash", 20, 20, 1);
-                Assert.AreEqual(AnnotationSetType.Cla, MainForm.PreflightAnnotationJson(path, AnnotationSetType.Cla, new[] { image }).Type);
-                Assert.ThrowsException<JsonAnnotationImportException>(() => MainForm.PreflightAnnotationJson(path, AnnotationSetType.Seg, new[] { image }));
-                Assert.ThrowsException<JsonAnnotationImportException>(() => MainForm.PreflightAnnotationJson(path, AnnotationSetType.Cla, new ProjectImage[0]));
-                Assert.ThrowsException<JsonAnnotationImportException>(() => MainForm.PreflightAnnotationJson(path, AnnotationSetType.Cla, new[] { new ProjectImage("id", "sample.png", "managed.png", "hash", 21, 20, 1) }));
+                Assert.AreEqual(AnnotationSetType.Cla, MainForm.PreflightAnnotationJson(path, AnnotationSetType.Cla).Type);
+                Assert.ThrowsException<JsonAnnotationImportException>(() => MainForm.PreflightAnnotationJson(path, AnnotationSetType.Seg));
             }
             finally { File.Delete(path); }
         }

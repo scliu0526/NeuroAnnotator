@@ -27,6 +27,19 @@ namespace Neurocle.WinForms.Resources
         internal static string ProjectOperationFailed { get { return ResourceManager.GetString("ProjectOperationFailed", CultureInfo.CurrentUICulture); } }
         internal static string ImportImages { get { return ResourceManager.GetString("ImportImages", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationJson { get { return ResourceManager.GetString("ImportAnnotationJson", CultureInfo.CurrentUICulture); } }
+        internal static string ImportFile { get { return ResourceManager.GetString("ImportFile", CultureInfo.CurrentUICulture); } }
+        internal static string ChooseFiles { get { return ResourceManager.GetString("ChooseFiles", CultureInfo.CurrentUICulture); } }
+        internal static string Clear { get { return ResourceManager.GetString("Clear", CultureInfo.CurrentUICulture); } }
+        internal static string ImportClassAndAnnotations { get { return ResourceManager.GetString("ImportClassAndAnnotations", CultureInfo.CurrentUICulture); } }
+        internal static string ImportDatasetAndRetest { get { return ResourceManager.GetString("ImportDatasetAndRetest", CultureInfo.CurrentUICulture); } }
+        internal static string ImportAddToEmptyImages { get { return ResourceManager.GetString("ImportAddToEmptyImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportAddToAllImages { get { return ResourceManager.GetString("ImportAddToAllImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportReplaceMatchingImages { get { return ResourceManager.GetString("ImportReplaceMatchingImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportAddToUnassignedImages { get { return ResourceManager.GetString("ImportAddToUnassignedImages", CultureInfo.CurrentUICulture); } }
+        internal static string ImportIgnoreUnknownFields { get { return ResourceManager.GetString("ImportIgnoreUnknownFields", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonPreview { get { return ResourceManager.GetString("ImportJsonPreview", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonValidating { get { return ResourceManager.GetString("ImportJsonValidating", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonTypeMismatch { get { return ResourceManager.GetString("ImportJsonTypeMismatch", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationUnknownFields { get { return ResourceManager.GetString("ImportAnnotationUnknownFields", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationIrreversiblePrompt { get { return ResourceManager.GetString("ImportAnnotationIrreversiblePrompt", CultureInfo.CurrentUICulture); } }
         internal static string ImageFileFilter { get { return ResourceManager.GetString("ImageFileFilter", CultureInfo.CurrentUICulture); } }

@@ -41,6 +41,19 @@
   <data name="ProjectOperationFailed" xml:space="preserve"><value>專案操作失敗。請確認專案位置與檔案狀態後再試一次。</value></data>
   <data name="ImportImages" xml:space="preserve"><value>匯入圖片</value></data>
   <data name="ImportAnnotationJson" xml:space="preserve"><value>匯入標註 JSON</value></data>
+  <data name="ImportFile" xml:space="preserve"><value>匯入檔案：</value></data>
+  <data name="ChooseFiles" xml:space="preserve"><value>選擇 JSON...</value></data>
+  <data name="Clear" xml:space="preserve"><value>清除</value></data>
+  <data name="ImportClassAndAnnotations" xml:space="preserve"><value>CLASS 類別與標註</value></data>
+  <data name="ImportDatasetAndRetest" xml:space="preserve"><value>SET 資料集與 Retest</value></data>
+  <data name="ImportAddToEmptyImages" xml:space="preserve"><value>添加到空白圖像</value></data>
+  <data name="ImportAddToAllImages" xml:space="preserve"><value>添加到所有圖像</value></data>
+  <data name="ImportReplaceMatchingImages" xml:space="preserve"><value>覆蓋所有圖像</value></data>
+  <data name="ImportAddToUnassignedImages" xml:space="preserve"><value>添加到空白圖像</value></data>
+  <data name="ImportIgnoreUnknownFields" xml:space="preserve"><value>略過以上未知欄位並繼續</value></data>
+  <data name="ImportJsonPreview" xml:space="preserve"><value>JSON 內容預覽</value></data>
+  <data name="ImportJsonValidating" xml:space="preserve"><value>正在驗證 JSON...</value></data>
+  <data name="ImportJsonTypeMismatch" xml:space="preserve"><value>此標註集類型與目前標註集不同</value></data>
   <data name="ImportAnnotationUnknownFields" xml:space="preserve"><value>JSON 包含未知欄位，這些欄位不會保存。是否繼續匯入？</value></data>
   <data name="ImportAnnotationIrreversiblePrompt" xml:space="preserve"><value>匯入將直接寫入目前標註集，且無法使用 Undo/Redo 復原。是否繼續？</value></data>
   <data name="ImageFileFilter" xml:space="preserve"><value>圖片 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp</value></data>
