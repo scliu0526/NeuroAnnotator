@@ -884,13 +884,17 @@ namespace Neurocle.WinForms
                     graphics.DrawEllipse(outline, bounds.X - 1f, bounds.Y - 1f, bounds.Width + 2f, bounds.Height + 2f);
                     graphics.DrawEllipse(pen, bounds);
                     string symbol = (CurrentModifierKeys & Keys.Control) == Keys.Control || SegTool == SegToolKind.Eraser ? "−" : "+";
-                    using (var font = new Font(Font.FontFamily, 9f, FontStyle.Bold))
-                    using (var brush = new SolidBrush(Color.White))
-                    using (var shadow = new SolidBrush(Color.Black))
+                    float x = center.X + diameter / 2f + 2f, y = center.Y + diameter / 2f + 2f;
+                    if (symbol == "−") DrawCursorMinus(graphics, pen, outline, x, y);
+                    else
                     {
-                        float x = center.X + diameter / 2f + 2f, y = center.Y + diameter / 2f + 2f;
-                        graphics.DrawString(symbol, font, shadow, x + 1f, y + 1f);
-                        graphics.DrawString(symbol, font, brush, x, y);
+                        using (var font = new Font(Font.FontFamily, 9f, FontStyle.Bold))
+                        using (var brush = new SolidBrush(Color.White))
+                        using (var shadow = new SolidBrush(Color.Black))
+                        {
+                            graphics.DrawString(symbol, font, shadow, x + 1f, y + 1f);
+                            graphics.DrawString(symbol, font, brush, x, y);
+                        }
                     }
                 }
                 else
@@ -905,17 +909,17 @@ namespace Neurocle.WinForms
                     graphics.DrawLine(pen, center.X, center.Y + 2f, center.X, center.Y + 6f);
                     if (SegEnabled && (CurrentModifierKeys & Keys.Control) == Keys.Control)
                     {
-                        using (var font = new Font(Font.FontFamily, 9f, FontStyle.Bold))
-                        using (var brush = new SolidBrush(Color.White))
-                        using (var shadow = new SolidBrush(Color.Black))
-                        {
-                            float x = center.X + 8f, y = center.Y + 5f;
-                            graphics.DrawString("−", font, shadow, x + 1f, y + 1f);
-                            graphics.DrawString("−", font, brush, x, y);
-                        }
+                        float x = center.X + 8f, y = center.Y + 5f;
+                        DrawCursorMinus(graphics, pen, outline, x, y);
                     }
                 }
             }
+        }
+
+        private static void DrawCursorMinus(Graphics graphics, Pen foreground, Pen shadow, float x, float y)
+        {
+            graphics.DrawLine(shadow, x + 1f, y + 4f, x + 7f, y + 4f);
+            graphics.DrawLine(foreground, x, y + 3f, x + 6f, y + 3f);
         }
 
         /// <summary>

@@ -754,10 +754,8 @@ namespace Neurocle.Infrastructure.Persistence
             AnnotationSet set = GetAnnotationSets().Single(value => value.Id == annotationSetId);
             if (set.Type == AnnotationSetType.Cla)
             {
-                string[] previous = ids.Select(imageId => GetClaClassId(annotationSetId, imageId)).ToArray();
-                if (previous.All(value => value == null)) return;
+                if (ids.All(imageId => GetClaClassId(annotationSetId, imageId) == null)) return;
                 CompleteOperation((db, transaction) => { foreach (string imageId in ids) Execute(db, transaction, "DELETE FROM ClaAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", annotationSetId), new SqliteParameter("$image", imageId)); });
-                Record(annotationSetId, () => { for (int index = 0; index < ids.Length; index++) SetClaRaw(annotationSetId, ids[index], previous[index]); }, () => { foreach (string imageId in ids) SetClaRaw(annotationSetId, imageId, null); }, EstimateHistoryBytes(ids) + EstimateHistoryBytes(previous));
                 return;
             }
             if (set.Type == AnnotationSetType.Obd)

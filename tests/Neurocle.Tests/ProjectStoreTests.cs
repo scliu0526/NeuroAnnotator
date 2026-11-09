@@ -3215,6 +3215,8 @@ namespace Neurocle.Tests
                     AnnotationSet other = store.CreateAnnotationSet("other", AnnotationSetType.Cla);
                     AnnotationClass value = store.GetClasses(set.Id).Single();
                     AnnotationClass otherValue = store.GetClasses(other.Id).Single();
+                    bool canUndoBeforeClaChanges = store.CanUndo(set.Id);
+                    bool canRedoBeforeClaChanges = store.CanRedo(set.Id);
                     store.SetClaClass(set.Id, images[0].Id, value.Id);
                     store.SetClaClass(set.Id, images[1].Id, value.Id);
                     store.SetClaClass(other.Id, images[0].Id, otherValue.Id);
@@ -3222,13 +3224,11 @@ namespace Neurocle.Tests
                     Assert.IsNull(store.GetClaClassId(set.Id, images[0].Id));
                     Assert.AreEqual(value.Id, store.GetClaClassId(set.Id, images[1].Id));
                     Assert.AreEqual(otherValue.Id, store.GetClaClassId(other.Id, images[0].Id));
-                    Assert.IsTrue(store.Undo(set.Id));
-                    Assert.AreEqual(value.Id, store.GetClaClassId(set.Id, images[0].Id));
-                    Assert.IsTrue(store.Undo(set.Id));
-                    Assert.IsTrue(store.Undo(set.Id));
-                    Assert.IsFalse(store.CanUndo(set.Id));
+                    Assert.AreEqual(canUndoBeforeClaChanges, store.CanUndo(set.Id), "CLA assignment and clearing must not change Undo history.");
+                    Assert.AreEqual(canRedoBeforeClaChanges, store.CanRedo(set.Id), "CLA assignment and clearing must not change Redo history.");
                     store.ClearAnnotations(set.Id, images.Select(image => image.Id));
-                    Assert.IsFalse(store.CanUndo(set.Id));
+                    Assert.AreEqual(canUndoBeforeClaChanges, store.CanUndo(set.Id));
+                    Assert.AreEqual(canRedoBeforeClaChanges, store.CanRedo(set.Id));
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(firstSource)) File.Delete(firstSource); if (File.Exists(secondSource)) File.Delete(secondSource); }
