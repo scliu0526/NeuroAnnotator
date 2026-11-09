@@ -559,6 +559,63 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Import_card_expands_details_below_actions_and_supports_copy_and_multiple_cards()
+        {
+            Assert.AreEqual(128, ImportJobCardControl.ScaleLogicalForDpi(128, 96));
+            Assert.AreEqual(192, ImportJobCardControl.ScaleLogicalForDpi(128, 144));
+            Assert.AreEqual(256, ImportJobCardControl.ScaleLogicalForDpi(128, 192));
+
+            using (var form = new ImportQueueForm())
+            {
+                string details = string.Join(" ", Enumerable.Repeat("A long diagnostic message that must wrap within the card and remain available for vertical scrolling.", 12));
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "first.png" }), ImportJobStatus.Failed, null, null, details),
+                    new ImportJobSnapshot(Guid.NewGuid(), new ImageFilesImportJobRequest(new[] { "second.png" }), ImportJobStatus.Failed, null, null, "Second job failure.")
+                });
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+
+                FlowLayoutPanel cards = Field<FlowLayoutPanel>(form, "cardsPanel");
+                ImportJobCardControl[] jobCards = cards.Controls.OfType<ImportJobCardControl>().OrderBy(card => card.Top).ToArray();
+                int collapsedHeight = jobCards[0].Height;
+                Button[] toggles = jobCards.Select(card => Field<Button>(card, "detailsButton")).ToArray();
+                toggles[0].PerformClick();
+                System.Windows.Forms.Application.DoEvents();
+
+                TextBox detailsBox = Field<TextBox>(jobCards[0], "detailsLabel");
+                Button copy = Field<Button>(jobCards[0], "copyDetailsButton");
+                Assert.IsTrue(jobCards[0].Height > collapsedHeight, "Expanding details must increase the card height.");
+                Assert.IsTrue(detailsBox.Visible);
+                Assert.IsTrue(detailsBox.Multiline);
+                Assert.IsTrue(detailsBox.WordWrap);
+                Assert.AreEqual(ScrollBars.Vertical, detailsBox.ScrollBars);
+                Assert.IsTrue(detailsBox.Bounds.Bottom <= jobCards[0].ClientSize.Height, "Details must remain within the card's bottom edge.");
+                Assert.IsTrue(detailsBox.Top >= Field<Button>(jobCards[0], "viewImportedImagesButton").Bottom, "Details must be below the card's operation buttons.");
+                Assert.IsTrue(copy.Visible);
+                copy.PerformClick();
+                Assert.AreEqual(details, Clipboard.GetText());
+                Assert.IsTrue(jobCards[1].Top >= jobCards[0].Bottom, "Expanded cards must reflow without overlapping the following card.");
+                Assert.IsFalse(cards.HorizontalScroll.Visible, "Expanded details must not introduce horizontal scrolling.");
+
+                toggles[1].PerformClick();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.IsTrue(jobCards[0].Height > collapsedHeight);
+                Assert.IsTrue(jobCards[1].Height > collapsedHeight);
+                Assert.IsTrue(jobCards[1].Top >= jobCards[0].Bottom, "Two expanded cards must reflow without overlap.");
+                Assert.IsFalse(cards.HorizontalScroll.Visible, "Two expanded cards must not introduce horizontal scrolling.");
+
+                toggles[0].PerformClick();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.AreEqual(collapsedHeight, jobCards[0].Height, "Collapsing details must restore the compact card height.");
+                Assert.IsTrue(jobCards[1].Height > collapsedHeight, "Collapsing one card must not collapse another.");
+                toggles[1].PerformClick();
+                System.Windows.Forms.Application.DoEvents();
+                Assert.AreEqual(collapsedHeight, jobCards[1].Height, "Each card must collapse independently.");
+            }
+        }
+
+        [STATestMethod]
         public void Import_and_export_cards_keep_their_actions_mutually_exclusive()
         {
             using (var form = new ImportQueueForm())

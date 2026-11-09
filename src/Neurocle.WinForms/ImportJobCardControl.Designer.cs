@@ -14,6 +14,7 @@ namespace Neurocle.WinForms
         private ProgressBar progressBar;
         private TextBox detailsLabel;
         private Button detailsButton;
+        private Button copyDetailsButton;
         private Button cancelButton;
         private Button viewImportedImagesButton;
         private Button openExportButton;
@@ -28,6 +29,7 @@ namespace Neurocle.WinForms
             progressBar = new ProgressBar();
             detailsLabel = new TextBox();
             detailsButton = new Button();
+            copyDetailsButton = new Button();
             cancelButton = new Button();
             viewImportedImagesButton = new Button();
             openExportButton = new Button();
@@ -73,6 +75,12 @@ namespace Neurocle.WinForms
             detailsButton.Text = Strings.ShowDetails;
             detailsButton.Visible = true;
             detailsButton.Click += DetailsButton_Click;
+            copyDetailsButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            copyDetailsButton.AutoSize = true;
+            copyDetailsButton.Name = "copyDetailsButton";
+            copyDetailsButton.Text = Strings.CopyDetails;
+            copyDetailsButton.Visible = false;
+            copyDetailsButton.Click += CopyDetailsButton_Click;
             cancelButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             cancelButton.AutoSize = true;
             cancelButton.Location = new Point(325, 28);
@@ -97,6 +105,7 @@ namespace Neurocle.WinForms
             AutoScaleMode = AutoScaleMode.Font;
             BorderStyle = BorderStyle.FixedSingle;
             Controls.Add(detailsLabel);
+            Controls.Add(copyDetailsButton);
             Controls.Add(cancelButton);
             Controls.Add(viewImportedImagesButton);
             Controls.Add(openExportButton);

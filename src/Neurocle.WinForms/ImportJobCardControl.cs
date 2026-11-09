@@ -107,10 +107,8 @@ namespace Neurocle.WinForms
             detailsLabel.Text = value.ErrorMessage ?? string.Empty;
             toolTip.SetToolTip(detailsLabel, detailsLabel.Text);
             detailsLabel.Visible = detailsVisible && detailsLabel.Text.Length > 0;
-            detailsLabel.Dock = detailsLabel.Visible ? DockStyle.Top : DockStyle.None;
-            detailsLabel.Size = detailsLabel.Visible
-                ? new System.Drawing.Size(ClientSize.Width, 52)
-                : System.Drawing.Size.Empty;
+            copyDetailsButton.Visible = detailsLabel.Visible;
+            UpdateDetailsLayout();
             detailsButton.Text = detailsVisible ? Strings.HideDetails : Strings.ShowDetails;
             cancelButton.Enabled = value.Status == ImportJobStatus.Waiting || (value.Status == ImportJobStatus.Running && !(value.Request is AnnotationJsonImportJobRequest));
             bool isImageImport = value.Request is ImageFilesImportJobRequest || value.Request is FolderImportJobRequest;
@@ -136,6 +134,35 @@ namespace Neurocle.WinForms
         {
             detailsVisible = !detailsVisible;
             if (job != null) UpdateJob(job);
+        }
+
+        private void CopyDetailsButton_Click(object sender, EventArgs args)
+        {
+            if (detailsLabel.Text.Length > 0) Clipboard.SetText(detailsLabel.Text);
+        }
+
+        private void UpdateDetailsLayout()
+        {
+            int margin = ScaleLogical(8);
+            int actionHeight = ScaleLogical(26);
+            int textHeight = ScaleLogical(88);
+            int collapsedHeight = ScaleLogical(128);
+            int detailsTop = collapsedHeight + margin;
+            Height = detailsLabel.Visible ? collapsedHeight + margin + actionHeight + margin + textHeight + margin : collapsedHeight;
+            copyDetailsButton.Location = new System.Drawing.Point(Math.Max(margin, ClientSize.Width - copyDetailsButton.Width - margin), detailsTop);
+            detailsLabel.Location = new System.Drawing.Point(margin, detailsTop + actionHeight + margin);
+            detailsLabel.Size = new System.Drawing.Size(Math.Max(1, ClientSize.Width - margin * 2), textHeight);
+            if (Parent != null) Parent.PerformLayout();
+        }
+
+        private int ScaleLogical(int value)
+        {
+            return ScaleLogicalForDpi(value, DeviceDpi);
+        }
+
+        internal static int ScaleLogicalForDpi(int value, int dpi)
+        {
+            return dpi <= 0 ? value : (int)Math.Round(value * (dpi / 96d));
         }
 
         /// <summary>

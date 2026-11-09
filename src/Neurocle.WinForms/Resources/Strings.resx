@@ -93,6 +93,7 @@
   <data name="RelinkContentMismatch" xml:space="preserve"><value>選取檔案的 SHA-256 與原始圖片不相同，無法重新連結。</value></data>
   <data name="Close" xml:space="preserve"><value>關閉</value></data>
   <data name="CopyFailures" xml:space="preserve"><value>複製失敗清單</value></data>
+  <data name="CopyDetails" xml:space="preserve"><value>複製詳細資訊</value></data>
   <data name="ClaBatchAssignmentResultTitle" xml:space="preserve"><value>CLA 批次標註結果</value></data>
   <data name="ClaBatchAssignmentResultSummary" xml:space="preserve"><value>成功：{0} 張；失敗：{1} 張</value></data>
   <data name="ClaBatchAssignmentFailures" xml:space="preserve"><value>失敗圖片與原因</value></data>
