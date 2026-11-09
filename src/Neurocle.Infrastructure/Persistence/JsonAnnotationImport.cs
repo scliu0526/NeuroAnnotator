@@ -21,6 +21,16 @@ namespace Neurocle.Infrastructure.Persistence
         /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
         public static ImportedAnnotationSet Parse(string json)
         {
+            return Parse(json, false);
+        }
+
+        public static ImportedAnnotationSet ParseForSelectedSetImport(string json)
+        {
+            return Parse(json, true);
+        }
+
+        private static ImportedAnnotationSet Parse(string json, bool allowInvalidAnnotations)
+        {
             if (String.IsNullOrWhiteSpace(json)) throw new JsonAnnotationImportException("JSON is empty.");
             JObject root;
             try { root = JObject.Parse(json, new JsonLoadSettings { DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error }); }
@@ -43,9 +53,10 @@ namespace Neurocle.Infrastructure.Persistence
             if (importedClasses.Select(value => value.Name).Distinct(StringComparer.Ordinal).Count() != importedClasses.Length) throw new JsonAnnotationImportException("classes contains duplicates.");
             if (data.Any(value => !(value is JObject))) throw new JsonAnnotationImportException("data is invalid.");
             var classNames = new HashSet<string>(importedClasses.Select(value => value.Name), StringComparer.Ordinal);
-            ImportedImage[] images = data.Cast<JObject>().Select((value, index) => ParseImage(value, annotationType, classNames, unknownFields, index)).ToArray();
+            var warnings = new List<AnnotationJsonImportWarning>();
+            ImportedImage[] images = data.Cast<JObject>().Select((value, index) => ParseImage(value, annotationType, classNames, unknownFields, warnings, index, allowInvalidAnnotations)).ToArray();
             if (images.Select(value => value.FileName).Distinct(StringComparer.Ordinal).Count() != images.Length) throw new JsonAnnotationImportException("data contains duplicate fileName values.");
-            return new ImportedAnnotationSet(annotationType, importedClasses, images, unknownFields);
+            return new ImportedAnnotationSet(annotationType, importedClasses, images, unknownFields, warnings);
         }
 
         /// <summary>
@@ -74,27 +85,97 @@ namespace Neurocle.Infrastructure.Persistence
         /// <param name="index">集合或路徑中的索引。</param>
         /// <returns>回傳已驗證的圖片與標註資料。</returns>
         /// <exception cref="JsonAnnotationImportException">JSON 內容不符合標註匯入格式。</exception>
-        private static ImportedImage ParseImage(JObject value, AnnotationSetType type, ISet<string> classNames, ICollection<string> unknownFields, int index)
+        private static ImportedImage ParseImage(JObject value, AnnotationSetType type, ISet<string> classNames, ICollection<string> unknownFields, ICollection<AnnotationJsonImportWarning> warnings, int index, bool allowInvalidAnnotations)
         {
             CollectUnknown(value, new HashSet<string>(new[] { "fileName", "set", "classLabel", "regionLabel", "retestset", "rotation_angle", "width", "height" }, StringComparer.Ordinal), "data[" + index + "]", unknownFields);
             string fileName = RequiredString(value, "fileName");
-            string set = RequiredStringOrEmpty(value, "set");
-            if (set != "" && set != "train" && set != "test" && set != "not_used") throw new JsonAnnotationImportException("set is invalid.");
-            string classLabel = RequiredStringOrEmpty(value, "classLabel");
-            if (classLabel != "") classLabel = NormalizeLabelName(classLabel);
-            int retest = RequiredInteger(value, "retestset");
-            if (retest != 0 && retest != 1) throw new JsonAnnotationImportException("retestset is invalid.");
+            string set = "";
+            bool retest = false;
+            bool hasValidDatasetAssignment = true;
+            string datasetSourceLocation = "data[" + index + "].set";
+            try
+            {
+                set = RequiredStringOrEmpty(value, "set");
+                if (set != "" && set != "train" && set != "test" && set != "not_used") throw new JsonAnnotationImportException("set is invalid.");
+                datasetSourceLocation = "data[" + index + "].retestset";
+                int retestValue = RequiredInteger(value, "retestset");
+                if (retestValue != 0 && retestValue != 1) throw new JsonAnnotationImportException("retestset is invalid.");
+                retest = retestValue == 1;
+            }
+            catch (JsonAnnotationImportException)
+            {
+                if (!allowInvalidAnnotations) throw;
+                hasValidDatasetAssignment = false;
+                warnings.Add(new AnnotationJsonImportWarning(fileName, datasetSourceLocation, AnnotationJsonImportWarningReason.InvalidDatasetAssignment));
+            }
+            string classLabel;
+            try
+            {
+                classLabel = RequiredStringOrEmpty(value, "classLabel");
+                if (classLabel != "") classLabel = NormalizeLabelName(classLabel);
+                if (type == AnnotationSetType.Cla && classLabel != "" && !classNames.Contains(classLabel)) throw new JsonAnnotationImportException("classLabel class is unknown.");
+                if (type != AnnotationSetType.Cla && classLabel != "") throw new JsonAnnotationImportException("classLabel is invalid for this annotation type.");
+            }
+            catch (JsonAnnotationImportException exception)
+            {
+                if (!allowInvalidAnnotations) throw;
+                warnings.Add(new AnnotationJsonImportWarning(fileName, "data[" + index + "].classLabel", GetWarningReason(exception)));
+                classLabel = "";
+            }
             if (RequiredInteger(value, "rotation_angle") != 0) throw new JsonAnnotationImportException("rotation_angle is invalid.");
-            int width = RequiredInteger(value, "width"); int height = RequiredInteger(value, "height");
-            if (width < 1 || height < 1) throw new JsonAnnotationImportException("image dimensions are invalid.");
-            JArray regions = RequiredArray(value, "regionLabel");
+            int width;
+            int height;
+            bool validDimensions = true;
+            try
+            {
+                width = RequiredInteger(value, "width");
+                height = RequiredInteger(value, "height");
+                validDimensions = width > 0 && height > 0;
+                if (!validDimensions) throw new JsonAnnotationImportException("image dimensions are invalid.");
+            }
+            catch (JsonAnnotationImportException)
+            {
+                if (!allowInvalidAnnotations) throw;
+                width = 0;
+                height = 0;
+                validDimensions = false;
+            }
+            JArray regions = value["regionLabel"] as JArray;
+            if (regions == null)
+            {
+                if (!allowInvalidAnnotations) throw new JsonAnnotationImportException("regionLabel is required.");
+                warnings.Add(new AnnotationJsonImportWarning(fileName, "data[" + index + "].regionLabel", AnnotationJsonImportWarningReason.InvalidAnnotation));
+                regions = new JArray();
+            }
             if (type == AnnotationSetType.Cla)
             {
-                if (regions.Count != 0 || (classLabel != "" && !classNames.Contains(classLabel))) throw new JsonAnnotationImportException("CLA annotation is invalid.");
+                if (regions.Count != 0)
+                {
+                    if (!allowInvalidAnnotations) throw new JsonAnnotationImportException("CLA annotation is invalid.");
+                    for (int regionIndex = 0; regionIndex < regions.Count; regionIndex++) warnings.Add(new AnnotationJsonImportWarning(fileName, "data[" + index + "].regionLabel[" + regionIndex + "]", AnnotationJsonImportWarningReason.InvalidAnnotation));
+                }
             }
-            else if (classLabel != "") throw new JsonAnnotationImportException("classLabel is invalid for this annotation type.");
-            ImportedRegion[] parsedRegions = regions.Select((region, regionIndex) => ParseRegion(region, type, classNames, width, height, unknownFields, index, regionIndex)).ToArray();
-            return new ImportedImage(fileName, set, classLabel, retest == 1, width, height, parsedRegions);
+            var parsedRegions = new List<ImportedRegion>();
+            if (type != AnnotationSetType.Cla && validDimensions)
+            {
+                for (int regionIndex = 0; regionIndex < regions.Count; regionIndex++)
+                {
+                    try { parsedRegions.Add(ParseRegion(regions[regionIndex], type, classNames, width, height, unknownFields, index, regionIndex)); }
+                    catch (JsonAnnotationImportException exception)
+                    {
+                        if (!allowInvalidAnnotations) throw;
+                        warnings.Add(new AnnotationJsonImportWarning(fileName, "data[" + index + "].regionLabel[" + regionIndex + "]", GetWarningReason(exception)));
+                    }
+                }
+            }
+            return new ImportedImage(fileName, set, classLabel, retest, width, height, parsedRegions, validDimensions, hasValidDatasetAssignment);
+        }
+
+        private static AnnotationJsonImportWarningReason GetWarningReason(JsonAnnotationImportException exception)
+        {
+            return exception.Message == "classLabel class is unknown." || exception.Message == "region className is unknown."
+                ? AnnotationJsonImportWarningReason.UnknownClassReference
+                : AnnotationJsonImportWarningReason.InvalidAnnotation;
         }
 
         /// <summary>
@@ -134,7 +215,7 @@ namespace Neurocle.Infrastructure.Persistence
             if (type == SegRegionType.Ellipse && (radiusX < 1 || radiusY < 1 || x - radiusX < 0 || y - radiusY < 0 || (long)x + radiusX > width || (long)y + radiusY > height)) throw new JsonAnnotationImportException("ellipse is invalid.");
             if ((type == SegRegionType.PolyLine || type == SegRegionType.PolyGon) && (points == null || points.Count < (type == SegRegionType.PolyGon ? 3 : 1) || (type == SegRegionType.PolyLine && stroke < 1))) throw new JsonAnnotationImportException("path is invalid.");
             IReadOnlyList<SegPoint> parsedPoints = points == null ? new SegPoint[0] : ParsePoints(points, width, height, type);
-            return new ImportedRegion(className, type, x, y, regionWidth, regionHeight, radiusX, radiusY, stroke, parsedPoints);
+            return new ImportedRegion(className, type, x, y, regionWidth, regionHeight, radiusX, radiusY, stroke, parsedPoints, regionIndex);
         }
 
         /// <summary>
@@ -153,7 +234,14 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 JArray point = token as JArray;
                 if (point == null || point.Count != 2 || !(point[0] is JValue) || !(point[1] is JValue) || point[0].Type != JTokenType.Integer || point[1].Type != JTokenType.Integer) throw new JsonAnnotationImportException("point is invalid.");
-                int x = Convert.ToInt32(((JValue)point[0]).Value); int y = Convert.ToInt32(((JValue)point[1]).Value);
+                int x;
+                int y;
+                try
+                {
+                    x = Convert.ToInt32(((JValue)point[0]).Value);
+                    y = Convert.ToInt32(((JValue)point[1]).Value);
+                }
+                catch (OverflowException exception) { throw new JsonAnnotationImportException("point is invalid.", exception); }
                 if (x < 0 || y < 0 || x > width || y > height || (type != SegRegionType.PolyGon && (x == width || y == height))) throw new JsonAnnotationImportException("point is outside the image.");
                 result.Add(new SegPoint(x, y));
             }
@@ -298,7 +386,7 @@ namespace Neurocle.Infrastructure.Persistence
 
         public static AnnotationJsonImportPreview Parse(string json)
         {
-            ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
+            ImportedAnnotationSet imported = JsonAnnotationImport.ParseForSelectedSetImport(json);
             return new AnnotationJsonImportPreview(
                 imported.Type,
                 Array.AsReadOnly(imported.Classes.Select(value => new AnnotationJsonImportPreviewClass(value.Name, value.Color)).ToArray()),
@@ -330,7 +418,7 @@ namespace Neurocle.Infrastructure.Persistence
         /// <summary>
         /// 建立已剖析的標註集資料。
         /// </summary>
-        public ImportedAnnotationSet(AnnotationSetType type, IReadOnlyList<ImportedClass> classes, IReadOnlyList<ImportedImage> data, IReadOnlyList<string> unknownFields) { Type = type; Classes = classes; Data = data; UnknownFields = unknownFields; }
+        public ImportedAnnotationSet(AnnotationSetType type, IReadOnlyList<ImportedClass> classes, IReadOnlyList<ImportedImage> data, IReadOnlyList<string> unknownFields, IReadOnlyList<AnnotationJsonImportWarning> warnings) { Type = type; Classes = classes; Data = data; UnknownFields = unknownFields; Warnings = warnings; }
         // 取得匯入標註集的型別。
         public AnnotationSetType Type { get; }
         // 取得已驗證的類別清單。
@@ -339,6 +427,7 @@ namespace Neurocle.Infrastructure.Persistence
         public IReadOnlyList<ImportedImage> Data { get; }
         // 取得來源 JSON 中未辨識欄位的路徑。
         public IReadOnlyList<string> UnknownFields { get; }
+        public IReadOnlyList<AnnotationJsonImportWarning> Warnings { get; }
     }
 
     // 保存一筆已驗證的類別名稱與顏色。
@@ -360,7 +449,7 @@ namespace Neurocle.Infrastructure.Persistence
         /// <summary>
         /// 建立匯入圖片資料及其區域清單。
         /// </summary>
-        public ImportedImage(string fileName, string set, string classLabel, bool retest, int width, int height, IReadOnlyList<ImportedRegion> regions) { FileName = fileName; Set = set; ClassLabel = classLabel; Retest = retest; Width = width; Height = height; Regions = regions; }
+        public ImportedImage(string fileName, string set, string classLabel, bool retest, int width, int height, IReadOnlyList<ImportedRegion> regions, bool hasValidDimensions, bool hasValidDatasetAssignment) { FileName = fileName; Set = set; ClassLabel = classLabel; Retest = retest; Width = width; Height = height; Regions = regions; HasValidDimensions = hasValidDimensions; HasValidDatasetAssignment = hasValidDatasetAssignment; }
         // 取得匯入格式中的圖片檔名。
         public string FileName { get; }
         // 取得 train、test 或 not_used 資料集名稱。
@@ -375,6 +464,8 @@ namespace Neurocle.Infrastructure.Persistence
         public int Height { get; }
         // 取得圖片內已驗證的標註區域。
         public IReadOnlyList<ImportedRegion> Regions { get; }
+        public bool HasValidDimensions { get; }
+        public bool HasValidDatasetAssignment { get; }
     }
 
     // 保存一筆已驗證的 OBD 或 SEG 區域幾何資料。
@@ -383,7 +474,7 @@ namespace Neurocle.Infrastructure.Persistence
         /// <summary>
         /// 建立標註區域資料及其幾何座標。
         /// </summary>
-        public ImportedRegion(string className, SegRegionType type, int x, int y, int width, int height, int radiusX, int radiusY, int strokeWidth, IReadOnlyList<SegPoint> points) { ClassName = className; Type = type; X = x; Y = y; Width = width; Height = height; RadiusX = radiusX; RadiusY = radiusY; StrokeWidth = strokeWidth; Points = points; }
+        public ImportedRegion(string className, SegRegionType type, int x, int y, int width, int height, int radiusX, int radiusY, int strokeWidth, IReadOnlyList<SegPoint> points, int sourceIndex) { ClassName = className; Type = type; X = x; Y = y; Width = width; Height = height; RadiusX = radiusX; RadiusY = radiusY; StrokeWidth = strokeWidth; Points = points; SourceIndex = sourceIndex; }
         // 取得區域所屬的類別名稱。
         public string ClassName { get; }
         // 取得區域幾何種類。
@@ -404,5 +495,6 @@ namespace Neurocle.Infrastructure.Persistence
         public int StrokeWidth { get; }
         // 取得多邊形或線段的點位清單。
         public IReadOnlyList<SegPoint> Points { get; }
+        public int SourceIndex { get; }
     }
 }

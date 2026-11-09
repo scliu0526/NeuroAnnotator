@@ -2619,6 +2619,178 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Json_import_skips_dimension_mismatches_and_invalid_regions_with_warnings()
+        {
+            string path = TemporaryProjectPath();
+            string mismatchPath = Path.Combine(Path.GetDirectoryName(path), "mismatch.png");
+            string validPath = Path.Combine(Path.GetDirectoryName(path), "valid.png");
+            try
+            {
+                CreateBitmap(mismatchPath, Color.Red, ImageFormat.Png, 20, 20);
+                CreateBitmap(validPath, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage[] images = store.ImportFiles(new[] { mismatchPath, validPath }).ToArray();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Obd);
+                    AnnotationClass oldClass = store.AddClass(target.Id, "old", "#123456");
+                    AnnotationClass importedClass = store.AddClass(target.Id, "part", "#ABCDEF");
+                    store.AddObdAnnotation(target.Id, images[0].Id, oldClass.Id, 1, 1, 3, 3);
+                    store.AddObdAnnotation(target.Id, images[1].Id, oldClass.Id, 1, 1, 3, 3);
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"mismatch.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":2,\"y\":2,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":19,\"height\":20},{\"fileName\":\"valid.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":2,\"y\":2,\"width\":3,\"height\":3},{\"className\":\"part\",\"type\":\"Rect\",\"x\":18,\"y\":2,\"width\":4,\"height\":3},{\"className\":\"missing\",\"type\":\"Rect\",\"x\":8,\"y\":8,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+
+                    AnnotationJsonImportResult result = store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.ReplaceMatchingImages, false, DatasetImportMode.AddToUnassignedImages, false);
+
+                    Assert.AreEqual(oldClass.Id, store.GetObdAnnotations(target.Id, images[0].Id).Single().ClassId, "A size-mismatched image must be left unchanged.");
+                    ObdAnnotation[] validAnnotations = store.GetObdAnnotations(target.Id, images[1].Id).ToArray();
+                    Assert.AreEqual(1, validAnnotations.Length, "Replace must clear the prior annotation and keep only the valid imported region.");
+                    Assert.AreEqual(importedClass.Id, validAnnotations[0].ClassId);
+                    Assert.AreEqual(2, validAnnotations[0].X);
+                    Assert.AreEqual(3, result.Warnings.Count);
+                    Assert.AreEqual("mismatch.png", result.Warnings[0].FileName);
+                    Assert.AreEqual("data[0]", result.Warnings[0].SourceLocation);
+                    Assert.AreEqual(AnnotationJsonImportWarningReason.ImageDimensionsMismatch, result.Warnings[0].Reason);
+                    Assert.AreEqual("data[1].regionLabel[1]", result.Warnings[1].SourceLocation);
+                    Assert.AreEqual(AnnotationJsonImportWarningReason.InvalidAnnotation, result.Warnings[1].Reason);
+                    Assert.AreEqual("data[1].regionLabel[2]", result.Warnings[2].SourceLocation);
+                    Assert.AreEqual(AnnotationJsonImportWarningReason.UnknownClassReference, result.Warnings[2].Reason);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(mismatchPath)) File.Delete(mismatchPath); if (File.Exists(validPath)) File.Delete(validPath); }
+        }
+
+        [TestMethod]
+        public void Json_import_does_not_report_annotation_errors_for_unmatched_images()
+        {
+            string path = TemporaryProjectPath();
+            string validPath = Path.Combine(Path.GetDirectoryName(path), "valid.png");
+            try
+            {
+                CreateBitmap(validPath, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { validPath }).Single();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Obd);
+                    AnnotationClass value = store.AddClass(target.Id, "part", "#ABCDEF");
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"missing.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"missing\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20},{\"fileName\":\"valid.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":2,\"y\":2,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+
+                    AnnotationJsonImportResult result = store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, false);
+
+                    Assert.AreEqual(0, result.Warnings.Count, "Unmatched names are silent, even when their annotations are invalid.");
+                    Assert.AreEqual(value.Id, store.GetObdAnnotations(target.Id, image.Id).Single().ClassId);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(validPath)) File.Delete(validPath); }
+        }
+
+        [TestMethod]
+        public void Json_import_does_not_report_class_warnings_when_only_dataset_is_selected()
+        {
+            string path = TemporaryProjectPath();
+            string validPath = Path.Combine(Path.GetDirectoryName(path), "valid.png");
+            try
+            {
+                CreateBitmap(validPath, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { validPath }).Single();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Obd);
+                    store.AddClass(target.Id, "part", "#ABCDEF");
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"valid.png\",\"set\":\"train\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"missing\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+
+                    AnnotationJsonImportResult result = store.ImportAnnotationJsonIntoSet(json, target.Id, false, AnnotationImportMode.AddToEmptyImages, true, DatasetImportMode.ReplaceMatchingImages, false);
+
+                    Assert.AreEqual(0, result.Warnings.Count, "Unselected CLASS errors must not appear on a dataset-only import.");
+                    Assert.AreEqual(0, store.GetObdAnnotations(target.Id, image.Id).Count);
+                    Assert.AreEqual(DatasetAssignmentStatus.Train, store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == image.Id).Status);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(validPath)) File.Delete(validPath); }
+        }
+
+        [TestMethod]
+        public void Json_import_preserves_existing_dataset_assignment_when_set_is_invalid_and_imports_valid_class()
+        {
+            string path = TemporaryProjectPath();
+            string imagePath = Path.Combine(Path.GetDirectoryName(path), "image.png");
+            try
+            {
+                CreateBitmap(imagePath, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Obd);
+                    AnnotationClass annotationClass = store.AddClass(target.Id, "part", "#ABCDEF");
+                    store.SetDatasetAssignments(target.Id, new[] { image.Id }, DatasetAssignmentStatus.Train);
+                    store.SetRetest(target.Id, new[] { image.Id }, true);
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"image.png\",\"set\":\"invalid\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+
+                    AnnotationJsonImportResult result = store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.AddToAllImages, true, DatasetImportMode.ReplaceMatchingImages, false);
+
+                    DatasetAssignment assignment = store.GetDatasetAssignments(target.Id).Single(value => value.ImageId == image.Id);
+                    Assert.AreEqual(DatasetAssignmentStatus.Train, assignment.Status);
+                    Assert.IsTrue(assignment.Retest, "Invalid SET data must leave both assignment status and Retest unchanged.");
+                    Assert.AreEqual(annotationClass.Id, store.GetObdAnnotations(target.Id, image.Id).Single().ClassId);
+                    Assert.AreEqual(1, result.Warnings.Count);
+                    Assert.AreEqual("data[0].set", result.Warnings[0].SourceLocation);
+                    Assert.AreEqual(AnnotationJsonImportWarningReason.InvalidDatasetAssignment, result.Warnings[0].Reason);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(imagePath)) File.Delete(imagePath); }
+        }
+
+        [TestMethod]
+        public void Json_import_keeps_class_definitions_when_all_uniquely_matched_images_have_wrong_dimensions()
+        {
+            string path = TemporaryProjectPath();
+            string imagePath = Path.Combine(Path.GetDirectoryName(path), "mismatch.png");
+            try
+            {
+                CreateBitmap(imagePath, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Obd);
+                    string json = "{\"label_type\":\"obd\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"mismatch.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"Rect\",\"x\":1,\"y\":1,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":19,\"height\":20}]}";
+
+                    AnnotationJsonImportResult result = store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.ReplaceMatchingImages, false, DatasetImportMode.AddToUnassignedImages, false);
+
+                    Assert.AreEqual(1, result.Warnings.Count);
+                    Assert.IsTrue(store.GetClasses(target.Id).Any(value => value.Name == "part"), "CLASS definitions are not part of the skipped image row.");
+                    Assert.AreEqual(0, store.GetObdAnnotations(target.Id, image.Id).Count);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(imagePath)) File.Delete(imagePath); }
+        }
+
+        [TestMethod]
+        public void Json_import_skips_overflowing_seg_point_and_keeps_valid_sibling_region()
+        {
+            string path = TemporaryProjectPath();
+            string imagePath = Path.Combine(Path.GetDirectoryName(path), "image.png");
+            try
+            {
+                CreateBitmap(imagePath, Color.Blue, ImageFormat.Png, 20, 20);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                    AnnotationSet target = store.CreateAnnotationSet("target", AnnotationSetType.Seg);
+                    AnnotationClass annotationClass = store.AddClass(target.Id, "part", "#ABCDEF");
+                    string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-01-01T00:00:00Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"part\",\"color\":\"#ABCDEF\"}],\"data\":[{\"fileName\":\"image.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"part\",\"type\":\"PolyLine\",\"strokeWidth\":2,\"points\":[[2147483648,1],[2,2]]},{\"className\":\"part\",\"type\":\"Rect\",\"x\":2,\"y\":2,\"width\":3,\"height\":3}],\"retestset\":0,\"rotation_angle\":0,\"width\":20,\"height\":20}]}";
+
+                    AnnotationJsonImportResult result = store.ImportAnnotationJsonIntoSet(json, target.Id, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, false);
+
+                    Assert.AreEqual(1, result.Warnings.Count);
+                    Assert.AreEqual("data[0].regionLabel[0]", result.Warnings[0].SourceLocation);
+                    Assert.AreEqual(AnnotationJsonImportWarningReason.InvalidAnnotation, result.Warnings[0].Reason);
+                    SegRegion region = store.GetSegRegions(target.Id, image.Id).Single();
+                    Assert.AreEqual(SegRegionType.Rect, region.Type);
+                    Assert.AreEqual(annotationClass.Id, region.ClassId);
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(imagePath)) File.Delete(imagePath); }
+        }
+
+        [TestMethod]
         public void Json_annotation_import_preserves_seg_path_points()
         {
             string path = TemporaryProjectPath();

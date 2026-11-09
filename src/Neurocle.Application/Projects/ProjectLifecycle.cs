@@ -807,7 +807,11 @@ namespace Neurocle.Application.Projects
 
     public enum AnnotationJsonImportWarningReason
     {
-        AmbiguousImageFileName
+        AmbiguousImageFileName,
+        ImageDimensionsMismatch,
+        InvalidAnnotation,
+        UnknownClassReference,
+        InvalidDatasetAssignment
     }
 
     public sealed class AnnotationJsonImportWarning

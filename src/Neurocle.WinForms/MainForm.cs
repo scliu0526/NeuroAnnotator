@@ -2128,9 +2128,13 @@ namespace Neurocle.WinForms
                     allowUnknownFields = executionPreview.UnknownFields.Count > 0;
                 }
                 if (jsonRequest.TargetAnnotationSetType.HasValue && session.GetAnnotationSets().SingleOrDefault(value => value.Id == jsonRequest.TargetAnnotationSetId)?.Type != jsonRequest.TargetAnnotationSetType.Value) throw new JsonAnnotationImportException("Target annotation set changed or model type does not match.");
-                if (String.IsNullOrWhiteSpace(jsonRequest.TargetAnnotationSetId)) session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, allowUnknownFields);
-                else session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotationsAndClasses, jsonRequest.AnnotationMode, jsonRequest.ImportDataset, jsonRequest.DatasetMode, allowUnknownFields);
-                return new ImportJobResult(false, new string[0]);
+                if (String.IsNullOrWhiteSpace(jsonRequest.TargetAnnotationSetId))
+                {
+                    session.ImportAnnotationJson(json, jsonRequest.AnnotationSetName, allowUnknownFields);
+                    return new ImportJobResult(false, new string[0]);
+                }
+                AnnotationJsonImportResult importResult = session.ImportAnnotationJsonIntoSet(json, jsonRequest.TargetAnnotationSetId, jsonRequest.ImportAnnotationsAndClasses, jsonRequest.AnnotationMode, jsonRequest.ImportDataset, jsonRequest.DatasetMode, allowUnknownFields);
+                return new ImportJobResult(false, new string[0], warnings: importResult.Warnings);
             }
             return new ImportJobResult(
                 report.UnprocessedCount > 0 || report.WasCancelledDuringScan,

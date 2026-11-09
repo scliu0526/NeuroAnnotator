@@ -667,6 +667,69 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Json_import_warnings_are_shown_as_completed_with_details_on_the_job_card()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                var warning = new AnnotationJsonImportWarning(
+                    "image.png",
+                    "data[2].regionLabel[1]",
+                    AnnotationJsonImportWarningReason.UnknownClassReference);
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(
+                        Guid.NewGuid(),
+                        new AnnotationJsonImportJobRequest("labels.json", "target", "target-id", AnnotationSetType.Obd, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, new string[0]),
+                        ImportJobStatus.Completed,
+                        null,
+                        new ImportJobResult(false, new string[0], warnings: new[] { warning }),
+                        null)
+                });
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                Assert.AreEqual("完成但有警告", Field<Label>(card, "statusLabel").Text);
+                Assert.AreEqual("完成但有警告", Field<ListView>(form, "jobsList").Items[0].SubItems[1].Text);
+                Assert.IsFalse(Field<TextBox>(card, "detailsLabel").Visible, "Warnings remain collapsed until details are opened.");
+
+                Field<Button>(card, "detailsButton").PerformClick();
+                System.Windows.Forms.Application.DoEvents();
+                TextBox details = Field<TextBox>(card, "detailsLabel");
+                StringAssert.Contains(details.Text, "image.png");
+                StringAssert.Contains(details.Text, "data[2].regionLabel[1]");
+                StringAssert.Contains(details.Text, "類別不在 JSON 的 CLASS 清單中");
+                Field<Button>(card, "copyDetailsButton").PerformClick();
+                Assert.AreEqual(details.Text, Clipboard.GetText());
+            }
+        }
+
+        [STATestMethod]
+        public void Json_import_without_warnings_keeps_normal_completed_status_and_no_details()
+        {
+            using (var form = new ImportQueueForm())
+            {
+                form.UpdateJobs(new[]
+                {
+                    new ImportJobSnapshot(
+                        Guid.NewGuid(),
+                        new AnnotationJsonImportJobRequest("labels.json", "target", "target-id", AnnotationSetType.Obd, true, AnnotationImportMode.AddToAllImages, false, DatasetImportMode.AddToUnassignedImages, new string[0]),
+                        ImportJobStatus.Completed,
+                        null,
+                        new ImportJobResult(false, new string[0]),
+                        null)
+                });
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+
+                ImportJobCardControl card = Field<FlowLayoutPanel>(form, "cardsPanel").Controls.OfType<ImportJobCardControl>().Single();
+                Assert.AreEqual("已完成", Field<Label>(card, "statusLabel").Text);
+                Assert.AreEqual(string.Empty, Field<TextBox>(card, "detailsLabel").Text);
+                Assert.IsFalse(Field<TextBox>(card, "detailsLabel").Visible);
+            }
+        }
+
+        [STATestMethod]
         public void Import_and_export_cards_keep_their_actions_mutually_exclusive()
         {
             using (var form = new ImportQueueForm())

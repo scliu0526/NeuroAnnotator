@@ -169,7 +169,7 @@ namespace Neurocle.WinForms
 
     internal sealed class ImportJobResult
     {
-        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false, bool requiresConfirmation = false, string confirmationMessage = null, string outputPath = null)
+        public ImportJobResult(bool wasCanceled, IReadOnlyList<string> importedImageIds, int failedCount = 0, int unprocessedCount = 0, bool wasCanceledDuringScan = false, bool requiresConfirmation = false, string confirmationMessage = null, string outputPath = null, IEnumerable<AnnotationJsonImportWarning> warnings = null)
         {
             WasCanceled = wasCanceled;
             ImportedImageIds = Array.AsReadOnly((importedImageIds ?? new string[0]).ToArray());
@@ -179,6 +179,7 @@ namespace Neurocle.WinForms
             RequiresConfirmation = requiresConfirmation;
             ConfirmationMessage = confirmationMessage;
             OutputPath = outputPath;
+            Warnings = Array.AsReadOnly((warnings ?? new AnnotationJsonImportWarning[0]).ToArray());
         }
 
         public bool WasCanceled { get; }
@@ -189,6 +190,7 @@ namespace Neurocle.WinForms
         public bool RequiresConfirmation { get; }
         public string ConfirmationMessage { get; }
         public string OutputPath { get; }
+        public IReadOnlyList<AnnotationJsonImportWarning> Warnings { get; }
     }
 
     internal sealed class ImportJobSnapshot

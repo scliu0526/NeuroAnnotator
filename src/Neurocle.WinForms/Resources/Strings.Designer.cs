@@ -40,6 +40,12 @@ namespace Neurocle.WinForms.Resources
         internal static string ImportJsonPreview { get { return ResourceManager.GetString("ImportJsonPreview", CultureInfo.CurrentUICulture); } }
         internal static string ImportJsonValidating { get { return ResourceManager.GetString("ImportJsonValidating", CultureInfo.CurrentUICulture); } }
         internal static string ImportJsonTypeMismatch { get { return ResourceManager.GetString("ImportJsonTypeMismatch", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningItem { get { return ResourceManager.GetString("ImportJsonWarningItem", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningAmbiguousImageFileName { get { return ResourceManager.GetString("ImportJsonWarningAmbiguousImageFileName", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningImageDimensionsMismatch { get { return ResourceManager.GetString("ImportJsonWarningImageDimensionsMismatch", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningUnknownClassReference { get { return ResourceManager.GetString("ImportJsonWarningUnknownClassReference", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningInvalidAnnotation { get { return ResourceManager.GetString("ImportJsonWarningInvalidAnnotation", CultureInfo.CurrentUICulture); } }
+        internal static string ImportJsonWarningInvalidDatasetAssignment { get { return ResourceManager.GetString("ImportJsonWarningInvalidDatasetAssignment", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationUnknownFields { get { return ResourceManager.GetString("ImportAnnotationUnknownFields", CultureInfo.CurrentUICulture); } }
         internal static string ImportAnnotationIrreversiblePrompt { get { return ResourceManager.GetString("ImportAnnotationIrreversiblePrompt", CultureInfo.CurrentUICulture); } }
         internal static string ImageFileFilter { get { return ResourceManager.GetString("ImageFileFilter", CultureInfo.CurrentUICulture); } }
@@ -63,6 +69,7 @@ namespace Neurocle.WinForms.Resources
         internal static string ImportQueueWaiting { get { return ResourceManager.GetString("ImportQueueWaiting", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueRunning { get { return ResourceManager.GetString("ImportQueueRunning", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueCompleted { get { return ResourceManager.GetString("ImportQueueCompleted", CultureInfo.CurrentUICulture); } }
+        internal static string ImportQueueCompletedWithWarnings { get { return ResourceManager.GetString("ImportQueueCompletedWithWarnings", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueFailed { get { return ResourceManager.GetString("ImportQueueFailed", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueCanceled { get { return ResourceManager.GetString("ImportQueueCanceled", CultureInfo.CurrentUICulture); } }
         internal static string ImportQueueCapacityReached { get { return ResourceManager.GetString("ImportQueueCapacityReached", CultureInfo.CurrentUICulture); } }

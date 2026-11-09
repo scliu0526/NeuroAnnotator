@@ -438,7 +438,7 @@ namespace Neurocle.Infrastructure.Persistence
         /// </summary>
         public AnnotationJsonImportResult ImportAnnotationJsonIntoSet(string json, string annotationSetId, bool importAnnotationsAndClasses, AnnotationImportMode annotationMode, bool importDataset, DatasetImportMode datasetMode, bool allowUnknownFields)
         {
-            ImportedAnnotationSet imported = JsonAnnotationImport.Parse(json);
+            ImportedAnnotationSet imported = JsonAnnotationImport.ParseForSelectedSetImport(json);
             if (!allowUnknownFields && imported.UnknownFields.Count > 0) throw new JsonAnnotationImportException("JSON contains unknown fields.");
             AnnotationSet target = GetAnnotationSets().SingleOrDefault(value => value.Id == annotationSetId);
             if (target == null) throw new ArgumentException("The annotation set does not exist.", nameof(annotationSetId));
@@ -447,6 +447,8 @@ namespace Neurocle.Infrastructure.Persistence
             ProjectImage[] images = GetImages().ToArray();
             var imageByName = images.GroupBy(image => image.OriginalFileName, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
             var warnings = new List<AnnotationJsonImportWarning>();
+            var uniqueMatches = new List<KeyValuePair<int, ProjectImage>>();
+            int uniqueFileNameMatchCount = 0;
             for (int index = 0; index < imported.Data.Count; index++)
             {
                 ImportedImage item = imported.Data[index];
@@ -457,7 +459,16 @@ namespace Neurocle.Infrastructure.Persistence
                     warnings.Add(new AnnotationJsonImportWarning(item.FileName, "data[" + index + "]", AnnotationJsonImportWarningReason.AmbiguousImageFileName));
                     continue;
                 }
-                if (matches[0].Width != item.Width || matches[0].Height != item.Height) throw new JsonAnnotationImportException("JSON image dimensions do not match the project image.");
+                uniqueFileNameMatchCount++;
+                if (!item.HasValidDimensions || matches[0].Width != item.Width || matches[0].Height != item.Height)
+                {
+                    warnings.Add(new AnnotationJsonImportWarning(item.FileName, "data[" + index + "]", AnnotationJsonImportWarningReason.ImageDimensionsMismatch));
+                    continue;
+                }
+                uniqueMatches.Add(new KeyValuePair<int, ProjectImage>(index, matches[0]));
+                warnings.AddRange(imported.Warnings.Where(value =>
+                    value.SourceLocation.StartsWith("data[" + index + "]", StringComparison.Ordinal) &&
+                    (value.Reason == AnnotationJsonImportWarningReason.InvalidDatasetAssignment ? importDataset : importAnnotationsAndClasses)));
             }
             AnnotationClass[] existing = GetClasses(target.Id).ToArray();
             var classByName = existing.ToDictionary(value => value.Name, StringComparer.Ordinal);
@@ -479,16 +490,42 @@ namespace Neurocle.Infrastructure.Persistence
                 : target.Type == AnnotationSetType.Obd
                     ? "SELECT COUNT(*) FROM ObdAnnotation WHERE AnnotationSetId = $set AND ImageId = $image;"
                     : "SELECT COUNT(*) FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;";
-            var mapped = imported.Data
-                .Where(item => imageByName.ContainsKey(item.FileName) && imageByName[item.FileName].Length == 1)
-                .Select(item => new
+            var validRegionsByRow = new Dictionary<int, IReadOnlyList<ImportedRegion>>();
+            foreach (KeyValuePair<int, ProjectImage> match in uniqueMatches)
+            {
+                ImportedImage item = imported.Data[match.Key];
+                if (!importAnnotationsAndClasses)
                 {
-                    Item = item,
-                    ImageId = imageByName[item.FileName][0].Id,
-                    ExistingAnnotationCount = Convert.ToInt32(ExecuteScalar(connection, existingCountSql, new SqliteParameter("$set", target.Id), new SqliteParameter("$image", imageByName[item.FileName][0].Id)))
+                    validRegionsByRow.Add(match.Key, item.Regions);
+                    continue;
+                }
+                var validRegions = new List<ImportedRegion>();
+                for (int regionIndex = 0; regionIndex < item.Regions.Count; regionIndex++)
+                {
+                    ImportedRegion region = item.Regions[regionIndex];
+                    try
+                    {
+                        if (target.Type == AnnotationSetType.Obd) ValidateObdGeometry(new Size(item.Width, item.Height), region.X, region.Y, region.Width, region.Height);
+                        else ValidateSegGeometry(new Size(item.Width, item.Height), new SegRegion("import", "import", "import", "import", region.Type, region.X, region.Y, region.Type == SegRegionType.Ellipse ? region.RadiusX : region.Width, region.Type == SegRegionType.Ellipse ? region.RadiusY : region.Height, 0, region.Points, region.StrokeWidth));
+                        validRegions.Add(region);
+                    }
+                    catch (ArgumentException)
+                    {
+                        warnings.Add(new AnnotationJsonImportWarning(item.FileName, "data[" + match.Key + "].regionLabel[" + region.SourceIndex + "]", AnnotationJsonImportWarningReason.InvalidAnnotation));
+                    }
+                }
+                validRegionsByRow.Add(match.Key, validRegions);
+            }
+            var mapped = uniqueMatches
+                .Select(match => new
+                {
+                    RowIndex = match.Key,
+                    Item = new ImportedImage(imported.Data[match.Key].FileName, imported.Data[match.Key].Set, imported.Data[match.Key].ClassLabel, imported.Data[match.Key].Retest, imported.Data[match.Key].Width, imported.Data[match.Key].Height, validRegionsByRow[match.Key], imported.Data[match.Key].HasValidDimensions, imported.Data[match.Key].HasValidDatasetAssignment),
+                    ImageId = match.Value.Id,
+                    ExistingAnnotationCount = Convert.ToInt32(ExecuteScalar(connection, existingCountSql, new SqliteParameter("$set", target.Id), new SqliteParameter("$image", match.Value.Id)))
                 })
                 .ToArray();
-            if (mapped.Length == 0) return new AnnotationJsonImportResult(warnings);
+            if (uniqueFileNameMatchCount == 0 || (mapped.Length == 0 && newClasses.Count == 0)) return new AnnotationJsonImportResult(warnings);
             var nextZOrders = target.Type == AnnotationSetType.Cla
                 ? new Dictionary<string, int>(StringComparer.Ordinal)
                 : mapped.ToDictionary(value => value.ImageId, value => annotationMode == AnnotationImportMode.ReplaceMatchingImages ? 0 : (target.Type == AnnotationSetType.Obd ? GetObdAnnotations(target.Id, value.ImageId).Select(annotation => annotation.ZOrder).DefaultIfEmpty(-1).Max() : GetSegRegions(target.Id, value.ImageId).Select(region => region.ZOrder).DefaultIfEmpty(-1).Max()) + 1, StringComparer.Ordinal);
@@ -501,7 +538,7 @@ namespace Neurocle.Infrastructure.Persistence
                     string imageId = value.ImageId;
                     DatasetAssignmentStatus status = item.Set == "train" ? DatasetAssignmentStatus.Train : item.Set == "test" ? DatasetAssignmentStatus.Test : item.Set == "not_used" ? DatasetAssignmentStatus.NotUsed : DatasetAssignmentStatus.Unassigned;
                     bool retest = assignments.ContainsKey(imageId) && assignments[imageId].Retest;
-                    if (importDataset && (datasetMode == DatasetImportMode.ReplaceMatchingImages || !assignments.ContainsKey(imageId) || assignments[imageId].Status == DatasetAssignmentStatus.Unassigned)) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
+                    if (importDataset && item.HasValidDatasetAssignment && (datasetMode == DatasetImportMode.ReplaceMatchingImages || !assignments.ContainsKey(imageId) || assignments[imageId].Status == DatasetAssignmentStatus.Unassigned)) SetDatasetAssignmentRaw(db, transaction, new DatasetAssignment(target.Id, imageId, status, retest));
                     if (!importAnnotationsAndClasses) continue;
                     bool writeAnnotations = annotationMode != AnnotationImportMode.AddToEmptyImages || value.ExistingAnnotationCount == 0;
                     if (!writeAnnotations) continue;
