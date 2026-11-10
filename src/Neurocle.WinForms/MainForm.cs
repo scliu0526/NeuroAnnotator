@@ -725,6 +725,7 @@ namespace Neurocle.WinForms
             }
             canvas.DiscardUnfinishedShape();
             if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
+            if (project != null) RefreshImageBrowser();
         }
 
         /// <summary>
@@ -1494,7 +1495,9 @@ namespace Neurocle.WinForms
                 ImageAnnotationSummary summary;
                 summaries.TryGetValue(image.Id, out summary);
                 string[] classNames = (summary == null ? new string[0] : summary.ClassIds).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
-                return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, selected.Type != AnnotationSetType.Cla);
+                bool showClass = pages.SelectedTab != imagesPage;
+                bool showCount = showClass && selected.Type != AnnotationSetType.Cla;
+                return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, showClass, showCount);
             });
             imageBrowser.LoadRows(rows, GetImagesDirectory(project.ProjectPath));
         }

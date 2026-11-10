@@ -39,8 +39,7 @@ namespace Neurocle.WinForms
             this.classColumn.Width = 180;
             this.list.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
             this.sequenceColumn,
-            this.fileNameColumn,
-            this.classColumn});
+            this.fileNameColumn});
             this.list.Dock = System.Windows.Forms.DockStyle.Fill;
             this.list.FullRowSelect = true;
             this.list.HideSelection = false;

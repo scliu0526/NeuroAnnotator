@@ -116,7 +116,7 @@ namespace Neurocle.WinForms
         /// <param name="managedImagesDirectory">圖片實際檔案所在的受管理目錄。</param>
         public void LoadImages(IReadOnlyList<ProjectImage> images, string managedImagesDirectory)
         {
-            LoadRows((images ?? new ProjectImage[0]).Select(image => new ImageListRow(image, new string[0], 0, false)), managedImagesDirectory);
+            LoadRows((images ?? new ProjectImage[0]).Select(image => new ImageListRow(image, new string[0], 0, false, false)), managedImagesDirectory);
         }
 
         /// <summary>
@@ -129,7 +129,15 @@ namespace Neurocle.WinForms
             source.Clear();
             if (rows != null) source.AddRange(rows);
             imagesDirectory = managedImagesDirectory;
+            bool showClass = source.Any(row => row.ShowClass);
             bool showAnnotationCount = source.Any(row => row.ShowAnnotationCount);
+            if ((!showClass && column == ImageListSortColumn.Classes) || (!showAnnotationCount && column == ImageListSortColumn.AnnotationCount))
+            {
+                column = ImageListSortColumn.Sequence;
+                direction = ImageListSortDirection.Ascending;
+            }
+            if (showClass && !list.Columns.Contains(classColumn)) list.Columns.Insert(2, classColumn);
+            if (!showClass && list.Columns.Contains(classColumn)) list.Columns.Remove(classColumn);
             if (showAnnotationCount && !list.Columns.Contains(annotationCountColumn)) list.Columns.Add(annotationCountColumn);
             if (!showAnnotationCount && list.Columns.Contains(annotationCountColumn)) list.Columns.Remove(annotationCountColumn);
             refreshing = true;
@@ -176,7 +184,7 @@ namespace Neurocle.WinForms
             ImageListRow row = visible[args.ItemIndex];
             args.Item = new ListViewItem(row.Image.Sequence.ToString());
             args.Item.SubItems.Add(row.Image.OriginalFileName);
-            args.Item.SubItems.Add(row.ClassDisplay);
+            if (list.Columns.Contains(classColumn)) args.Item.SubItems.Add(row.ClassDisplay);
             if (list.Columns.Contains(annotationCountColumn)) args.Item.SubItems.Add(row.AnnotationCount.ToString());
         }
 

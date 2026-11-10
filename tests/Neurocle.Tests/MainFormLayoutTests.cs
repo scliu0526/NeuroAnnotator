@@ -1139,8 +1139,13 @@ namespace Neurocle.Tests
                 ProjectImage image = new ProjectImage("image", "image.png", "image.png", "hash", 1, 1, 1);
                 control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, false) }, Path.GetTempPath());
                 Assert.IsFalse(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+                Assert.IsTrue(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "類別"));
                 control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, true) }, Path.GetTempPath());
                 Assert.IsTrue(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+                control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, false, false) }, Path.GetTempPath());
+                Assert.AreEqual(2, list.Columns.Count, "The image page must only show sequence and file name columns.");
+                control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, true, true) }, Path.GetTempPath());
+                Assert.AreEqual(4, list.Columns.Count, "Annotation pages must show class and annotation count columns when applicable.");
             }
         }
 
@@ -1152,7 +1157,7 @@ namespace Neurocle.Tests
             using (var canvasHost = new CanvasScrollHost())
             {
                 ListView imageList = Field<ListView>(imageBrowser, "list");
-                Assert.AreEqual(3, imageList.Columns.Count);
+                Assert.AreEqual(2, imageList.Columns.Count);
                 Assert.AreEqual(0, imageList.VirtualListSize);
                 Assert.AreEqual("search", Field<TextBox>(imageBrowser, "search").Name);
                 Assert.AreEqual(0, imageList.TabIndex);

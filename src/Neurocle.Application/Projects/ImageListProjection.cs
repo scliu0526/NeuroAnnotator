@@ -142,10 +142,17 @@ namespace Neurocle.Application.Projects
         /// <param name="showAnnotationCount">介面是否顯示標註數量。</param>
         /// <exception cref="ArgumentNullException"><paramref name="image"/> 或 <paramref name="classNames"/> 為 null。</exception>
         public ImageListRow(ProjectImage image, IReadOnlyList<string> classNames, int annotationCount, bool showAnnotationCount)
+            : this(image, classNames, annotationCount, true, showAnnotationCount) { }
+
+        /// <summary>
+        /// 建立指定欄位可見性的圖片清單顯示列。
+        /// </summary>
+        public ImageListRow(ProjectImage image, IReadOnlyList<string> classNames, int annotationCount, bool showClass, bool showAnnotationCount)
         {
             Image = image ?? throw new ArgumentNullException(nameof(image));
             ClassNames = (classNames ?? throw new ArgumentNullException(nameof(classNames))).Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToArray();
             AnnotationCount = annotationCount;
+            ShowClass = showClass;
             ShowAnnotationCount = showAnnotationCount;
         }
 
@@ -155,6 +162,8 @@ namespace Neurocle.Application.Projects
         public IReadOnlyList<string> ClassNames { get; private set; }
         // 取得此圖片目前的標註數量。
         public int AnnotationCount { get; private set; }
+        // 取得清單是否應顯示類別欄位。
+        public bool ShowClass { get; private set; }
         // 取得清單是否應顯示標註數量。
         public bool ShowAnnotationCount { get; private set; }
         // 取得以逗號分隔的類別名稱顯示文字。
