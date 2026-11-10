@@ -131,6 +131,11 @@ namespace Neurocle.WinForms
         private RectangleF segOriginalBounds;
         // 保存目前 SEG 旋轉預覽角度。
         private double segRotationAngle;
+        private int segMoveOffsetX;
+        private int segMoveOffsetY;
+        private Bitmap segDragBitmap;
+        private Bitmap segDragBackground;
+        private readonly Dictionary<string, RectangleF> segDragBounds = new Dictionary<string, RectangleF>(StringComparer.Ordinal);
         // 保存目前 SEG 筆刷寬度設定。
         private int segStrokeWidth = 15;
         // 保存正在繪製路徑所使用的筆畫寬度。
@@ -309,6 +314,13 @@ namespace Neurocle.WinForms
             SegRegion[] segChanges = moveObd ? null : segPreviews.Values.ToArray();
             obdPreviews = new Dictionary<string, RectangleF>();
             segPreviews = new Dictionary<string, SegRegion>();
+            segMoveOffsetX = 0;
+            segMoveOffsetY = 0;
+            segDragBitmap?.Dispose();
+            segDragBitmap = null;
+            segDragBackground?.Dispose();
+            segDragBackground = null;
+            segDragBounds.Clear();
             keyboardNudgeActive = false;
             keyboardNudgeIsObd = false;
             keyboardNudgeX = 0;
@@ -652,16 +664,20 @@ namespace Neurocle.WinForms
             base.OnPaint(args);
             if (image == null) return;
             PointF origin = viewport.Origin;
-            RectangleF imageBounds = new RectangleF(origin.X, origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom));
-            RectangleF imagePaintBounds = RectangleF.Intersect(imageBounds, args.Graphics.ClipBounds);
-            if (!imagePaintBounds.IsEmpty)
+            if (segDragBackground != null) args.Graphics.DrawImageUnscaled(segDragBackground, 0, 0);
+            else
             {
-                RectangleF sourceBounds = new RectangleF(
-                    (imagePaintBounds.X - imageBounds.X) / (float)viewport.Zoom,
-                    (imagePaintBounds.Y - imageBounds.Y) / (float)viewport.Zoom,
-                    imagePaintBounds.Width / (float)viewport.Zoom,
-                    imagePaintBounds.Height / (float)viewport.Zoom);
-                args.Graphics.DrawImage(image, imagePaintBounds, sourceBounds, GraphicsUnit.Pixel);
+                RectangleF imageBounds = new RectangleF(origin.X, origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom));
+                RectangleF imagePaintBounds = RectangleF.Intersect(imageBounds, args.Graphics.ClipBounds);
+                if (!imagePaintBounds.IsEmpty)
+                {
+                    RectangleF sourceBounds = new RectangleF(
+                        (imagePaintBounds.X - imageBounds.X) / (float)viewport.Zoom,
+                        (imagePaintBounds.Y - imageBounds.Y) / (float)viewport.Zoom,
+                        imagePaintBounds.Width / (float)viewport.Zoom,
+                        imagePaintBounds.Height / (float)viewport.Zoom);
+                    args.Graphics.DrawImage(image, imagePaintBounds, sourceBounds, GraphicsUnit.Pixel);
+                }
             }
             foreach (ObdAnnotation annotation in obdAnnotations.Where(item => !selectedObdIds.Contains(item.Id)).Concat(obdAnnotations.Where(item => selectedObdIds.Contains(item.Id))))
             {
@@ -694,9 +710,13 @@ namespace Neurocle.WinForms
                 if (!AnnotationsVisible) continue;
                 SegRegion region;
                 if (!segPreviews.TryGetValue(stored.Id, out region)) region = stored;
-                RectangleF paintBounds = ToScreenRectangle(GetStoredBounds(region));
+                bool translatedMove = segDrag == SegDragKind.Move && selectedSegIds.Contains(stored.Id) && segDragBitmap != null;
+                RectangleF paintBounds = ToScreenRectangle(translatedMove
+                    ? new RectangleF(segDragBounds[stored.Id].X + segMoveOffsetX, segDragBounds[stored.Id].Y + segMoveOffsetY, segDragBounds[stored.Id].Width, segDragBounds[stored.Id].Height)
+                    : GetStoredBounds(region));
                 paintBounds.Inflate(selectedSegIds.Contains(stored.Id) ? 30f : 3f, selectedSegIds.Contains(stored.Id) ? 30f : 3f);
                 if (!paintBounds.IntersectsWith(args.ClipRectangle)) continue;
+                if (translatedMove) continue;
                 AnnotationClass annotationClass;
                 segClasses.TryGetValue(region.ClassId, out annotationClass);
                 Color color = annotationClass == null ? Color.Red : AnnotationColorFormat.ToColor(annotationClass.Color);
@@ -745,6 +765,12 @@ namespace Neurocle.WinForms
                     if (segDrag == SegDragKind.Rotate && segPreviews.ContainsKey(stored.Id)) DrawRotatedSegHandles(args.Graphics, stored, segRotationAngle);
                     else DrawSegHandles(args.Graphics, ToScreenRectangle(GetSegBounds(region)));
                 }
+            }
+            if (segDrag == SegDragKind.Move && segDragBitmap != null)
+            {
+                args.Graphics.DrawImage(segDragBitmap, (float)(segMoveOffsetX * viewport.Zoom), (float)(segMoveOffsetY * viewport.Zoom));
+                foreach (SegRegion selected in segRegions.Where(item => selectedSegIds.Contains(item.Id)))
+                    DrawSegHandles(args.Graphics, ToScreenRectangle(new RectangleF(segDragBounds[selected.Id].X + segMoveOffsetX, segDragBounds[selected.Id].Y + segMoveOffsetY, segDragBounds[selected.Id].Width, segDragBounds[selected.Id].Height)));
             }
             if (selectionPreview.HasValue)
             {
@@ -1245,6 +1271,11 @@ namespace Neurocle.WinForms
                         if (!selectedSegIds.Contains(hit.Id)) { ClearSegSelection(); selectedSegIds.Add(hit.Id); selectedSegId = hit.Id; }
                         segDragStart = selectionPoint;
                         segDrag = SegDragKind.Move;
+                        SetThumbnailHiddenForGesture(true);
+                        segDragBounds.Clear();
+                        foreach (SegRegion selected in segRegions.Where(item => selectedSegIds.Contains(item.Id))) segDragBounds[selected.Id] = GetStoredBounds(selected);
+                        segDragBackground = CreateSegDragBackground();
+                        segDragBitmap = CreateSegDragBitmap();
                         Capture = true;
                     }
                     Invalidate();
@@ -1380,7 +1411,7 @@ namespace Neurocle.WinForms
             else if (segDrag != SegDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
                 PointF point = ClampPoint(viewport.ScreenToImage(args.Location));
-                if (segDrag == SegDragKind.Move) segPreviews = MoveSegRegions(point);
+                if (segDrag == SegDragKind.Move) MoveSegRegions(point);
                 else if (segDrag == SegDragKind.Rotate)
                 {
                     IReadOnlyDictionary<string, SegRegion> previews;
@@ -1647,12 +1678,22 @@ namespace Neurocle.WinForms
             }
             else if (args.Button == MouseButtons.Left && segDrag != SegDragKind.None)
             {
-                SegRegion[] changed = segPreviews.Values.Where(value => !SegEquals(value, segRegions.First(item => item.Id == value.Id))).ToArray();
+                SegRegion[] changed = segDrag == SegDragKind.Move
+                    ? segRegions.Where(item => selectedSegIds.Contains(item.Id)).Select(item => TranslateSegRegion(item, segMoveOffsetX, segMoveOffsetY)).Where(value => !SegEquals(value, segRegions.First(item => item.Id == value.Id))).ToArray()
+                    : segPreviews.Values.Where(value => !SegEquals(value, segRegions.First(item => item.Id == value.Id))).ToArray();
                 segPreviews = new Dictionary<string, SegRegion>();
                 segDrag = SegDragKind.None;
+                segMoveOffsetX = 0;
+                segMoveOffsetY = 0;
+                segDragBitmap?.Dispose();
+                segDragBitmap = null;
+                segDragBackground?.Dispose();
+                segDragBackground = null;
+                segDragBounds.Clear();
                 Capture = false;
                 if (changed.Length > 0) SegRegionsChanged?.Invoke(changed);
                 segRotationAngle = 0d;
+                SetThumbnailHiddenForGesture(false);
                 Invalidate();
             }
             else if (args.Button == MouseButtons.Left && segPreview.HasValue)
@@ -1823,14 +1864,93 @@ namespace Neurocle.WinForms
         /// <summary>
         /// 依指標偏移計算選取 SEG 區域的預覽位置。
         /// </summary>
-        private IReadOnlyDictionary<string, SegRegion> MoveSegRegions(PointF point)
+        private void MoveSegRegions(PointF point)
         {
             SegRegion[] selected = segRegions.Where(item => selectedSegIds.Contains(item.Id)).ToArray();
             float xOffset = point.X - segDragStart.X;
             float yOffset = point.Y - segDragStart.Y;
-            xOffset = Math.Max(selected.Max(item => -GetStoredBounds(item).Left), Math.Min(xOffset, selected.Min(item => viewport.ImageSize.Width - GetStoredBounds(item).Right)));
-            yOffset = Math.Max(selected.Max(item => -GetStoredBounds(item).Top), Math.Min(yOffset, selected.Min(item => viewport.ImageSize.Height - GetStoredBounds(item).Bottom)));
-            return selected.ToDictionary(item => item.Id, item => TranslateSegRegion(item, xOffset, yOffset));
+            xOffset = Math.Max(selected.Max(item => -segDragBounds[item.Id].Left), Math.Min(xOffset, selected.Min(item => viewport.ImageSize.Width - segDragBounds[item.Id].Right)));
+            yOffset = Math.Max(selected.Max(item => -segDragBounds[item.Id].Top), Math.Min(yOffset, selected.Min(item => viewport.ImageSize.Height - segDragBounds[item.Id].Bottom)));
+            segMoveOffsetX = (int)Math.Round(xOffset, MidpointRounding.AwayFromZero);
+            segMoveOffsetY = (int)Math.Round(yOffset, MidpointRounding.AwayFromZero);
+        }
+
+        private Bitmap CreateSegDragBitmap()
+        {
+            var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(Color.Transparent);
+                foreach (SegRegion region in segRegions.Where(item => selectedSegIds.Contains(item.Id)))
+                {
+                    AnnotationClass annotationClass;
+                    segClasses.TryGetValue(region.ClassId, out annotationClass);
+                    Color color = annotationClass == null ? Color.Red : AnnotationColorFormat.ToColor(annotationClass.Color);
+                    using (var fill = new SolidBrush(Color.FromArgb(ToAlpha(SegOpacity), color)))
+                    using (var pen = new Pen(color, 2f))
+                    {
+                        if (region.Type == SegRegionType.Rect)
+                        {
+                            RectangleF rectangle = ToScreenRectangle(region.X, region.Y, region.Width, region.Height);
+                            graphics.FillRectangle(fill, rectangle);
+                            graphics.DrawRectangle(pen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+                        }
+                        else if (region.Type == SegRegionType.Ellipse)
+                        {
+                            RectangleF ellipse = ToScreenRectangle(region.X - region.Width, region.Y - region.Height, region.Width * 2, region.Height * 2);
+                            graphics.FillEllipse(fill, ellipse);
+                            graphics.DrawEllipse(pen, ellipse);
+                        }
+                        else if (region.Points.Count > 0)
+                        {
+                            PointF[] points = region.Points.Select(point => viewport.ImageToScreen(new PointF(point.X, point.Y))).ToArray();
+                            if (region.Type == SegRegionType.PolyGon && points.Length > 2)
+                            {
+                                graphics.FillPolygon(fill, points);
+                                graphics.DrawPolygon(pen, points);
+                            }
+                            else
+                            {
+                                float diameter = Math.Max(1f, (float)(region.StrokeWidth * viewport.Zoom));
+                                if (region.Type == SegRegionType.PolyLine && points.Length == 1)
+                                {
+                                    graphics.FillEllipse(fill, points[0].X - diameter / 2f, points[0].Y - diameter / 2f, diameter, diameter);
+                                    continue;
+                                }
+                                using (var stroke = new Pen(Color.FromArgb(ToAlpha(SegOpacity), color), diameter))
+                                {
+                                    stroke.LineJoin = LineJoin.Round;
+                                    stroke.StartCap = LineCap.Round;
+                                    stroke.EndCap = LineCap.Round;
+                                    graphics.DrawLines(stroke, points);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return bitmap;
+        }
+
+        private Bitmap CreateSegDragBackground()
+        {
+            var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(BackColor);
+                RectangleF imageBounds = new RectangleF(viewport.Origin.X, viewport.Origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom));
+                RectangleF imagePaintBounds = RectangleF.Intersect(imageBounds, new RectangleF(Point.Empty, ClientSize));
+                if (!imagePaintBounds.IsEmpty)
+                {
+                    RectangleF sourceBounds = new RectangleF(
+                        (imagePaintBounds.X - imageBounds.X) / (float)viewport.Zoom,
+                        (imagePaintBounds.Y - imageBounds.Y) / (float)viewport.Zoom,
+                        imagePaintBounds.Width / (float)viewport.Zoom,
+                        imagePaintBounds.Height / (float)viewport.Zoom);
+                    graphics.DrawImage(image, imagePaintBounds, sourceBounds, GraphicsUnit.Pixel);
+                }
+            }
+            return bitmap;
         }
 
         /// <summary>
@@ -2351,7 +2471,7 @@ namespace Neurocle.WinForms
         /// <param name="disposing">指出是否正在處置元件的旗標。</param>
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { CancelImageLoad(); image?.Dispose(); }
+            if (disposing) { CancelImageLoad(); image?.Dispose(); segDragBitmap?.Dispose(); segDragBackground?.Dispose(); }
             base.Dispose(disposing);
         }
 

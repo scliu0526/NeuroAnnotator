@@ -82,25 +82,40 @@ namespace Neurocle.Tests
                     MethodInfo mouseDown = typeof(ImageCanvasControl).GetMethod("OnMouseDown", BindingFlags.Instance | BindingFlags.NonPublic);
                     MethodInfo mouseMove = typeof(ImageCanvasControl).GetMethod("OnMouseMove", BindingFlags.Instance | BindingFlags.NonPublic);
                     var frameTimes = new List<double>();
+                    var moveTimes = new List<double>();
+                    var paintTimes = new List<double>();
                     Point dragStart = ImagePointToScreen(canvas, 1900, 500);
                     mouseDown.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 1, dragStart.X, dragStart.Y, 0) });
+                    mouseMove.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 0, dragStart.X, dragStart.Y, 0) });
                     for (int index = 0; index < 30; index++)
                     {
                         var frame = Stopwatch.StartNew();
+                        var move = Stopwatch.StartNew();
                         mouseMove.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 0, dragStart.X + index, dragStart.Y + index, 0) });
+                        move.Stop();
+                        var paint = Stopwatch.StartNew();
                         using (var bitmap = new Bitmap(canvas.Width, canvas.Height))
                             canvas.DrawToBitmap(bitmap, canvas.ClientRectangle);
+                        paint.Stop();
                         frame.Stop();
                         frameTimes.Add(frame.Elapsed.TotalMilliseconds);
+                        moveTimes.Add(move.Elapsed.TotalMilliseconds);
+                        paintTimes.Add(paint.Elapsed.TotalMilliseconds);
                     }
                     mouseMove.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 0, dragStart.X + 30, dragStart.Y + 30, 0) });
                     MethodInfo mouseUp = typeof(ImageCanvasControl).GetMethod("OnMouseUp", BindingFlags.Instance | BindingFlags.NonPublic);
+                    var commit = Stopwatch.StartNew();
                     mouseUp.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 1, dragStart.X + 30, dragStart.Y + 30, 0) });
-                    double average = frameTimes.Average();
-                    double p95 = frameTimes.OrderBy(value => value).ElementAt((int)Math.Ceiling(frameTimes.Count * 0.95d) - 1);
-                    double maximum = frameTimes.Max();
-                    Console.WriteLine("170K-point drag baseline: avg={0:F3} ms/p95={1:F3} ms/max={2:F3} ms", average, p95, maximum);
+                    commit.Stop();
+                    double average = moveTimes.Average();
+                    double p95 = moveTimes.OrderBy(value => value).ElementAt((int)Math.Ceiling(moveTimes.Count * 0.95d) - 1);
+                    double maximum = moveTimes.Max();
+                    Console.WriteLine("170K-point drag baseline: moveAvg={0:F3} ms/moveP95={1:F3} ms/moveMax={2:F3} ms/paintAvg={3:F3} ms/commit={4:F3} ms", average, p95, maximum, paintTimes.Average(), commit.Elapsed.TotalMilliseconds);
                     Assert.AreEqual(30, frameTimes.Count);
+                    Assert.IsTrue(average <= 16.7d, "The measured drag handler average must stay within one 60 FPS frame.");
+                    Assert.IsTrue(p95 <= 16.7d, "The measured drag handler p95 must stay within one 60 FPS frame.");
+                    Assert.IsTrue(maximum <= 50d, "The measured drag handler maximum must stay below 50 ms.");
+                    Assert.IsTrue(commit.Elapsed.TotalMilliseconds <= 500d, "Mouse-up persistence must complete within 500 ms.");
                     Assert.AreEqual(1, changed, "The drag baseline must exercise the canvas commit event.");
                     Assert.IsNotNull(committed);
                     Assert.IsTrue(committed[0].Points[0].X != originalFirstPoint.X || committed[0].Points[0].Y != originalFirstPoint.Y,
