@@ -3059,9 +3059,13 @@ namespace Neurocle.Tests
 
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb());
+                    ImageCanvasControl.CanvasViewState viewBeforeReload = canvas.ViewState;
                     canvas.LoadImage(imagePath);
                     WaitForImage(canvas, imagePath);
-                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb(), "Switching images under the pointer should restore the cursor at its current location.");
+                    Assert.AreEqual(viewBeforeReload.Zoom, canvas.ViewState.Zoom, 0.001d);
+                    Assert.AreEqual(viewBeforeReload.Origin, canvas.ViewState.Origin);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb(), "Switching same-size images should preserve the view and restore the cursor at its current location.");
 
                     canvas.SetZoomPercent(100);
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;

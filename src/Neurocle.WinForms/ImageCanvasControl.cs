@@ -100,6 +100,7 @@ namespace Neurocle.WinForms
         private string loadedImagePath;
         // 保存目前圖片載入作業的取消權杖。
         private CancellationTokenSource imageLoad;
+        private bool imageInteractionBlocked;
         private long imageLoadVersion;
         // 指出目前是否以滑鼠拖曳平移畫布。
         private bool panning;
@@ -520,7 +521,11 @@ namespace Neurocle.WinForms
             DiscardUnfinishedShape();
             CancelImageLoad();
             if (path == null) ClearImage();
-            else LoadImageAsync(path, requestVersion);
+            else
+            {
+                imageInteractionBlocked = true;
+                LoadImageAsync(path, requestVersion);
+            }
         }
 
         /// <summary>
@@ -543,6 +548,7 @@ namespace Neurocle.WinForms
                     UpdateToolCursor();
                     Invalidate();
                     RaiseViewChanged();
+                    imageInteractionBlocked = false;
                     ImageLoaded?.Invoke(path, requestVersion, true);
                 })) loaded.Preview.Dispose();
             }
@@ -553,6 +559,7 @@ namespace Neurocle.WinForms
                     TryInvokeOnUiThread(() =>
                     {
                         if (IsDisposed || Disposing) return;
+                        imageInteractionBlocked = false;
                         ImageLoaded?.Invoke(path, requestVersion, false);
                     });
             }
@@ -591,6 +598,7 @@ namespace Neurocle.WinForms
             Image previous = image;
             image = null;
             loadedImagePath = null;
+            imageInteractionBlocked = false;
             hasToolCursor = false;
             toolCursor = PointF.Empty;
             UpdateToolCursor();
@@ -1214,7 +1222,7 @@ namespace Neurocle.WinForms
         /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         protected override void OnMouseDown(MouseEventArgs args)
         {
-            if (imageLoad != null) return;
+            if (imageInteractionBlocked) return;
             Focus();
             panning = image != null && (args.Button == MouseButtons.Right || (args.Button == MouseButtons.Left && (CurrentModifierKeys & Keys.Space) == Keys.Space));
             if (panning)
@@ -1439,9 +1447,14 @@ namespace Neurocle.WinForms
         /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         protected override void OnMouseMove(MouseEventArgs args)
         {
-            if (imageLoad != null) return;
             pointerInside = true;
             lastMousePosition = args.Location;
+            if (imageInteractionBlocked)
+            {
+                RefreshToolCursor();
+                ApplyToolCursor();
+                return;
+            }
             PointF previousSegCursor = segCursor;
             bool hadToolCursor = hasToolCursor;
             Rectangle oldCursorBounds = hadToolCursor ? GetToolCursorBounds(toolCursor) : Rectangle.Empty;
@@ -1856,7 +1869,7 @@ namespace Neurocle.WinForms
         /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         protected override void OnKeyDown(KeyEventArgs args)
         {
-            if (imageLoad != null) return;
+            if (imageInteractionBlocked) return;
             if (IsControlKey(args.KeyCode))
             {
                 SetControlModifierState(true);
