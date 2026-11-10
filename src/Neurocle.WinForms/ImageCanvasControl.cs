@@ -420,8 +420,7 @@ namespace Neurocle.WinForms
         public event EventHandler ZoomChanged;
         // 通知外層畫布位置或可視範圍已變更。
         public event EventHandler ViewChanged;
-        public event Action<string, long> ImageLoaded;
-        public event Action<string, long> ImageLoadFailed;
+        public event Action<string, long, bool> ImageLoaded;
         // 取得目前載入圖片的路徑。
         internal string LoadedImagePath { get { return loadedImagePath; } }
         // 取得供畫布同步使用的縮放與位置快照。
@@ -477,7 +476,7 @@ namespace Neurocle.WinForms
                     UpdateToolCursor();
                     Invalidate();
                     RaiseViewChanged();
-                    ImageLoaded?.Invoke(path, requestVersion);
+                    ImageLoaded?.Invoke(path, requestVersion, true);
                 })) loaded.Preview.Dispose();
             }
             catch (OperationCanceledException) { }
@@ -487,7 +486,7 @@ namespace Neurocle.WinForms
                     TryInvokeOnUiThread(() =>
                     {
                         if (IsDisposed || Disposing) return;
-                        ImageLoadFailed?.Invoke(path, requestVersion);
+                        ImageLoaded?.Invoke(path, requestVersion, false);
                     });
             }
             finally

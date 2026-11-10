@@ -137,6 +137,9 @@ namespace Neurocle.WinForms
         private string pendingImageLoadPath;
         private int pendingImageLoadCount;
         private long pendingImageLoadVersion;
+        private string displayedImageId;
+        private string displayedImagePath;
+        private bool pendingImageLoadFailed;
         // 避免同步兩畫布視角時產生遞迴事件。
         private bool synchronizingCanvasView;
         // 避免重新載入標註集清單時觸發選取副作用。
@@ -386,10 +389,8 @@ namespace Neurocle.WinForms
             annotationTools.Controls.Clear();
             imageCanvas.ViewChanged += (sender, args) => SynchronizeCanvasView(imageCanvas, canvas);
             canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
-            imageCanvas.ImageLoaded += (path, version) => ImageCanvasLoaded(path, version);
-            canvas.ImageLoaded += (path, version) => AnnotationCanvasLoaded(path, version);
-            imageCanvas.ImageLoadFailed += (path, version) => ImageCanvasLoadFailed(path, version);
-            canvas.ImageLoadFailed += (path, version) => AnnotationCanvasLoadFailed(path, version);
+            imageCanvas.ImageLoaded += (path, version, success) => ImageCanvasLoaded(path, version, success);
+            canvas.ImageLoaded += (path, version, success) => AnnotationCanvasLoaded(path, version, success);
             datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
             datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
             datasetAssignments.ClearRetestRequested += ids => RunAnnotationCommand(() => ConfirmAndClearRetest(ids));
@@ -1826,24 +1827,33 @@ namespace Neurocle.WinForms
             pendingImageLoadVersion++;
             pendingImageLoadPath = selectedImagePath;
             pendingImageLoadCount = selectedImagePath == null ? 0 : 2;
+            pendingImageLoadFailed = false;
             imageCanvas.LoadImage(selectedImagePath, pendingImageLoadVersion);
             canvas.LoadImage(selectedImagePath, pendingImageLoadVersion);
             if (selectedImagePath == null) RefreshAnnotationClasses();
         }
 
-        private void ImageCanvasLoaded(string path, long version) { CompleteImageLoad(path, version); }
+        private void ImageCanvasLoaded(string path, long version, bool success) { CompleteImageLoad(path, version, success); }
 
-        private void AnnotationCanvasLoaded(string path, long version) { CompleteImageLoad(path, version); }
+        private void AnnotationCanvasLoaded(string path, long version, bool success) { CompleteImageLoad(path, version, success); }
 
-        private void ImageCanvasLoadFailed(string path, long version) { CompleteImageLoad(path, version); }
-
-        private void AnnotationCanvasLoadFailed(string path, long version) { CompleteImageLoad(path, version); }
-
-        private void CompleteImageLoad(string path, long version)
+        private void CompleteImageLoad(string path, long version, bool success)
         {
             if (pendingImageLoadCount == 0 || version != pendingImageLoadVersion || !string.Equals(path, pendingImageLoadPath, StringComparison.OrdinalIgnoreCase)) return;
+            pendingImageLoadFailed |= !success;
             pendingImageLoadCount--;
-            if (pendingImageLoadCount == 0) RefreshAnnotationClasses();
+            if (pendingImageLoadCount != 0) return;
+            if (pendingImageLoadFailed)
+            {
+                selectedImageId = displayedImageId;
+                selectedImagePath = displayedImagePath;
+                if (displayedImageId == null) RefreshAnnotationClasses();
+                else imageBrowser.SelectImage(displayedImageId);
+                return;
+            }
+            displayedImageId = selectedImageId;
+            displayedImagePath = selectedImagePath;
+            RefreshAnnotationClasses();
         }
 
         /// <summary>
