@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -24,9 +25,19 @@ namespace Neurocle.WinForms
         private ImageListSortDirection direction = ImageListSortDirection.Ascending;
         // 避免重新整理清單時觸發使用者選取通知。
         private bool refreshing;
+        private IReadOnlyList<string> contextImageIds = new string[0];
+        private readonly ContextMenuStrip imageMenu = new ContextMenuStrip();
+        private readonly ToolStripMenuItem clearRetestItem = new ToolStripMenuItem(Strings.DatasetClearRetest);
 
         // 通知主視窗目前清單所選圖片及其受管理檔案路徑。
         public event EventHandler<ImageSelectedEventArgs> ImageSelected;
+        public event Action<IReadOnlyList<string>> ClearRetestRequested;
+
+        internal bool RetestContextMenuEnabled
+        {
+            get { return list.ContextMenuStrip != null; }
+            set { list.ContextMenuStrip = value ? imageMenu : null; }
+        }
 
         // 取得目前選取圖片的識別碼。
         public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visible[index].Image.Id).ToArray(); } }
@@ -83,6 +94,28 @@ namespace Neurocle.WinForms
         public ImageBrowserControl()
         {
             InitializeComponent();
+            imageMenu.Items.Add(clearRetestItem);
+            imageMenu.Opening += ImageMenu_Opening;
+            clearRetestItem.Click += ClearRetestItem_Click;
+        }
+
+        private void ImageMenu_Opening(object sender, System.ComponentModel.CancelEventArgs args)
+        {
+            Point location = list.PointToClient(Cursor.Position);
+            ListViewItem item = list.HitTest(location).Item;
+            if (item == null || !item.Selected)
+            {
+                args.Cancel = true;
+                contextImageIds = new string[0];
+                return;
+            }
+            contextImageIds = SelectedImageIds.ToArray();
+            clearRetestItem.Text = string.Format("{0} ({1})", Strings.DatasetClearRetest, contextImageIds.Count);
+        }
+
+        private void ClearRetestItem_Click(object sender, EventArgs args)
+        {
+            if (contextImageIds.Count > 0) ClearRetestRequested?.Invoke(contextImageIds);
         }
 
         /// <summary>

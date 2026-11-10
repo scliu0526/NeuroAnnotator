@@ -385,6 +385,7 @@ namespace Neurocle.WinForms
             canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
             datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
             datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
+            datasetAssignments.ClearRetestRequested += ids => RunAnnotationCommand(() => ConfirmAndClearRetest(ids));
             datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ClearDatasetClasses(ids));
             datasetAssignments.AutoSplitSelectedRequested += (ids, value) => RunAnnotationCommand(() => AutoSplitDataset(ids, value));
             datasetAssignments.AutoSplitAllRequested += value => RunAnnotationCommand(() => AutoSplitDataset(null, value));
@@ -402,6 +403,7 @@ namespace Neurocle.WinForms
                 if (annotationOperationInProgress) pendingImageSelection = args;
                 else ApplyImageSelection(args);
             };
+            imageBrowser.ClearRetestRequested += ids => RunAnnotationCommand(() => ConfirmAndClearRetest(ids));
 
             imageCanvas.ZoomChanged += (sender, args) => UpdateZoomText();
             canvas.ZoomChanged += (sender, args) => UpdateZoomText();
@@ -725,6 +727,7 @@ namespace Neurocle.WinForms
             }
             canvas.DiscardUnfinishedShape();
             if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
+            imageBrowser.RetestContextMenuEnabled = pages.SelectedTab == annotationPage;
             if (project != null) RefreshImageBrowser();
         }
 
@@ -1526,6 +1529,16 @@ namespace Neurocle.WinForms
             if (project == null || selected == null || imageIds.Count == 0) return;
             project.SetRetest(selected.Id, imageIds, retest);
             RefreshDatasetAssignments();
+        }
+
+        private void ConfirmAndClearRetest(IReadOnlyList<string> imageIds)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            string[] ids = (imageIds ?? new string[0]).Distinct(StringComparer.Ordinal).ToArray();
+            if (project == null || selected == null || ids.Length == 0) return;
+            string message = string.Format("清除 Retest\n標註集：{0}\n圖片數量：{1}", selected.Name, ids.Length);
+            if (MessageBox.Show(message, Strings.DatasetClearRetest, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                SetRetest(ids, false);
         }
 
         /// <summary>

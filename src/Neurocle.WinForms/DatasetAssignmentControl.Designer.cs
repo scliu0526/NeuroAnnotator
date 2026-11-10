@@ -395,6 +395,7 @@ namespace Neurocle.WinForms
             this.clearRetestItem,
             this.clearClassItem,
             this.clearSetItem});
+            this.datasetMenu.Opening += new System.ComponentModel.CancelEventHandler(this.DatasetMenu_Opening);
             //
             // clearRetestItem
             //

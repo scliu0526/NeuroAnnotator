@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
@@ -16,6 +17,7 @@ namespace Neurocle.WinForms
         private readonly List<DatasetRow> rows = new List<DatasetRow>();
         // 保存套用篩選條件後的可見資料集列。
         private readonly List<DatasetRow> visibleRows = new List<DatasetRow>();
+        private IReadOnlyList<string> contextImageIds = new string[0];
 
         /// <summary>
         /// 初始化資料集控制項並接線執行期操作事件。
@@ -124,7 +126,21 @@ namespace Neurocle.WinForms
         /// </summary>
         /// <param name="sender">引發事件的右鍵選單項目。</param>
         /// <param name="args">選單點擊事件資料。</param>
-        private void ClearRetestItem_Click(object sender, EventArgs args) { RetestRequested?.Invoke(SelectedImageIds, false); }
+        private void ClearRetestItem_Click(object sender, EventArgs args) { if (contextImageIds.Count > 0) ClearRetestRequested?.Invoke(contextImageIds); }
+
+        private void DatasetMenu_Opening(object sender, System.ComponentModel.CancelEventArgs args)
+        {
+            Point location = list.PointToClient(Cursor.Position);
+            ListViewItem item = list.HitTest(location).Item;
+            if (item == null || !item.Selected)
+            {
+                args.Cancel = true;
+                contextImageIds = new string[0];
+                return;
+            }
+            contextImageIds = SelectedImageIds.ToArray();
+            clearRetestItem.Text = string.Format("{0} ({1})", Strings.DatasetClearRetest, contextImageIds.Count);
+        }
 
         /// <summary>
         /// 要求清除所選圖片的 CLA 類別。
@@ -144,6 +160,7 @@ namespace Neurocle.WinForms
         public event Action<IReadOnlyList<string>, DatasetAssignmentStatus> DatasetRequested;
         // 通知主視窗更新所選圖片的 Retest 旗標。
         public event Action<IReadOnlyList<string>, bool> RetestRequested;
+        public event Action<IReadOnlyList<string>> ClearRetestRequested;
         // 通知主視窗清除所選圖片的 CLA 類別。
         public event Action<IReadOnlyList<string>> ClearClassRequested;
         // 通知主視窗以目前比例自動切分資料集。
