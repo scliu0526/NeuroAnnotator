@@ -1176,6 +1176,21 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Canvas_viewport_keeps_view_when_image_pixel_size_is_unchanged()
+        {
+            var viewport = new CanvasViewport(new Size(2000, 1000), new Size(1000, 500));
+            viewport.SetZoomAt(1.25d, new PointF(500f, 250f));
+            viewport.Pan(-120f, -80f);
+            PointF origin = viewport.Origin;
+            double zoom = viewport.Zoom;
+
+            viewport.SetImageSize(new Size(2000, 1000));
+
+            Assert.AreEqual(zoom, viewport.Zoom, 0.001d);
+            Assert.AreEqual(origin, viewport.Origin);
+        }
+
+        [TestMethod]
         public void Annotation_sets_classes_and_cla_assignments_are_isolated_and_persist_after_reopen()
         {
             string path = TemporaryProjectPath();

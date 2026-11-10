@@ -54,6 +54,7 @@ namespace Neurocle.Application.Projects
         /// <param name="imageSize">新的原圖像素尺寸。</param>
         public void SetImageSize(Size imageSize)
         {
+            if (ImageSize == imageSize) return;
             ImageSize = imageSize;
             FitToWindow();
         }
