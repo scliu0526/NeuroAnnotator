@@ -2224,15 +2224,15 @@ namespace Neurocle.Tests
 
                     SegRegion updated = store.GetSegRegions(set.Id, image.Id).Single();
                     expected = updated.Points.Select(PointSignature).ToArray();
-                    CollectionAssert.AreNotEqual(movedPoints.Select(PointSignature).ToArray(), expected, "The obsolete outer-to-second-hole bridge must be replaced.");
-                    Assert.AreEqual(2, CountSegment(updated.Points, 21, 1, 21, 21), "The existing shortest outer-to-first-hole bridge is retained.");
-                    Assert.AreEqual(2, CountSegment(updated.Points, 31, 21, 41, 21), "The shorter hole-to-hole bridge joins the network.");
-                    Assert.AreEqual(0, CountSegment(updated.Points, 41, 1, 41, 21), "The longer second outer bridge is removed.");
+                    CollectionAssert.AreEqual(movedPoints.Select(PointSignature).ToArray(), expected, "A pure translation must preserve every point and existing bridge.");
                     Assert.AreEqual(9800d, SegGeometryPrototype.Area(new Paths64 { new Path64(updated.Points.Select(point => new Point64(point.X, point.Y)).ToList()) }));
                     Assert.IsTrue(store.Undo(set.Id));
                     CollectionAssert.AreEqual(originalPoints.Select(PointSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
                     Assert.IsTrue(store.Redo(set.Id));
                     CollectionAssert.AreEqual(expected, store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                    bool canUndoBeforeNoOp = store.CanUndo(set.Id);
+                    store.UpdateSegRegions(new[] { store.GetSegRegions(set.Id, image.Id).Single() });
+                    Assert.AreEqual(canUndoBeforeNoOp, store.CanUndo(set.Id), "A zero-displacement SEG update must not add history.");
                     store.ExportAnnotationJson(set.Id, exportedJson);
                     store.Save();
                 }
@@ -2267,7 +2267,9 @@ namespace Neurocle.Tests
                     AnnotationSet set = store.CreateAnnotationSet("unbridgeable", AnnotationSetType.Seg);
                     AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
                     SegRegion region = store.AddSegPath(set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, originalPoints, 0);
-                    SegPoint[] invalidEdit = originalPoints.Select(point => new SegPoint(point.X + 1, point.Y + 1)).ToArray();
+                    SegPoint[] invalidEdit = originalPoints.Select((point, index) => index == 1
+                        ? new SegPoint(point.X + 2, point.Y + 1)
+                        : new SegPoint(point.X + 1, point.Y + 1)).ToArray();
 
                     Assert.ThrowsException<SegGeometryPrototype.BridgeNetworkException>(() => store.UpdateSegRegions(new[] { new SegRegion(region.Id, set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, invalidEdit) }));
 

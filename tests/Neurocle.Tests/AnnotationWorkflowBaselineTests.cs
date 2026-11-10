@@ -21,7 +21,7 @@ namespace Neurocle.Tests
     {
         [STATestMethod]
         [TestCategory("ManualPerformance")]
-        public void Seg_move_after_erasing_hole_records_the_current_bridge_failure_baseline()
+        public void Seg_move_after_erasing_hole_preserves_bridge_and_undoes_as_one_operation()
         {
             string path = TemporaryProjectPath();
             string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
@@ -40,21 +40,11 @@ namespace Neurocle.Tests
                     AnnotationSet set = store.CreateAnnotationSet("baseline", AnnotationSetType.Seg);
                     AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
                     SegRegion region = store.AddSegPath(set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, original, 0);
-                    bool failed = false;
-                    try
-                    {
-                        store.UpdateSegRegions(new[] { new SegRegion(region.Id, set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder,
-                            original.Select(point => new SegPoint(point.X + 1, point.Y + 1)).ToArray()) });
-                    }
-                    catch (SegGeometryPrototype.BridgeNetworkException exception)
-                    {
-                        failed = true;
-                        Console.WriteLine("SEG hole move baseline: {0}", exception.Message);
-                    }
-
-                    Assert.IsTrue(failed, "The baseline must reproduce the current bridge failure before the move command is implemented.");
-                    CollectionAssert.AreEqual(original.Select(PointSignature).ToArray(),
-                        store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                    SegPoint[] moved = original.Select(point => new SegPoint(point.X + 1, point.Y + 1)).ToArray();
+                    store.UpdateSegRegions(new[] { new SegRegion(region.Id, set.Id, image.Id, annotationClass.Id, SegRegionType.PolyGon, 0, 0, 0, 0, region.ZOrder, moved) });
+                    CollectionAssert.AreEqual(moved.Select(PointSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(original.Select(PointSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Single().Points.Select(PointSignature).ToArray());
                 }
             }
             finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }

@@ -1794,9 +1794,11 @@ namespace Neurocle.Infrastructure.Persistence
                 if (!classes.Contains(value.ClassId)) throw new ArgumentException("The class does not belong to the annotation set.", nameof(regions));
                 ValidateSegGeometry(imageSize, value);
             }
+            if (previous.All(value => SameSegRegion(value, requested.First(item => item.Id == value.Id)))) return;
             var byId = requested.ToDictionary(value => value.Id, StringComparer.Ordinal);
             int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", setId), new SqliteParameter("$image", imageId)));
-            SegRegion[] next = previous.Select((value, index) => WithZOrder(RebridgePolygon(byId[value.Id]), firstZOrder + index)).ToArray();
+            bool pureTranslation = TryGetCommonPureTranslation(previous, requested, out _, out _);
+            SegRegion[] next = previous.Select((value, index) => WithZOrder(pureTranslation ? byId[value.Id] : RebridgePolygon(byId[value.Id]), firstZOrder + index)).ToArray();
             CompleteOperation((db, transaction) => { foreach (SegRegion value in next) UpdateSegRegionRaw(db, transaction, value); });
             Record(setId, () => { foreach (SegRegion value in previous) UpdateSegRegionRaw(value); }, () => { foreach (SegRegion value in next) UpdateSegRegionRaw(value); }, EstimateHistoryBytes(previous) + EstimateHistoryBytes(next));
         }
@@ -1812,6 +1814,39 @@ namespace Neurocle.Infrastructure.Persistence
             Path64 polygon = SegGeometryPrototype.Rebridge(ToPath(value.Points));
             SegPoint[] points = polygon.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray();
             return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, value.ZOrder, points, value.StrokeWidth);
+        }
+
+        private static bool TryGetCommonPureTranslation(IReadOnlyList<SegRegion> previous, IReadOnlyList<SegRegion> requested, out int offsetX, out int offsetY)
+        {
+            offsetX = 0;
+            offsetY = 0;
+            bool found = false;
+            for (int index = 0; index < previous.Count; index++)
+            {
+                SegRegion before = previous[index];
+                SegRegion after = requested.First(value => value.Id == before.Id);
+                if (before.Type != SegRegionType.PolyGon || before.Points.Count != after.Points.Count || before.Points.Count == 0) return false;
+                int currentX = after.Points[0].X - before.Points[0].X;
+                int currentY = after.Points[0].Y - before.Points[0].Y;
+                for (int pointIndex = 1; pointIndex < before.Points.Count; pointIndex++)
+                    if (after.Points[pointIndex].X - before.Points[pointIndex].X != currentX || after.Points[pointIndex].Y - before.Points[pointIndex].Y != currentY) return false;
+                if (!found)
+                {
+                    offsetX = currentX;
+                    offsetY = currentY;
+                    found = true;
+                }
+                else if (offsetX != currentX || offsetY != currentY) return false;
+            }
+            return found;
+        }
+
+        private static bool SameSegRegion(SegRegion first, SegRegion second)
+        {
+            return first.AnnotationSetId == second.AnnotationSetId && first.ImageId == second.ImageId && first.ClassId == second.ClassId
+                && first.Type == second.Type && first.X == second.X && first.Y == second.Y && first.Width == second.Width && first.Height == second.Height
+                && first.ZOrder == second.ZOrder && first.StrokeWidth == second.StrokeWidth
+                && first.Points.SequenceEqual(second.Points);
         }
 
         /// <inheritdoc />
