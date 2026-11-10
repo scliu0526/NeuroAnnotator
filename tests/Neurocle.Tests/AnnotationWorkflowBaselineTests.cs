@@ -170,6 +170,36 @@ namespace Neurocle.Tests
             finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
 
+        [STATestMethod]
+        public void Image_decode_cache_shares_decodes_and_evicts_after_three_images()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string[] paths = Enumerable.Range(0, 4).Select(index => Path.Combine(directory, "image" + index + ".png")).ToArray();
+            try
+            {
+                foreach (string path in paths) CreateBitmap(path, ImageFormat.Png, 1920, 1080);
+                ImageDecodeCache.Clear();
+                using (var first = new ImageCanvasControl { Size = new Size(400, 300) })
+                using (var second = new ImageCanvasControl { Size = new Size(400, 300) })
+                {
+                    first.CreateControl();
+                    second.CreateControl();
+                    first.LoadImage(paths[0]);
+                    second.LoadImage(paths[0]);
+                    WaitForImage(first, paths[0]);
+                    WaitForImage(second, paths[0]);
+                    Assert.AreEqual(1, ImageDecodeCache.DecodeCount);
+                    foreach (string path in paths.Skip(1))
+                    {
+                        first.LoadImage(path);
+                        WaitForImage(first, path);
+                    }
+                    Assert.AreEqual(3, ImageDecodeCache.Count);
+                }
+            }
+            finally { ImageDecodeCache.Clear(); if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
         private static double LoadAndMeasure(ImageCanvasControl canvas, string path)
         {
             var stopwatch = Stopwatch.StartNew();

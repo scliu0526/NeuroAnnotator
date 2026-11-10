@@ -14,6 +14,73 @@ using Neurocle.Domain.Segmentation;
 
 namespace Neurocle.WinForms
 {
+    internal static class ImageDecodeCache
+    {
+        private const int Capacity = 3;
+        private sealed class Entry
+        {
+            internal string Path;
+            internal DateTime LastWriteUtc;
+            internal long Length;
+            internal Bitmap Bitmap;
+            internal LinkedListNode<Entry> Node;
+        }
+
+        private static readonly object Sync = new object();
+        private static readonly Dictionary<string, Entry> Entries = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
+        private static readonly LinkedList<Entry> Lru = new LinkedList<Entry>();
+        private static int decodeCount;
+
+        internal static int Count { get { lock (Sync) return Entries.Count; } }
+        internal static int DecodeCount { get { lock (Sync) return decodeCount; } }
+
+        internal static void Clear()
+        {
+            lock (Sync)
+            {
+                while (Lru.Count > 0) Remove(Lru.Last.Value);
+                decodeCount = 0;
+            }
+        }
+
+        internal static Bitmap Get(string path, CancellationToken cancellation, out Size size)
+        {
+            FileInfo file = new FileInfo(path);
+            lock (Sync)
+            {
+                Entry cached;
+                if (Entries.TryGetValue(path, out cached) && cached.LastWriteUtc == file.LastWriteTimeUtc && cached.Length == file.Length)
+                {
+                    Lru.Remove(cached.Node);
+                    cached.Node = Lru.AddFirst(cached);
+                    size = cached.Bitmap.Size;
+                    return new Bitmap(cached.Bitmap);
+                }
+                if (cached != null) Remove(cached);
+                cancellation.ThrowIfCancellationRequested();
+                decodeCount++;
+                using (var source = Image.FromFile(path))
+                {
+                    cancellation.ThrowIfCancellationRequested();
+                    var bitmap = new Bitmap(source);
+                    var entry = new Entry { Path = path, LastWriteUtc = file.LastWriteTimeUtc, Length = file.Length, Bitmap = bitmap };
+                    entry.Node = Lru.AddFirst(entry);
+                    Entries[path] = entry;
+                    while (Lru.Count > Capacity) Remove(Lru.Last.Value);
+                    size = bitmap.Size;
+                    return new Bitmap(bitmap);
+                }
+            }
+        }
+
+        private static void Remove(Entry entry)
+        {
+            Entries.Remove(entry.Path);
+            Lru.Remove(entry.Node);
+            entry.Bitmap.Dispose();
+        }
+    }
+
     // 繪製圖片、標註、互動預覽與目前畫布視角。
     internal sealed class ImageCanvasControl : Control
     {
@@ -509,13 +576,9 @@ namespace Neurocle.WinForms
             {
                 imageLoadGate.Wait(cancellation);
                 acquired = true;
-                using (var source = Image.FromFile(path))
-                {
-                    cancellation.ThrowIfCancellationRequested();
-                    var preview = new Bitmap(source);
-                    try { cancellation.ThrowIfCancellationRequested(); return new CanvasImage(preview, source.Size); }
-                    catch { preview.Dispose(); throw; }
-                }
+                Size originalSize;
+                Bitmap preview = ImageDecodeCache.Get(path, cancellation, out originalSize);
+                return new CanvasImage(preview, originalSize);
             }
             finally { if (acquired) imageLoadGate.Release(); }
         }

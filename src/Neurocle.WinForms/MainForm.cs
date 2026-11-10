@@ -259,6 +259,7 @@ namespace Neurocle.WinForms
             importJobQueue?.Dispose();
             importQueueForm?.Dispose();
             project?.Dispose();
+            ImageDecodeCache.Clear();
         }
 
         /// <summary>
@@ -2481,6 +2482,7 @@ namespace Neurocle.WinForms
             IProjectSession previous = project;
             project = replacement;
             previous?.Dispose();
+            ImageDecodeCache.Clear();
             InitializeImageImportQueue(replacement);
             ResetAnnotationOpacity();
             showAnnotations.Checked = true;
