@@ -1977,6 +1977,8 @@ namespace Neurocle.Tests
                     form.Show();
                     System.Windows.Forms.Application.DoEvents();
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
                     SetField(form, "annotationOperationInProgress", true);
                     form.ImageBrowser.SelectImage(images[1].Id);
                     form.ImageBrowser.SelectImage(images[2].Id);
@@ -4313,6 +4315,8 @@ namespace Neurocle.Tests
                     imageList.SelectedIndices.Add(smallIndex);
                     System.Windows.Forms.Application.DoEvents();
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(sourceImage, Path.Combine(store.ImagesDirectory, sourceImage.ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, sourceImage.ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, sourceImage.ManagedFileName));
                     form.AnnotationCanvas.SelectAllObd();
 
                     RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
@@ -4857,8 +4861,12 @@ namespace Neurocle.Tests
                     AssertClassButtonIsActive(claOtherButton, AnnotationColorFormat.ToColor(claOther.Color));
                     AssertClassButtonIsInactive(classes.Controls.OfType<Button>().Single(button => button.Text == claDefault.Name));
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
                     Assert.IsFalse(classes.Controls.OfType<Button>().Any(button => button.FlatAppearance.BorderSize > 1));
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[1], Path.Combine(store.ImagesDirectory, images[1].ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, images[1].ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, images[1].ManagedFileName));
                     AssertClassButtonIsActive(classes.Controls.OfType<Button>().Single(button => button.Text == claOther.Name), AnnotationColorFormat.ToColor(claOther.Color));
                 }
                 store.Dispose();

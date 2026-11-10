@@ -134,6 +134,9 @@ namespace Neurocle.WinForms
         private bool annotationOperationInProgress;
         // 保存標註操作期間等待套用的圖片選取事件。
         private ImageSelectedEventArgs pendingImageSelection;
+        private string pendingImageLoadPath;
+        private int pendingImageLoadCount;
+        private long pendingImageLoadVersion;
         // 避免同步兩畫布視角時產生遞迴事件。
         private bool synchronizingCanvasView;
         // 避免重新載入標註集清單時觸發選取副作用。
@@ -383,6 +386,10 @@ namespace Neurocle.WinForms
             annotationTools.Controls.Clear();
             imageCanvas.ViewChanged += (sender, args) => SynchronizeCanvasView(imageCanvas, canvas);
             canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
+            imageCanvas.ImageLoaded += (path, version) => ImageCanvasLoaded(path, version);
+            canvas.ImageLoaded += (path, version) => AnnotationCanvasLoaded(path, version);
+            imageCanvas.ImageLoadFailed += (path, version) => ImageCanvasLoadFailed(path, version);
+            canvas.ImageLoadFailed += (path, version) => AnnotationCanvasLoadFailed(path, version);
             datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
             datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
             datasetAssignments.ClearRetestRequested += ids => RunAnnotationCommand(() => ConfirmAndClearRetest(ids));
@@ -1816,9 +1823,27 @@ namespace Neurocle.WinForms
         {
             selectedImagePath = args.Image.IsMissing ? null : args.Path;
             selectedImageId = args.Image.Id;
-            imageCanvas.LoadImage(selectedImagePath);
-            canvas.LoadImage(selectedImagePath);
-            RefreshAnnotationClasses();
+            pendingImageLoadVersion++;
+            pendingImageLoadPath = selectedImagePath;
+            pendingImageLoadCount = selectedImagePath == null ? 0 : 2;
+            imageCanvas.LoadImage(selectedImagePath, pendingImageLoadVersion);
+            canvas.LoadImage(selectedImagePath, pendingImageLoadVersion);
+            if (selectedImagePath == null) RefreshAnnotationClasses();
+        }
+
+        private void ImageCanvasLoaded(string path, long version) { CompleteImageLoad(path, version); }
+
+        private void AnnotationCanvasLoaded(string path, long version) { CompleteImageLoad(path, version); }
+
+        private void ImageCanvasLoadFailed(string path, long version) { CompleteImageLoad(path, version); }
+
+        private void AnnotationCanvasLoadFailed(string path, long version) { CompleteImageLoad(path, version); }
+
+        private void CompleteImageLoad(string path, long version)
+        {
+            if (pendingImageLoadCount == 0 || version != pendingImageLoadVersion || !string.Equals(path, pendingImageLoadPath, StringComparison.OrdinalIgnoreCase)) return;
+            pendingImageLoadCount--;
+            if (pendingImageLoadCount == 0) RefreshAnnotationClasses();
         }
 
         /// <summary>

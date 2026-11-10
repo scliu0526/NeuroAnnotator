@@ -33,6 +33,7 @@ namespace Neurocle.WinForms
         private string loadedImagePath;
         // 保存目前圖片載入作業的取消權杖。
         private CancellationTokenSource imageLoad;
+        private long imageLoadVersion;
         // 指出目前是否以滑鼠拖曳平移畫布。
         private bool panning;
         // 指出目前是否正在拖曳縮圖中的視野框。
@@ -419,10 +420,13 @@ namespace Neurocle.WinForms
         public event EventHandler ZoomChanged;
         // 通知外層畫布位置或可視範圍已變更。
         public event EventHandler ViewChanged;
+        public event Action<string, long> ImageLoaded;
+        public event Action<string, long> ImageLoadFailed;
         // 取得目前載入圖片的路徑。
         internal string LoadedImagePath { get { return loadedImagePath; } }
         // 取得供畫布同步使用的縮放與位置快照。
         internal CanvasViewState ViewState { get { return new CanvasViewState(viewport.Zoom, viewport.Origin, viewport.IsFitted); } }
+        internal bool IsImageLoading { get { return imageLoad != null; } }
 
         /// <summary>
         /// 套用圖片頁或標註頁同步傳入的縮放與原圖位置。
@@ -442,17 +446,22 @@ namespace Neurocle.WinForms
         /// <param name="path">要處理的檔案或幾何路徑。</param>
         public void LoadImage(string path)
         {
+            LoadImage(path, ++imageLoadVersion);
+        }
+
+        internal void LoadImage(string path, long requestVersion)
+        {
             DiscardUnfinishedShape();
             CancelImageLoad();
-            ClearImage();
-            if (path != null) LoadImageAsync(path);
+            if (path == null) ClearImage();
+            else LoadImageAsync(path, requestVersion);
         }
 
         /// <summary>
         /// 在背景載入圖片，並將有效結果安全地套用至 UI 執行緒。
         /// </summary>
         /// <param name="path">要處理的檔案或幾何路徑。</param>
-        private async void LoadImageAsync(string path)
+        private async void LoadImageAsync(string path, long requestVersion)
         {
             var cancellation = new CancellationTokenSource();
             imageLoad = cancellation;
@@ -468,13 +477,18 @@ namespace Neurocle.WinForms
                     UpdateToolCursor();
                     Invalidate();
                     RaiseViewChanged();
+                    ImageLoaded?.Invoke(path, requestVersion);
                 })) loaded.Preview.Dispose();
             }
             catch (OperationCanceledException) { }
             catch
             {
                 if (!cancellation.IsCancellationRequested)
-                    TryInvokeOnUiThread(() => { if (!IsDisposed && !Disposing) ClearImage(); });
+                    TryInvokeOnUiThread(() =>
+                    {
+                        if (IsDisposed || Disposing) return;
+                        ImageLoadFailed?.Invoke(path, requestVersion);
+                    });
             }
             finally
             {
@@ -1138,6 +1152,7 @@ namespace Neurocle.WinForms
         /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         protected override void OnMouseDown(MouseEventArgs args)
         {
+            if (imageLoad != null) return;
             Focus();
             panning = image != null && (args.Button == MouseButtons.Right || (args.Button == MouseButtons.Left && (CurrentModifierKeys & Keys.Space) == Keys.Space));
             if (panning)
@@ -1362,6 +1377,7 @@ namespace Neurocle.WinForms
         /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         protected override void OnMouseMove(MouseEventArgs args)
         {
+            if (imageLoad != null) return;
             pointerInside = true;
             lastMousePosition = args.Location;
             PointF previousSegCursor = segCursor;
@@ -1778,6 +1794,7 @@ namespace Neurocle.WinForms
         /// <param name="args">包含此次事件詳細資料的事件資料。</param>
         protected override void OnKeyDown(KeyEventArgs args)
         {
+            if (imageLoad != null) return;
             if (IsControlKey(args.KeyCode))
             {
                 SetControlModifierState(true);
