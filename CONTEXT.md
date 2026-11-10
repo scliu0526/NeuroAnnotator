@@ -22,6 +22,7 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 | 標註複本 | 在同一標註集內，依 OBD 物件或 SEG 區域的既有幾何與類別建立、具有新身分的獨立物件。 |
 | 標註數量 | 一張圖片在單一 OBD 或 SEG 標註集中，目前實際存在的 OBD 物件或 SEG 區域總數；不計操作次數、類別數或面積。 |
 | 空洞橋接 | SEG 區域以單一路徑表示外圈與洞時，連接內外輪廓且往返重合的路徑段；它不增加填色面積。 |
+| 畫布視角（Canvas View） | 目前圖片在畫布中的實際縮放比例與原圖左上角位置；圖片頁與標註頁共享同一視角。 |
 | 可用圖片（Available Image） | 受管理圖片檔仍存在且可讀取的圖片。缺失圖片不匯出。 |
 | 完成操作（Completed Operation） | 已通過有效性檢查且可形成單一 Undo/Redo 記錄的使用者動作。 |
 | 專案工作（Project Job） | 對目前開啟專案提出的一次匯入或匯出要求；具有等待中、執行中、已完成、完成但有警告、失敗或已取消狀態。 |
@@ -37,12 +38,14 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 - 新匯入圖片會出現在所有標註集，初始為未分配、無標註、Retest 0。
 - 所有標註幾何必須位於圖片邊界內；邊界判斷以外接矩形為準。
 - SEG 不同類別可以覆蓋同一像素；同類別只有「新繪製」造成面積重疊時自動聯集。
+- SEG 區域純平移時，全部點位與既有空洞橋接使用相同位移，不重新建立空洞橋接。
 - 標註複本即使與同類別既有 SEG 區域重疊，也維持獨立，不視為新繪製所造成的聯集。
 - 永久刪除圖片會刪除該圖片在所有標註集中的資料；永久刪除標註集會刪除其全部資料。
 - JSON 是交換格式，不是專案的完整持久化格式。
 - 新匯入 BMP 的顯示檔名反映轉換後 PNG 格式；既有專案圖片不因新匯入規則改名。
 - 同一專案的匯入與匯出工作共用單一 FIFO，一次只執行一項；佇列有活動工作時不得更換目標專案。
 - 標註 JSON 匯入的目標是加入工作時選取的標註集；匯入不建立 Undo/Redo，也不修改 Retest。
+- 切換至相同像素尺寸圖片時保留畫布視角；新圖片寬或高不同時使用適合視窗。
 
 ## 主要工作流程
 
@@ -55,6 +58,7 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 ## 系統邊界
 
 - 執行環境：Windows 10/11 x64、.NET Framework 4.7.2 WinForms。
+- 同一 Windows 登入工作階段只允許一個 Neurocle 應用程式執行個體。
 - 儲存位置：本機固定磁碟；不支援網路磁碟、NAS、雲端同步目錄或可移除磁碟。
 - 網路：應用程式執行期間不需要且不得主動使用網路。
 - 外部交換：PNG、JPG、JPEG、BMP 圖片與指定 JSON 格式。
@@ -68,12 +72,14 @@ Neurocle 是完全離線的 Windows 桌面圖片標記工具。它管理同一�
 - 畫布互動、標註複製與集體旋轉增量規格：`docs/specs/annotation-canvas-interactions.md`
 - 標註介面與匯入工作流程增量規格：`docs/specs/annotation-ui-workflow-refresh.md`
 - 標註工作流程、專案工作佇列與畫布互動增量規格：`docs/specs/annotation-workflow-queues-and-canvas-fixes.md`
+- 標註工作流程安全與效能增量規格：`docs/specs/annotation-workflow-performance-safety.md`
 - 實作順序：`docs/plans/implementation-plan.md`
 - 標註介面與 SEG 增量計畫：`docs/plans/annotation-ui-seg-performance.md`
 - 圖片匯入與標註操作增量計畫：`docs/plans/annotation-workflow-import-update.md`
 - 畫布互動、標註複製與集體旋轉增量計畫：`docs/plans/annotation-canvas-interactions.md`
 - 標註介面與匯入工作流程增量計畫：`docs/plans/annotation-ui-workflow-refresh.md`
 - 標註工作流程、專案工作佇列與畫布互動增量計畫：`docs/plans/annotation-workflow-queues-and-canvas-fixes.md`
+- 標註工作流程安全與效能增量計畫：`docs/plans/annotation-workflow-performance-safety.md`
 - 測試與驗收：`docs/plans/test-and-acceptance-plan.md`
 - 已知風險：`docs/plans/known-risks.md`
 - 架構決策：`docs/adr/`
