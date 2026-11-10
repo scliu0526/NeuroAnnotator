@@ -154,7 +154,7 @@ namespace Neurocle.WinForms
         /// </summary>
         /// <param name="sender">引發事件的右鍵選單項目。</param>
         /// <param name="args">選單點擊事件資料。</param>
-        private void ClearSetItem_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned); }
+        private void ClearSetItem_Click(object sender, EventArgs args) { if (contextImageIds.Count > 0) ClearDatasetRequested?.Invoke(contextImageIds); }
 
         // 通知主視窗更新所選圖片的資料集狀態。
         public event Action<IReadOnlyList<string>, DatasetAssignmentStatus> DatasetRequested;
@@ -163,6 +163,8 @@ namespace Neurocle.WinForms
         public event Action<IReadOnlyList<string>> ClearRetestRequested;
         // 通知主視窗清除所選圖片的 CLA 類別。
         public event Action<IReadOnlyList<string>> ClearClassRequested;
+        // 通知主視窗要求清除所選圖片的資料集狀態。
+        public event Action<IReadOnlyList<string>> ClearDatasetRequested;
         // 通知主視窗以目前比例自動切分資料集。
         public event Action<IReadOnlyList<string>, int> AutoSplitSelectedRequested;
         // 通知主視窗依目前比例切分所有可用圖片。

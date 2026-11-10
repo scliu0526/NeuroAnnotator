@@ -29,11 +29,14 @@ namespace Neurocle.WinForms
         private readonly ContextMenuStrip imageMenu = new ContextMenuStrip();
         private readonly ToolStripMenuItem clearRetestItem = new ToolStripMenuItem(Strings.DatasetClearRetest);
         private readonly ToolStripMenuItem clearClassItem = new ToolStripMenuItem(Strings.DatasetClearClass);
+        private readonly ToolStripMenuItem clearSetItem = new ToolStripMenuItem(Strings.DatasetClearSet);
 
         // 通知主視窗目前清單所選圖片及其受管理檔案路徑。
         public event EventHandler<ImageSelectedEventArgs> ImageSelected;
         public event Action<IReadOnlyList<string>> ClearRetestRequested;
         public event Action<IReadOnlyList<string>> ClearClassRequested;
+        // 通知主視窗要求清除所選圖片的資料集狀態。
+        public event Action<IReadOnlyList<string>> ClearDatasetRequested;
 
         internal bool RetestContextMenuEnabled
         {
@@ -98,9 +101,11 @@ namespace Neurocle.WinForms
             InitializeComponent();
             imageMenu.Items.Add(clearRetestItem);
             imageMenu.Items.Add(clearClassItem);
+            imageMenu.Items.Add(clearSetItem);
             imageMenu.Opening += ImageMenu_Opening;
             clearRetestItem.Click += ClearRetestItem_Click;
             clearClassItem.Click += (sender, args) => { if (contextImageIds.Count > 0) ClearClassRequested?.Invoke(contextImageIds); };
+            clearSetItem.Click += (sender, args) => { if (contextImageIds.Count > 0) ClearDatasetRequested?.Invoke(contextImageIds); };
         }
 
         private void ImageMenu_Opening(object sender, System.ComponentModel.CancelEventArgs args)
@@ -116,6 +121,7 @@ namespace Neurocle.WinForms
             contextImageIds = SelectedImageIds.ToArray();
             clearRetestItem.Text = string.Format("{0} ({1})", Strings.DatasetClearRetest, contextImageIds.Count);
             clearClassItem.Text = string.Format("{0} ({1})", Strings.DatasetClearClass, contextImageIds.Count);
+            clearSetItem.Text = string.Format("{0} ({1})", Strings.DatasetClearSet, contextImageIds.Count);
         }
 
         private void ClearRetestItem_Click(object sender, EventArgs args)

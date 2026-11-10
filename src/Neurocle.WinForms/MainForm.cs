@@ -387,6 +387,7 @@ namespace Neurocle.WinForms
             datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
             datasetAssignments.ClearRetestRequested += ids => RunAnnotationCommand(() => ConfirmAndClearRetest(ids));
             datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ConfirmAndClearAnnotations(ids));
+            datasetAssignments.ClearDatasetRequested += ids => RunAnnotationCommand(() => ConfirmAndClearDataset(ids));
             datasetAssignments.AutoSplitSelectedRequested += (ids, value) => RunAnnotationCommand(() => AutoSplitDataset(ids, value));
             datasetAssignments.AutoSplitAllRequested += value => RunAnnotationCommand(() => AutoSplitDataset(null, value));
             canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
@@ -405,6 +406,7 @@ namespace Neurocle.WinForms
             };
             imageBrowser.ClearRetestRequested += ids => RunAnnotationCommand(() => ConfirmAndClearRetest(ids));
             imageBrowser.ClearClassRequested += ids => RunAnnotationCommand(() => ConfirmAndClearAnnotations(ids));
+            imageBrowser.ClearDatasetRequested += ids => RunAnnotationCommand(() => ConfirmAndClearDataset(ids));
 
             imageCanvas.ZoomChanged += (sender, args) => UpdateZoomText();
             canvas.ZoomChanged += (sender, args) => UpdateZoomText();
@@ -1550,6 +1552,16 @@ namespace Neurocle.WinForms
             string message = string.Format("清除類別\n標註集：{0}\n圖片數量：{1}", selected.Name, ids.Length);
             if (MessageBox.Show(message, Strings.DatasetClearClass, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
                 ClearDatasetClasses(ids);
+        }
+
+        private void ConfirmAndClearDataset(IReadOnlyList<string> imageIds)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            string[] ids = (imageIds ?? new string[0]).Distinct(StringComparer.Ordinal).ToArray();
+            if (project == null || selected == null || ids.Length == 0) return;
+            string message = string.Format("清除資料集\n標註集：{0}\n圖片數量：{1}", selected.Name, ids.Length);
+            if (MessageBox.Show(message, Strings.DatasetClearSet, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                SetDatasetAssignments(ids, DatasetAssignmentStatus.Unassigned);
         }
 
         /// <summary>
