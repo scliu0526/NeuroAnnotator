@@ -13,6 +13,20 @@ namespace Neurocle.WinForms
         [STAThread]
         private static void Main()
         {
+            using (SingleInstanceGuard instance = SingleInstanceGuard.TryAcquire())
+            {
+                if (instance == null)
+                {
+                    MessageBox.Show("Neurocle 已在執行中。", Resources.Strings.ApplicationTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                RunApplication();
+            }
+        }
+
+        private static void RunApplication()
+        {
             System.Windows.Forms.Application.EnableVisualStyles();
             System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
             var diagnosticLog = DiagnosticLog.CreateDefault();
