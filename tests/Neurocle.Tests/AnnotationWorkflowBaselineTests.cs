@@ -71,6 +71,7 @@ namespace Neurocle.Tests
                     for (int index = 0; index < 5; index++)
                     {
                         var baselinePaint = Stopwatch.StartNew();
+                        canvas.Invalidate();
                         canvas.Update();
                         baselinePaint.Stop();
                         baselinePaintTimes.Add(baselinePaint.Elapsed.TotalMilliseconds);
@@ -105,7 +106,6 @@ namespace Neurocle.Tests
                         mouseMove.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 0, dragStart.X + index, dragStart.Y + index, 0) });
                         move.Stop();
                         var paint = Stopwatch.StartNew();
-                        canvas.Invalidate();
                         canvas.Update();
                         paint.Stop();
                         frame.Stop();
