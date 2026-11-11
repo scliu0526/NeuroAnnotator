@@ -96,6 +96,9 @@ namespace Neurocle.WinForms
         private readonly SemaphoreSlim imageLoadGate = new SemaphoreSlim(1, 1);
         // 保存目前顯示的圖片預覽影像。
         private Image image;
+        private Bitmap renderedImage;
+        private double renderedImageZoom;
+        private Size renderedImageSize;
         // 保存目前載入圖片的來源路徑。
         private string loadedImagePath;
         // 保存目前圖片載入作業的取消權杖。
@@ -544,6 +547,7 @@ namespace Neurocle.WinForms
                     if (cancellation.IsCancellationRequested || IsDisposed || Disposing) { loaded.Preview.Dispose(); return; }
                     image = loaded.Preview;
                     loadedImagePath = path;
+                    ClearRenderedImage();
                     viewport.SetImageSize(loaded.OriginalSize);
                     UpdateToolCursor();
                     Invalidate();
@@ -599,6 +603,7 @@ namespace Neurocle.WinForms
             image = null;
             loadedImagePath = null;
             imageInteractionBlocked = false;
+            ClearRenderedImage();
             hasToolCursor = false;
             toolCursor = PointF.Empty;
             UpdateToolCursor();
@@ -606,6 +611,32 @@ namespace Neurocle.WinForms
             viewport.SetImageSize(Size.Empty);
             Invalidate();
             RaiseViewChanged();
+        }
+
+        private void ClearRenderedImage()
+        {
+            renderedImage?.Dispose();
+            renderedImage = null;
+            renderedImageZoom = 0d;
+            renderedImageSize = Size.Empty;
+        }
+
+        private Bitmap GetRenderedImage()
+        {
+            if (renderedImage != null && renderedImageZoom == viewport.Zoom && renderedImageSize == viewport.ImageSize) return renderedImage;
+            ClearRenderedImage();
+            int width = Math.Max(1, (int)Math.Round(viewport.ImageSize.Width * viewport.Zoom));
+            int height = Math.Max(1, (int)Math.Round(viewport.ImageSize.Height * viewport.Zoom));
+            if ((long)width * height > 16000000L) return null;
+            renderedImage = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using (Graphics graphics = Graphics.FromImage(renderedImage))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.DrawImage(image, new Rectangle(0, 0, width, height), new Rectangle(Point.Empty, viewport.ImageSize), GraphicsUnit.Pixel);
+            }
+            renderedImageZoom = viewport.Zoom;
+            renderedImageSize = viewport.ImageSize;
+            return renderedImage;
         }
 
         /// <summary>
@@ -751,16 +782,21 @@ namespace Neurocle.WinForms
             if (segDragBackground != null) args.Graphics.DrawImageUnscaled(segDragBackground, 0, 0);
             else
             {
+                Bitmap rendered = GetRenderedImage();
                 RectangleF imageBounds = new RectangleF(origin.X, origin.Y, (float)(viewport.ImageSize.Width * viewport.Zoom), (float)(viewport.ImageSize.Height * viewport.Zoom));
                 RectangleF imagePaintBounds = RectangleF.Intersect(imageBounds, args.Graphics.ClipBounds);
                 if (!imagePaintBounds.IsEmpty)
                 {
-                    RectangleF sourceBounds = new RectangleF(
-                        (imagePaintBounds.X - imageBounds.X) / (float)viewport.Zoom,
-                        (imagePaintBounds.Y - imageBounds.Y) / (float)viewport.Zoom,
-                        imagePaintBounds.Width / (float)viewport.Zoom,
-                        imagePaintBounds.Height / (float)viewport.Zoom);
-                    args.Graphics.DrawImage(image, imagePaintBounds, sourceBounds, GraphicsUnit.Pixel);
+                    if (rendered != null) args.Graphics.DrawImage(rendered, origin.X, origin.Y);
+                    else
+                    {
+                        RectangleF sourceBounds = new RectangleF(
+                            (imagePaintBounds.X - imageBounds.X) / (float)viewport.Zoom,
+                            (imagePaintBounds.Y - imageBounds.Y) / (float)viewport.Zoom,
+                            imagePaintBounds.Width / (float)viewport.Zoom,
+                            imagePaintBounds.Height / (float)viewport.Zoom);
+                        args.Graphics.DrawImage(image, imagePaintBounds, sourceBounds, GraphicsUnit.Pixel);
+                    }
                 }
             }
             foreach (ObdAnnotation annotation in obdAnnotations.Where(item => !selectedObdIds.Contains(item.Id)).Concat(obdAnnotations.Where(item => selectedObdIds.Contains(item.Id))))
@@ -1502,6 +1538,7 @@ namespace Neurocle.WinForms
             else if (segDrag != SegDragKind.None && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
                 PointF point = ClampPoint(viewport.ScreenToImage(args.Location));
+                Rectangle previousDragBounds = segDrag == SegDragKind.Move ? GetSegDragPaintBounds() : Rectangle.Empty;
                 if (segDrag == SegDragKind.Move) MoveSegRegions(point);
                 else if (segDrag == SegDragKind.Rotate)
                 {
@@ -1514,7 +1551,12 @@ namespace Neurocle.WinForms
                     }
                 }
                 else segPreviews = new Dictionary<string, SegRegion> { { segOriginal.Id, ResizeSegRegion(segOriginal, point) } };
-                Invalidate();
+                if (segDrag == SegDragKind.Move)
+                {
+                    Rectangle currentDragBounds = GetSegDragPaintBounds();
+                    Invalidate(previousDragBounds.IsEmpty ? currentDragBounds : Rectangle.Union(previousDragBounds, currentDragBounds));
+                }
+                else Invalidate();
             }
             else if (segPreview.HasValue && (args.Button & MouseButtons.Left) == MouseButtons.Left)
             {
@@ -1965,6 +2007,20 @@ namespace Neurocle.WinForms
             yOffset = Math.Max(selected.Max(item => -segDragBounds[item.Id].Top), Math.Min(yOffset, selected.Min(item => viewport.ImageSize.Height - segDragBounds[item.Id].Bottom)));
             segMoveOffsetX = (int)Math.Round(xOffset, MidpointRounding.AwayFromZero);
             segMoveOffsetY = (int)Math.Round(yOffset, MidpointRounding.AwayFromZero);
+        }
+
+        private Rectangle GetSegDragPaintBounds()
+        {
+            RectangleF bounds = RectangleF.Empty;
+            foreach (SegRegion region in segRegions.Where(item => selectedSegIds.Contains(item.Id)))
+            {
+                RectangleF stored = segDragBounds[region.Id];
+                stored = new RectangleF(stored.X + segMoveOffsetX, stored.Y + segMoveOffsetY, stored.Width, stored.Height);
+                RectangleF screen = ToScreenRectangle(stored);
+                screen.Inflate(30f, 30f);
+                bounds = bounds.IsEmpty ? screen : RectangleF.Union(bounds, screen);
+            }
+            return Rectangle.Ceiling(bounds);
         }
 
         private Bitmap CreateSegDragBitmap()
@@ -2563,7 +2619,7 @@ namespace Neurocle.WinForms
         /// <param name="disposing">指出是否正在處置元件的旗標。</param>
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { CancelImageLoad(); image?.Dispose(); segDragBitmap?.Dispose(); segDragBackground?.Dispose(); }
+            if (disposing) { CancelImageLoad(); image?.Dispose(); ClearRenderedImage(); segDragBitmap?.Dispose(); segDragBackground?.Dispose(); }
             base.Dispose(disposing);
         }
 

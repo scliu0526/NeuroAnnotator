@@ -67,6 +67,15 @@ namespace Neurocle.Tests
                     System.Windows.Forms.Application.DoEvents();
                     canvas.LoadImage(source);
                     WaitForImage(canvas, source);
+                    var baselinePaintTimes = new List<double>();
+                    for (int index = 0; index < 5; index++)
+                    {
+                        var baselinePaint = Stopwatch.StartNew();
+                        canvas.Invalidate();
+                        canvas.Update();
+                        baselinePaint.Stop();
+                        baselinePaintTimes.Add(baselinePaint.Elapsed.TotalMilliseconds);
+                    }
                     var regions = new List<SegRegion>();
                     SegPoint[] basePoints = SegPerformanceFixture.CreateSeventeenThousandPointEllipse();
                     for (int index = 0; index < 10; index++)
@@ -116,7 +125,7 @@ namespace Neurocle.Tests
                     double frameAverage = frameTimes.Average();
                     double frameP95 = frameTimes.OrderBy(value => value).ElementAt((int)Math.Ceiling(frameTimes.Count * 0.95d) - 1);
                     double frameMaximum = frameTimes.Max();
-                    Console.WriteLine("170K-point drag baseline: moveAvg={0:F3} ms/moveP95={1:F3} ms/moveMax={2:F3} ms/frameAvg={3:F3} ms/frameP95={4:F3} ms/frameMax={5:F3} ms/paintAvg={6:F3} ms/commit={7:F3} ms", average, p95, maximum, frameAverage, frameP95, frameMaximum, paintTimes.Average(), commit.Elapsed.TotalMilliseconds);
+                    Console.WriteLine("170K-point drag baseline: moveAvg={0:F3} ms/moveP95={1:F3} ms/moveMax={2:F3} ms/frameAvg={3:F3} ms/frameP95={4:F3} ms/frameMax={5:F3} ms/paintAvg={6:F3} ms/commit={7:F3} ms/idlePaintAvg={8:F3} ms", average, p95, maximum, frameAverage, frameP95, frameMaximum, paintTimes.Average(), commit.Elapsed.TotalMilliseconds, baselinePaintTimes.Average());
                     Assert.AreEqual(30, frameTimes.Count);
                     Assert.IsTrue(average <= 16.7d, "The measured drag handler average must stay within one 60 FPS frame.");
                     Assert.IsTrue(p95 <= 16.7d, "The measured drag handler p95 must stay within one 60 FPS frame.");
@@ -153,7 +162,12 @@ namespace Neurocle.Tests
                     double differentSize = LoadAndMeasure(canvas, second);
                     ImageCanvasControl.CanvasViewState differentSizeState = canvas.ViewState;
                     double sameSize = LoadAndMeasure(canvas, third);
+                    ImageCanvasControl.CanvasViewState differentToSameState = canvas.ViewState;
+                    LoadAndMeasure(canvas, first);
                     ImageCanvasControl.CanvasViewState sameSizeAfter = canvas.ViewState;
+                    Assert.AreNotEqual(sameSizeBefore.Zoom, differentSizeState.Zoom, 0.001d);
+                    Assert.AreEqual(differentToSameState.Zoom, sameSizeAfter.Zoom, 0.001d);
+                    Assert.AreEqual(differentToSameState.Origin, sameSizeAfter.Origin);
                     var warm = new List<double>();
                     foreach (string path in new[] { first, second, third }) warm.Add(LoadAndMeasure(canvas, path));
                     var rapid = Stopwatch.StartNew();
@@ -204,6 +218,28 @@ namespace Neurocle.Tests
                 }
             }
             finally { ImageDecodeCache.Clear(); if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
+        [STATestMethod]
+        public void Image_render_cache_falls_back_at_large_zoom_without_allocating_a_huge_bitmap()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string source = Path.Combine(directory, "large.png");
+            try
+            {
+                CreateBitmap(source, ImageFormat.Png, 5000, 3300);
+                using (var canvas = new ImageCanvasControl { Size = new Size(1000, 800) })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(source);
+                    WaitForImage(canvas, source);
+                    canvas.SetZoomPercent(400);
+                    using (var bitmap = new Bitmap(canvas.Width, canvas.Height)) canvas.DrawToBitmap(bitmap, canvas.ClientRectangle);
+                    FieldInfo renderedImage = typeof(ImageCanvasControl).GetField("renderedImage", BindingFlags.Instance | BindingFlags.NonPublic);
+                    Assert.IsNull(renderedImage.GetValue(canvas));
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
 
         private static double LoadAndMeasure(ImageCanvasControl canvas, string path)
