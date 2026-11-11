@@ -71,7 +71,6 @@ namespace Neurocle.Tests
                     for (int index = 0; index < 5; index++)
                     {
                         var baselinePaint = Stopwatch.StartNew();
-                        canvas.Invalidate();
                         canvas.Update();
                         baselinePaint.Stop();
                         baselinePaintTimes.Add(baselinePaint.Elapsed.TotalMilliseconds);
