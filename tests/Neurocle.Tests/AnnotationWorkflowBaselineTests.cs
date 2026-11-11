@@ -59,9 +59,12 @@ namespace Neurocle.Tests
             try
             {
                 CreateBitmap(source, ImageFormat.Png, 5000, 3300);
-                using (var canvas = new ImageCanvasControl { Size = new Size(1000, 800), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                using (var host = new Form { ClientSize = new Size(1000, 800) })
+                using (var canvas = new ImageCanvasControl { Dock = DockStyle.Fill, SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
                 {
-                    canvas.CreateControl();
+                    host.Controls.Add(canvas);
+                    host.Show();
+                    System.Windows.Forms.Application.DoEvents();
                     canvas.LoadImage(source);
                     WaitForImage(canvas, source);
                     var regions = new List<SegRegion>();
@@ -94,8 +97,8 @@ namespace Neurocle.Tests
                         mouseMove.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 0, dragStart.X + index, dragStart.Y + index, 0) });
                         move.Stop();
                         var paint = Stopwatch.StartNew();
-                        using (var bitmap = new Bitmap(canvas.Width, canvas.Height))
-                            canvas.DrawToBitmap(bitmap, canvas.ClientRectangle);
+                        canvas.Invalidate();
+                        canvas.Update();
                         paint.Stop();
                         frame.Stop();
                         frameTimes.Add(frame.Elapsed.TotalMilliseconds);
@@ -110,7 +113,10 @@ namespace Neurocle.Tests
                     double average = moveTimes.Average();
                     double p95 = moveTimes.OrderBy(value => value).ElementAt((int)Math.Ceiling(moveTimes.Count * 0.95d) - 1);
                     double maximum = moveTimes.Max();
-                    Console.WriteLine("170K-point drag baseline: moveAvg={0:F3} ms/moveP95={1:F3} ms/moveMax={2:F3} ms/paintAvg={3:F3} ms/commit={4:F3} ms", average, p95, maximum, paintTimes.Average(), commit.Elapsed.TotalMilliseconds);
+                    double frameAverage = frameTimes.Average();
+                    double frameP95 = frameTimes.OrderBy(value => value).ElementAt((int)Math.Ceiling(frameTimes.Count * 0.95d) - 1);
+                    double frameMaximum = frameTimes.Max();
+                    Console.WriteLine("170K-point drag baseline: moveAvg={0:F3} ms/moveP95={1:F3} ms/moveMax={2:F3} ms/frameAvg={3:F3} ms/frameP95={4:F3} ms/frameMax={5:F3} ms/paintAvg={6:F3} ms/commit={7:F3} ms", average, p95, maximum, frameAverage, frameP95, frameMaximum, paintTimes.Average(), commit.Elapsed.TotalMilliseconds);
                     Assert.AreEqual(30, frameTimes.Count);
                     Assert.IsTrue(average <= 16.7d, "The measured drag handler average must stay within one 60 FPS frame.");
                     Assert.IsTrue(p95 <= 16.7d, "The measured drag handler p95 must stay within one 60 FPS frame.");
