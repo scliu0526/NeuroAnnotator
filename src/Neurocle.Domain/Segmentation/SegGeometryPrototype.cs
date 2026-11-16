@@ -274,6 +274,120 @@ namespace Neurocle.Domain.Segmentation
         }
 
         /// <summary>
+        /// 驗證整體旋轉或縮放後的既有橋接網路；仍合法時保留點序，否則依目前規則重建。
+        /// </summary>
+        /// <param name="previous">轉換前的橋接多邊形。</param>
+        /// <param name="polygon">由同一整體座標轉換產生的橋接多邊形。</param>
+        /// <returns>合法且可保存的橋接路徑。</returns>
+        public static Path64 RebridgeTransformed(Path64 previous, Path64 polygon)
+        {
+            if (previous == null) throw new ArgumentNullException(nameof(previous));
+            if (polygon == null) throw new ArgumentNullException(nameof(polygon));
+            List<UndirectedEdge> previousBridges = FindBridgeSegments(previous);
+            List<UndirectedEdge> bridges = FindBridgeSegments(polygon);
+            if (previousBridges.Count == 0) return Rebridge(polygon);
+            if (bridges.Count != previousBridges.Count)
+            {
+                Paths64 transformedContours = ExtractTransformedBridgeContours(previous, polygon, previousBridges);
+                if (transformedContours == null || transformedContours.Count < 2) throw new BridgeNetworkException();
+                return RebuildBridgeContours(transformedContours);
+            }
+            Paths64 extracted = ExtractBridgeContours(polygon, bridges);
+            if (extracted == null || extracted.Count < 2) return Rebridge(polygon);
+            Path64 outer = extracted.OrderByDescending(path => Math.Abs(Clipper.Area(path))).First();
+            Path64[] holes = extracted.Where(path => !ReferenceEquals(path, outer)).ToArray();
+            if (Math.Sign(Clipper.Area(outer)) == 0 || holes.Any(path => Math.Sign(Clipper.Area(path)) == Math.Sign(Clipper.Area(outer)) || !IsPointInside(outer, path[0]))) return Rebridge(polygon);
+
+            Path64[] contours = new[] { outer }.Concat(holes).ToArray();
+            BridgeConnection[] connections = MapBridgeSegments(bridges, contours).ToArray();
+            if (connections.Length != bridges.Count || !IsLegalSpanningBridgeNetwork(connections, contours, outer, holes)) return Rebridge(polygon);
+            return new Path64(polygon);
+        }
+
+        private static Path64 RebuildBridgeContours(Paths64 contours)
+        {
+            Path64 outer = contours.OrderByDescending(path => Math.Abs(Clipper.Area(path))).First();
+            Path64[] holes = contours.Where(path => !ReferenceEquals(path, outer)).ToArray();
+            if (Math.Sign(Clipper.Area(outer)) == 0 || holes.Any(path => Math.Sign(Clipper.Area(path)) == Math.Sign(Clipper.Area(outer)) || !IsPointInside(outer, path[0]))) throw new BridgeNetworkException();
+            return BridgeHoles(outer, holes);
+        }
+
+        private static Paths64 ExtractTransformedBridgeContours(Path64 previous, Path64 transformed, IEnumerable<UndirectedEdge> previousBridges)
+        {
+            if (previous.Count != transformed.Count) return null;
+            var bridgeSet = new HashSet<UndirectedEdge>(previousBridges);
+            var boundaryEdges = new Dictionary<Point64, Point64>();
+            for (int index = 0; index < previous.Count; index++)
+            {
+                Point64 previousStart = previous[index], previousEnd = previous[(index + 1) % previous.Count];
+                if (bridgeSet.Contains(new UndirectedEdge(previousStart, previousEnd, out _))) continue;
+                Point64 start = transformed[index], end = transformed[(index + 1) % transformed.Count];
+                if (start == end) continue;
+                if (boundaryEdges.ContainsKey(start)) return null;
+                boundaryEdges.Add(start, end);
+            }
+            return ExtractContours(boundaryEdges, transformed.Count);
+        }
+
+        private static Paths64 ExtractContours(Dictionary<Point64, Point64> boundaryEdges, int maximumPointCount)
+        {
+            var contours = new Paths64();
+            while (boundaryEdges.Count > 0)
+            {
+                Point64 start = boundaryEdges.Keys.First(), current = start;
+                var contour = new Path64();
+                do
+                {
+                    Point64 next;
+                    if (!boundaryEdges.TryGetValue(current, out next)) return null;
+                    boundaryEdges.Remove(current);
+                    contour.Add(current);
+                    current = next;
+                    if (contour.Count > maximumPointCount) return null;
+                } while (current != start);
+                if (contour.Count < 3 || Math.Abs(Clipper.Area(contour)) == 0) return null;
+                contours.Add(contour);
+            }
+            return contours;
+        }
+
+        private static bool IsLegalSpanningBridgeNetwork(IReadOnlyList<BridgeConnection> connections, Path64[] contours, Path64 outer, Path64[] holes)
+        {
+            if (connections.Count != contours.Length - 1) return false;
+            var parent = Enumerable.Range(0, contours.Length).ToArray();
+            var segments = new List<Tuple<Point64, Point64>>();
+            foreach (BridgeConnection connection in connections)
+            {
+                int firstIndex = connection.FirstContourIndex, secondIndex = connection.SecondContourIndex;
+                Point64 firstPoint = connection.FirstPoint, secondPoint = connection.SecondPoint;
+                if (firstIndex < 0 || secondIndex < 0 || firstIndex >= contours.Length || secondIndex >= contours.Length || firstIndex == secondIndex) return false;
+                if (contours[secondIndex] == outer)
+                {
+                    int swapIndex = firstIndex; firstIndex = secondIndex; secondIndex = swapIndex;
+                    Point64 swapPoint = firstPoint; firstPoint = secondPoint; secondPoint = swapPoint;
+                }
+                Path64[] blockers = holes.Where(hole => hole != contours[firstIndex] && hole != contours[secondIndex]).ToArray();
+                if (!IsLegalBridge(firstPoint, secondPoint, contours[firstIndex], contours[secondIndex], outer, holes, blockers)) return false;
+                int firstRoot = FindRoot(parent, firstIndex), secondRoot = FindRoot(parent, secondIndex);
+                if (firstRoot == secondRoot) return false;
+                parent[firstRoot] = secondRoot;
+                segments.Add(Tuple.Create(firstPoint, secondPoint));
+            }
+            for (int first = 0; first < segments.Count; first++)
+            for (int second = first + 1; second < segments.Count; second++)
+            {
+                Point64 a = segments[first].Item1, b = segments[first].Item2, c = segments[second].Item1, d = segments[second].Item2;
+                if (!SegmentsIntersect(a, b, c, d)) continue;
+                Point64? shared = a == c || a == d ? a : b == c || b == d ? b : (Point64?)null;
+                if (!shared.HasValue) return false;
+                Point64 firstOther = a == shared.Value ? b : a;
+                Point64 secondOther = c == shared.Value ? d : c;
+                if (Cross(shared.Value, firstOther, secondOther) == 0) return false;
+            }
+            return connections.All(connection => FindRoot(parent, connection.FirstContourIndex) == FindRoot(parent, 0));
+        }
+
+        /// <summary>
         /// 從既有路徑中解析每條橋接的兩端輪廓與實際端點。
         /// </summary>
         /// <param name="polygon">含橋接往返段的路徑。</param>
@@ -365,24 +479,7 @@ namespace Neurocle.Domain.Segmentation
                 boundaryEdges.Add(start, end);
             }
 
-            var contours = new Paths64();
-            while (boundaryEdges.Count > 0)
-            {
-                Point64 start = boundaryEdges.Keys.First();
-                Point64 current = start;
-                var contour = new Path64();
-                do
-                {
-                    Point64 next;
-                    if (!boundaryEdges.TryGetValue(current, out next)) return null;
-                    boundaryEdges.Remove(current);
-                    contour.Add(current);
-                    current = next;
-                } while (current != start && contour.Count <= polygon.Count);
-                if (current != start || contour.Count < 3 || Math.Abs(Clipper.Area(contour)) == 0) return null;
-                contours.Add(contour);
-            }
-            return contours;
+            return ExtractContours(boundaryEdges, polygon.Count);
         }
 
         /// <summary>

@@ -2263,6 +2263,128 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Translating_mixed_SEG_types_preserves_geometry_order_history_and_bounds_atomically()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 400, 200);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("mixed translation", AnnotationSetType.Seg);
+                    string classId = store.GetClasses(set.Id).Single().Id;
+                    SegRegion rectangle = store.AddSegRegion(set.Id, image.Id, classId, SegRegionType.Rect, 140, 20, 20, 30);
+                    SegRegion ellipse = store.AddSegRegion(set.Id, image.Id, classId, SegRegionType.Ellipse, 210, 60, 10, 15);
+                    SegRegion line = store.AddSegPath(set.Id, image.Id, classId, SegRegionType.PolyLine,
+                        new[] { new SegPoint(260, 90), new SegPoint(280, 100), new SegPoint(300, 90) }, 5);
+                    SegRegion polygon = store.AddSegPath(set.Id, image.Id, classId, SegRegionType.PolyGon, SeparateOuterBridgePath(), 0);
+                    SegRegion stationary = store.AddSegRegion(set.Id, image.Id, classId, SegRegionType.Rect, 340, 140, 20, 20);
+                    SegRegion[] before = store.GetSegRegions(set.Id, image.Id).ToArray();
+                    string[] selectedIds = new[] { rectangle.Id, ellipse.Id, line.Id, polygon.Id };
+
+                    store.TranslateSegRegions(selectedIds, 3, 4);
+
+                    SegRegion[] moved = store.GetSegRegions(set.Id, image.Id).ToArray();
+                    Assert.AreEqual(rectangle.X + 3, moved.Single(region => region.Id == rectangle.Id).X);
+                    Assert.AreEqual(rectangle.Y + 4, moved.Single(region => region.Id == rectangle.Id).Y);
+                    Assert.AreEqual(ellipse.X + 3, moved.Single(region => region.Id == ellipse.Id).X);
+                    Assert.AreEqual(ellipse.Y + 4, moved.Single(region => region.Id == ellipse.Id).Y);
+                    CollectionAssert.AreEqual(line.Points.Select(point => (point.X + 3) + "," + (point.Y + 4)).ToArray(), moved.Single(region => region.Id == line.Id).Points.Select(PointSignature).ToArray());
+                    CollectionAssert.AreEqual(polygon.Points.Select(point => (point.X + 3) + "," + (point.Y + 4)).ToArray(), moved.Single(region => region.Id == polygon.Id).Points.Select(PointSignature).ToArray());
+                    Assert.AreEqual(stationary.Id, moved[0].Id, "An unselected higher region must remain below the translated group.");
+                    CollectionAssert.AreEqual(before.Where(region => selectedIds.Contains(region.Id)).Select(region => region.Id).ToArray(), moved.Skip(1).Select(region => region.Id).ToArray(), "A group translation must preserve relative Z-order while moving the group to the top.");
+
+                    using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString()))
+                    {
+                        connection.Open();
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = "SELECT Version FROM SchemaInfo;";
+                            Assert.AreEqual(7L, (long)command.ExecuteScalar(), "Pure translation must not change the approved database schema.");
+                            command.CommandText = "SELECT X || ',' || Y FROM SegRegionPoint WHERE RegionId = $id AND Ordinal = 0;";
+                            command.Parameters.AddWithValue("$id", polygon.Id);
+                            Assert.AreEqual((polygon.Points[0].X + 3) + "," + (polygon.Points[0].Y + 4), (string)command.ExecuteScalar(), "Pure translation must update the existing point coordinates without changing schema semantics.");
+                            command.CommandText = "SELECT X || ',' || Y FROM SegRegion WHERE Id = $id;";
+                            Assert.AreEqual(polygon.X + "," + polygon.Y, (string)command.ExecuteScalar(), "Point-based SEG region fields must retain their existing v7 meaning.");
+                        }
+                    }
+
+                    Assert.ThrowsException<ArgumentException>(() => store.TranslateSegRegions(selectedIds, -100, 0));
+                    CollectionAssert.AreEqual(moved.Select(SegSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Select(SegSignature).ToArray(), "A rejected boundary translation must be atomic.");
+                    Assert.IsTrue(store.Undo(set.Id), "The rejected move must not add history ahead of the successful translation.");
+                    CollectionAssert.AreEqual(before.Select(SegSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Select(SegSignature).ToArray());
+                    Assert.IsTrue(store.Redo(set.Id));
+                    CollectionAssert.AreEqual(moved.Select(SegSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Select(SegSignature).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Translating_imported_invalid_bridge_polygon_with_a_mixed_selection_bypasses_rebridging()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 800, 800);
+                string json = "{\"label_type\":\"seg\",\"source\":\"labelset\",\"time\":\"2026-11-12T00:48:14Z\",\"version\":\"4.5.2.2\",\"classes\":[{\"name\":\"class3\",\"color\":\"#88FF88\"},{\"name\":\"box\",\"color\":\"#FF0000\"}],\"data\":[{\"fileName\":\"source.png\",\"set\":\"\",\"classLabel\":\"\",\"regionLabel\":[{\"className\":\"class3\",\"type\":\"PolyGon\",\"x\":17,\"y\":19,\"width\":-2147483648,\"height\":-2147483648,\"points\":[[632,733],[630,731],[632,733],[369,44],[548,8]]},{\"className\":\"box\",\"type\":\"Rect\",\"x\":10,\"y\":10,\"width\":20,\"height\":20}],\"retestset\":0,\"rotation_angle\":0,\"width\":800,\"height\":800}]}";
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.ImportAnnotationJson(json, "class3 repro", false);
+                    SegRegion[] before = store.GetSegRegions(set.Id, image.Id).ToArray();
+                    SegRegion[] moved = before.Select(region => region.Points.Count == 0
+                        ? new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, region.ClassId, region.Type, region.X + 1, region.Y + 1, region.Width, region.Height, region.ZOrder, region.Points, region.StrokeWidth)
+                        : new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, region.ClassId, region.Type, region.X, region.Y, region.Width, region.Height, region.ZOrder, region.Points.Select(point => new SegPoint(point.X + 1, point.Y + 1)).ToArray(), region.StrokeWidth)).ToArray();
+
+                    store.UpdateSegRegions(moved);
+
+                    SegRegion[] actual = store.GetSegRegions(set.Id, image.Id).ToArray();
+                    foreach (SegRegion expected in moved)
+                    {
+                        SegRegion persisted = actual.Single(region => region.Id == expected.Id);
+                        Assert.AreEqual(expected.X, persisted.X);
+                        Assert.AreEqual(expected.Y, persisted.Y);
+                        CollectionAssert.AreEqual(expected.Points.Select(PointSignature).ToArray(), persisted.Points.Select(PointSignature).ToArray(), "A pure mixed-type move must never rebridge the imported class3 polygon.");
+                    }
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(before.Select(SegSignature).ToArray(), store.GetSegRegions(set.Id, image.Id).Select(SegSignature).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
+        public void Updating_only_SEG_z_order_is_not_discarded_as_a_zero_offset_translation()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            try
+            {
+                CreateBitmap(source, Color.Red, ImageFormat.Png, 200, 100);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("z order", AnnotationSetType.Seg);
+                    string classId = store.GetClasses(set.Id).Single().Id;
+                    SegRegion first = store.AddSegRegion(set.Id, image.Id, classId, SegRegionType.Rect, 10, 10, 20, 20);
+                    SegRegion second = store.AddSegRegion(set.Id, image.Id, classId, SegRegionType.Rect, 60, 10, 20, 20);
+                    SegRegion requested = new SegRegion(first.Id, first.AnnotationSetId, first.ImageId, first.ClassId, first.Type, first.X, first.Y, first.Width, first.Height, second.ZOrder + 1, first.Points, first.StrokeWidth);
+
+                    store.UpdateSegRegions(new[] { requested });
+
+                    CollectionAssert.AreEqual(new[] { second.Id, first.Id }, store.GetSegRegions(set.Id, image.Id).Select(region => region.Id).ToArray(), "A z-order-only update must still move the requested region to the top.");
+                    Assert.IsTrue(store.Undo(set.Id));
+                    CollectionAssert.AreEqual(new[] { first.Id, second.Id }, store.GetSegRegions(set.Id, image.Id).Select(region => region.Id).ToArray());
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        [TestMethod]
         public void Unbridgeable_SEG_geometry_update_preserves_the_region_and_does_not_add_undo_history()
         {
             string path = TemporaryProjectPath();
@@ -3466,6 +3588,12 @@ namespace Neurocle.Tests
         private static string PointSignature(Point64 point)
         {
             return point.X + "," + point.Y;
+        }
+
+        private static string SegSignature(SegRegion region)
+        {
+            return string.Join("|", region.Id, region.ClassId, region.Type, region.X, region.Y, region.Width, region.Height, region.ZOrder, region.StrokeWidth,
+                string.Join(";", region.Points.Select(PointSignature)));
         }
 
         private static int CountSegment(IReadOnlyList<SegPoint> points, int firstX, int firstY, int secondX, int secondY)

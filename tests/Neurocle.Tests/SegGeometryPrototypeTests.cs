@@ -312,6 +312,54 @@ namespace Neurocle.Tests
         }
 
         [TestMethod]
+        public void Whole_transform_keeps_a_still_legal_bridge_network_and_point_order()
+        {
+            Path64 polygon = SegGeometryPrototype.BridgeHoles(
+                Rectangle(0, 0, 100, 100),
+                new[] { Rectangle(20, 20, 35, 35), Rectangle(60, 60, 80, 80) });
+            Path64 transformed = new Path64(polygon.Select(point => new Point64(point.X * 2 + 7, point.Y * 3 + 11)));
+
+            Path64 result = SegGeometryPrototype.RebridgeTransformed(polygon, transformed);
+
+            CollectionAssert.AreEqual(transformed.ToArray(), result.ToArray());
+            Assert.AreEqual(2, BridgeLinks(result).Count);
+            AssertFilledMaskMatchesContours(result,
+                Rectangle(7, 11, 207, 311),
+                Rectangle(47, 71, 77, 116),
+                Rectangle(127, 191, 167, 251));
+        }
+
+        [TestMethod]
+        public void Whole_transform_rejects_a_bridge_collapsed_by_integer_rounding()
+        {
+            Path64 polygon = SegGeometryPrototype.BridgeHoles(
+                Rectangle(0, 0, 100, 100),
+                new[] { Rectangle(1, 20, 80, 80) });
+            Path64 transformed = new Path64(polygon.Select(point => new Point64((long)Math.Round(point.X * 0.4d), point.Y)));
+
+            Assert.ThrowsException<SegGeometryPrototype.BridgeNetworkException>(() => SegGeometryPrototype.RebridgeTransformed(polygon, transformed));
+        }
+
+        [TestMethod]
+        public void Whole_transform_rebuilds_an_existing_bridge_that_crosses_the_transformed_hole()
+        {
+            Path64 polygon = SegGeometryPrototype.BridgeHoles(
+                Rectangle(0, 0, 100, 100),
+                new[] { Rectangle(20, 20, 40, 40) });
+            var transformed = new Path64(polygon);
+            transformed[5] = transformed[9] = new Point64(40, 20);
+            transformed[6] = new Point64(20, 20);
+            transformed[7] = new Point64(20, 40);
+            transformed[8] = new Point64(40, 40);
+
+            Path64 result = SegGeometryPrototype.RebridgeTransformed(polygon, transformed);
+
+            Assert.AreEqual(1, BridgeLinks(result).Count);
+            CollectionAssert.AreNotEqual(transformed.ToArray(), result.ToArray());
+            AssertFilledMaskMatchesContours(result, Rectangle(0, 0, 100, 100), Rectangle(20, 20, 40, 40));
+        }
+
+        [TestMethod]
         public void EraserCanSplitOneRegionIntoTwoComponents()
         {
             Paths64 result = SegGeometryPrototype.Difference(Paths(Rectangle(0, 0, 20, 10)), Paths(Rectangle(9, 0, 11, 10)));

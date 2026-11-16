@@ -1583,7 +1583,7 @@ namespace Neurocle.Tests
                     canvas.SegRegions = new[] { original };
                     canvas.SelectAllSeg();
                     int changed = 0;
-                    canvas.SegRegionsChanged += regions => changed++;
+                    canvas.SegRegionsTranslated += (ids, x, y) => changed++;
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
                     start = ImagePointToScreen(canvas, 10, 10);
                     end = ImagePointToScreen(canvas, 18, 18);
@@ -1905,6 +1905,16 @@ namespace Neurocle.Tests
                     CollectionAssert.AreEqual(originalSeg.Select(value => value.Y + 2).ToArray(), movedSeg.Select(value => value.Y).ToArray());
                     Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
                     CollectionAssert.AreEqual(originalSeg.Select(value => value.Y).ToArray(), store.GetSegRegions(segSet.Id, images[0].Id).Select(value => value.Y).ToArray(), "One Undo should revert the whole held-key SEG movement.");
+
+                    canvas.SelectSegRegions(new[] { originalSeg[0].Id });
+                    RaiseKey(form, new KeyEventArgs(Keys.Down));
+                    canvas.SelectAllSeg();
+                    canvas.Refresh();
+                    RaiseKeyUp(form, new KeyEventArgs(Keys.Down));
+                    SegRegion[] selectionChangedDuringNudge = store.GetSegRegions(segSet.Id, images[0].Id).ToArray();
+                    Assert.AreEqual(originalSeg[0].Y + 1, selectionChangedDuringNudge.Single(value => value.Id == originalSeg[0].Id).Y, "A held-key gesture must commit only the selection captured when it started.");
+                    Assert.AreEqual(originalSeg[1].Y, selectionChangedDuringNudge.Single(value => value.Id == originalSeg[1].Id).Y, "A region selected during an active nudge must not move without preview or boundary validation.");
+                    Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
                     form.Close();
                     store = null;
                 }
@@ -2558,7 +2568,7 @@ namespace Neurocle.Tests
                     canvas.SegRegions = regions;
                     canvas.SelectAllSeg();
                     IReadOnlyList<SegRegion> changed = null;
-                    canvas.SegRegionsChanged += value =>
+                    canvas.SegRegionsTransformed += value =>
                     {
                         changed = value;
                         Dictionary<string, SegRegion> updates = value.ToDictionary(region => region.Id, StringComparer.Ordinal);
@@ -2625,7 +2635,7 @@ namespace Neurocle.Tests
                     };
                     canvas.SelectAllSeg();
                     IReadOnlyList<SegRegion> changed = null;
-                    canvas.SegRegionsChanged += value => changed = value;
+                    canvas.SegRegionsTransformed += value => changed = value;
 
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 6, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 35, 6, 0));
@@ -2678,9 +2688,9 @@ namespace Neurocle.Tests
                     canvas.SegClasses = new Dictionary<string, AnnotationClass> { { annotationClass.Id, annotationClass } };
                     canvas.SegRegions = original;
                     canvas.SelectAllSeg();
-                    canvas.SegRegionsChanged += value =>
+                    canvas.SegRegionsTransformed += value =>
                     {
-                        store.UpdateSegRegions(value);
+                        store.TransformSegRegions(value);
                         canvas.SegRegions = store.GetSegRegions(setId, imageId);
                     };
 
@@ -2711,6 +2721,86 @@ namespace Neurocle.Tests
                 store?.Dispose();
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
+        }
+
+        [STATestMethod]
+        public void Transform_fallback_applies_the_canonical_persisted_bridge_to_the_canvas()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var store = ProjectStore.Create(projectPath))
+                using (var canvas = new ImageCanvasControl())
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("fallback", AnnotationSetType.Seg);
+                    string classId = store.GetClasses(set.Id).Single().Id;
+                    Path64 bridge = SegGeometryPrototype.BridgeHoles(
+                        SegGeometryPrototype.Rectangle(0, 0, 100, 100),
+                        new[] { SegGeometryPrototype.Rectangle(20, 20, 40, 40) });
+                    SegRegion original = store.AddSegPath(set.Id, image.Id, classId, SegRegionType.PolyGon, bridge.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray(), 0);
+                    canvas.SegRegions = new[] { original };
+                    SegPoint[] invalidBridge = original.Points.ToArray();
+                    invalidBridge[5] = invalidBridge[9] = new SegPoint(40, 20);
+                    invalidBridge[6] = new SegPoint(20, 20);
+                    invalidBridge[7] = new SegPoint(20, 40);
+                    invalidBridge[8] = new SegPoint(40, 40);
+                    var requested = new SegRegion(original.Id, original.AnnotationSetId, original.ImageId, original.ClassId, original.Type, 0, 0, 0, 0, original.ZOrder, invalidBridge);
+
+                    MainForm.TransformSegRegions(store, canvas, new[] { requested });
+
+                    SegRegion persisted = store.GetSegRegions(set.Id, image.Id).Single();
+                    CollectionAssert.AreEqual(persisted.Points.Select(point => point.X + "," + point.Y).ToArray(), canvas.SegRegions.Single().Points.Select(point => point.X + "," + point.Y).ToArray());
+                    CollectionAssert.AreNotEqual(requested.Points.Select(point => point.X + "," + point.Y).ToArray(), persisted.Points.Select(point => point.X + "," + point.Y).ToArray(), "Fallback must replace the invalid requested bridge.");
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
+        [STATestMethod]
+        public void Failed_translation_clears_the_committed_bitmap_and_restores_session_geometry()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var store = ProjectStore.Create(projectPath))
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("rollback", AnnotationSetType.Seg);
+                    AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { annotationClass.Id, annotationClass } };
+                    canvas.SegRegions = new[] { new SegRegion("missing", set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 20, 20, 30, 30, 0) };
+                    canvas.SelectAllSeg();
+                    Exception failure = null;
+                    canvas.SegRegionsTranslated += (ids, x, y) =>
+                    {
+                        try { MainForm.TranslateSegRegions(store, canvas, ids, x, y); }
+                        catch (Exception exception) { failure = exception; }
+                    };
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 30, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 35, 35, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 35, 35, 0));
+
+                    Assert.IsInstanceOfType(failure, typeof(ArgumentException));
+                    Assert.AreEqual(0, canvas.SegRegions.Count);
+                    Assert.IsNull(Field<Bitmap>(canvas, "committedSegBitmap"), "A failed persistence step must not leave the moved preview bitmap visible.");
+                    Assert.IsFalse(store.CanUndo(set.Id));
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
 
         [STATestMethod]
@@ -2761,7 +2851,16 @@ namespace Neurocle.Tests
                     };
                     canvas.SelectAllSeg();
                     IReadOnlyList<SegRegion> changedSeg = null;
-                    canvas.SegRegionsChanged += value => changedSeg = value;
+                    IReadOnlyCollection<string> translatedSegIds = null;
+                    int translatedSegX = 0;
+                    int translatedSegY = 0;
+                    canvas.SegRegionsTransformed += value => changedSeg = value;
+                    canvas.SegRegionsTranslated += (ids, offsetX, offsetY) =>
+                    {
+                        translatedSegIds = ids;
+                        translatedSegX = offsetX;
+                        translatedSegY = offsetY;
+                    };
 
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
@@ -2773,11 +2872,52 @@ namespace Neurocle.Tests
                     Assert.AreEqual(new Rectangle(5, 5, 25, 25), new Rectangle(changedSeg[0].X, changedSeg[0].Y, changedSeg[0].Width, changedSeg[0].Height));
 
                     changedSeg = null;
+                    translatedSegIds = null;
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
                     RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
-                    Assert.IsNotNull(changedSeg);
-                    CollectionAssert.AreEquivalent(new[] { "first", "second" }, changedSeg.Select(region => region.Id).ToArray(), "Dragging a selected SEG body must keep group movement.");
+                    Assert.IsNull(changedSeg, "A pure SEG body move must use the incremental translation event.");
+                    Assert.IsNotNull(translatedSegIds);
+                    CollectionAssert.AreEquivalent(new[] { "first", "second" }, translatedSegIds.ToArray(), "Dragging a selected SEG body must keep group movement.");
+                    Assert.AreEqual(5, translatedSegX);
+                    Assert.AreEqual(5, translatedSegY);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Dragging_a_partially_offscreen_SEG_into_view_keeps_the_entire_preview_visible()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var image = new Bitmap(200, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(image)) graphics.Clear(Color.Black);
+                    image.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetViewState(new ImageCanvasControl.CanvasViewState(1d, new PointF(-30f, 0f), false));
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#00FF00") } };
+                    canvas.SegRegions = new[] { new SegRegion("region", "set", "image", "class", SegRegionType.Rect, 10, 30, 40, 40, 0) };
+                    canvas.SelectAllSeg();
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 50, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 50, 50, 0));
+
+                    Color exposedPreview = RenderPixel(canvas, 30, 50);
+                    Assert.IsTrue(exposedPreview.G > exposedPreview.R && exposedPreview.G > exposedPreview.B, "Pixels that started outside the viewport must appear when the selected SEG is dragged into view.");
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 50, 50, 0));
                 }
             }
             finally

@@ -406,7 +406,8 @@ namespace Neurocle.WinForms
             canvas.SegPathCreated += async (type, points, width) => await CreateSegPathAsync(type, points, width);
             canvas.SegGeometryEraseRequested += async (type, rectangle, points, width) => await EraseSegGeometryAsync(type, rectangle, points, width);
             canvas.SegEraseRequested += async (points, width) => await EraseSegPathAsync(points, width);
-            canvas.SegRegionsChanged += regions => RunAnnotationCommand(() => UpdateSegRegions(regions));
+            canvas.SegRegionsTransformed += regions => RunAnnotationCommand(() => TransformSegRegions(regions));
+            canvas.SegRegionsTranslated += (ids, offsetX, offsetY) => RunAnnotationCommand(() => TranslateSegRegions(ids, offsetX, offsetY));
             canvas.SegRegionsDeleteRequested += ids => RunAnnotationCommand(() => DeleteSegRegions(ids));
             imageBrowser.ImageSelected += (sender, args) =>
             {
@@ -1857,15 +1858,70 @@ namespace Neurocle.WinForms
             RefreshAnnotationClasses();
         }
 
-        /// <summary>
-        /// 提交 SEG 區域幾何變更命令。
-        /// </summary>
-        /// <param name="regions">要處理的 SEG 區域集合。</param>
-        private void UpdateSegRegions(IReadOnlyList<SegRegion> regions)
+        private void TranslateSegRegions(IReadOnlyCollection<string> regionIds, int offsetX, int offsetY)
         {
-            if (project == null || SelectedAnnotationSet == null || SelectedAnnotationSet.Type != AnnotationSetType.Seg || regions.Count == 0) return;
-            project.UpdateSegRegions(regions);
-            RefreshAnnotationClasses();
+            if (project == null || regionIds == null || regionIds.Count == 0 || (offsetX == 0 && offsetY == 0)) return;
+            TranslateSegRegions(project, canvas, regionIds, offsetX, offsetY);
+        }
+
+        private void TransformSegRegions(IReadOnlyList<SegRegion> regions)
+        {
+            if (project == null || regions == null || regions.Count == 0) return;
+            TransformSegRegions(project, canvas, regions);
+        }
+
+        internal static void TransformSegRegions(IProjectSession session, ImageCanvasControl targetCanvas, IReadOnlyList<SegRegion> regions)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+            if (targetCanvas == null) throw new ArgumentNullException(nameof(targetCanvas));
+            if (regions == null) throw new ArgumentNullException(nameof(regions));
+            var ids = new HashSet<string>(regions.Select(region => region.Id), StringComparer.Ordinal);
+            if (ids.Count != regions.Count || targetCanvas.SegRegions.Count(region => ids.Contains(region.Id)) != ids.Count) throw new ArgumentException("Every transformed SEG region must exist once on the canvas.", nameof(regions));
+            SegRegion context = regions.FirstOrDefault();
+            try { targetCanvas.ApplySegTransforms(regions); }
+            catch
+            {
+                if (context != null) targetCanvas.SegRegions = session.GetSegRegions(context.AnnotationSetId, context.ImageId);
+                throw;
+            }
+            IReadOnlyList<SegRegion> persisted;
+            try
+            {
+                persisted = session.TransformSegRegions(regions);
+            }
+            catch
+            {
+                if (context != null) targetCanvas.SegRegions = session.GetSegRegions(context.AnnotationSetId, context.ImageId);
+                throw;
+            }
+            try { targetCanvas.ApplySegTransforms(persisted); }
+            catch
+            {
+                // 持久化與歷史已成功；以 canonical store state 修復顯示，不把已完成操作回報為失敗。
+                if (context != null) targetCanvas.SegRegions = session.GetSegRegions(context.AnnotationSetId, context.ImageId);
+            }
+        }
+
+        internal static void TranslateSegRegions(IProjectSession session, ImageCanvasControl targetCanvas, IReadOnlyCollection<string> regionIds, int offsetX, int offsetY)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+            if (targetCanvas == null) throw new ArgumentNullException(nameof(targetCanvas));
+            if (regionIds == null) throw new ArgumentNullException(nameof(regionIds));
+            var ids = new HashSet<string>(regionIds, StringComparer.Ordinal);
+            SegRegion[] displayed = targetCanvas.SegRegions.Where(region => ids.Contains(region.Id)).ToArray();
+            if (displayed.Length != ids.Count) throw new ArgumentException("Every translated SEG region must exist on the canvas.", nameof(regionIds));
+            try
+            {
+                targetCanvas.ApplySegTranslation(regionIds, offsetX, offsetY);
+                session.TranslateSegRegions(regionIds, offsetX, offsetY);
+            }
+            catch
+            {
+                SegRegion context = displayed[0];
+                targetCanvas.RejectCommittedSegTranslation();
+                targetCanvas.SegRegions = session.GetSegRegions(context.AnnotationSetId, context.ImageId);
+                throw;
+            }
         }
 
         /// <summary>

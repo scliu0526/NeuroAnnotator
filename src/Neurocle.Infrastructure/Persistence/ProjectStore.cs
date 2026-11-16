@@ -1779,9 +1779,20 @@ namespace Neurocle.Infrastructure.Persistence
         /// <inheritdoc />
         public void UpdateSegRegions(IEnumerable<SegRegion> regions)
         {
+            UpdateSegRegions(regions, false);
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<SegRegion> TransformSegRegions(IEnumerable<SegRegion> regions)
+        {
+            return UpdateSegRegions(regions, true);
+        }
+
+        private IReadOnlyList<SegRegion> UpdateSegRegions(IEnumerable<SegRegion> regions, bool wholeTransform)
+        {
             if (regions == null) throw new ArgumentNullException(nameof(regions));
             SegRegion[] requested = regions.ToArray();
-            if (requested.Length == 0) return;
+            if (requested.Length == 0) return new SegRegion[0];
             if (requested.Select(value => value.Id).Distinct(StringComparer.Ordinal).Count() != requested.Length) throw new ArgumentException("A SEG region can only be updated once.", nameof(regions));
             SegRegion[] previous = requested.Select(value => GetSegRegion(value.Id)).OrderBy(value => value.ZOrder).ToArray();
             string setId = previous[0].AnnotationSetId;
@@ -1794,13 +1805,98 @@ namespace Neurocle.Infrastructure.Persistence
                 if (!classes.Contains(value.ClassId)) throw new ArgumentException("The class does not belong to the annotation set.", nameof(regions));
                 ValidateSegGeometry(imageSize, value);
             }
-            if (previous.All(value => SameSegRegion(value, requested.First(item => item.Id == value.Id)))) return;
+            if (previous.All(value => SameSegRegion(value, requested.First(item => item.Id == value.Id)))) return previous;
+            int translationX;
+            int translationY;
+            if (TryGetCommonPureTranslation(previous, requested, out translationX, out translationY))
+            {
+                TranslateSegRegions(previous.Select(value => value.Id), translationX, translationY);
+                return previous.Select(value => GetSegRegion(value.Id)).ToArray();
+            }
             var byId = requested.ToDictionary(value => value.Id, StringComparer.Ordinal);
             int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", setId), new SqliteParameter("$image", imageId)));
-            bool pureTranslation = TryGetCommonPureTranslation(previous, requested, out _, out _);
-            SegRegion[] next = previous.Select((value, index) => WithZOrder(pureTranslation ? byId[value.Id] : RebridgePolygon(byId[value.Id]), firstZOrder + index)).ToArray();
+            SegRegion[] next = previous.Select((value, index) => WithZOrder(wholeTransform ? RebridgeTransformedPolygon(value, byId[value.Id]) : RebridgePolygon(byId[value.Id]), firstZOrder + index)).ToArray();
             CompleteOperation((db, transaction) => { foreach (SegRegion value in next) UpdateSegRegionRaw(db, transaction, value); });
             Record(setId, () => { foreach (SegRegion value in previous) UpdateSegRegionRaw(value); }, () => { foreach (SegRegion value in next) UpdateSegRegionRaw(value); }, EstimateHistoryBytes(previous) + EstimateHistoryBytes(next));
+            return next;
+        }
+
+        /// <inheritdoc />
+        public void TranslateSegRegions(IEnumerable<string> regionIds, int offsetX, int offsetY)
+        {
+            if (regionIds == null) throw new ArgumentNullException(nameof(regionIds));
+            string[] ids = regionIds.ToArray();
+            if (ids.Length == 0 || (offsetX == 0 && offsetY == 0)) return;
+            if (ids.Any(string.IsNullOrWhiteSpace) || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length) throw new ArgumentException("A SEG region can only be translated once.", nameof(regionIds));
+            SegTranslationState[] previous = ids.Select(GetSegTranslationState).OrderBy(value => value.ZOrder).ToArray();
+            string setId = previous[0].AnnotationSetId;
+            string imageId = previous[0].ImageId;
+            if (previous.Any(value => value.AnnotationSetId != setId || value.ImageId != imageId)) throw new ArgumentException("SEG regions must belong to the same image and annotation set.", nameof(regionIds));
+            Size imageSize = GetImageSize(imageId);
+            if (previous.Any(value =>
+            {
+                RectangleF bounds = value.Bounds;
+                return bounds.Left + offsetX < 0 || bounds.Top + offsetY < 0 || bounds.Right + offsetX > imageSize.Width || bounds.Bottom + offsetY > imageSize.Height;
+            })) throw new ArgumentException("Translated SEG regions must remain within the image bounds.", nameof(regionIds));
+
+            int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", setId), new SqliteParameter("$image", imageId)));
+            int[] previousZOrders = previous.Select(value => value.ZOrder).ToArray();
+            int[] nextZOrders = Enumerable.Range(firstZOrder, previous.Length).ToArray();
+            string[] orderedIds = previous.Select(value => value.Id).ToArray();
+            CompleteOperation((db, transaction) => TranslateSegRegionsRaw(db, transaction, orderedIds, offsetX, offsetY, nextZOrders));
+            Record(setId,
+                () => TranslateSegRegionsRaw(connection, historyTransaction, orderedIds, -offsetX, -offsetY, previousZOrders),
+                () => TranslateSegRegionsRaw(connection, historyTransaction, orderedIds, offsetX, offsetY, nextZOrders),
+                EstimateHistoryBytes(orderedIds) + sizeof(int) * (2L + previousZOrders.Length + nextZOrders.Length));
+        }
+
+        private sealed class SegTranslationState
+        {
+            internal string Id;
+            internal string AnnotationSetId;
+            internal string ImageId;
+            internal int ZOrder;
+            internal RectangleF Bounds;
+        }
+
+        private SegTranslationState GetSegTranslationState(string regionId)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT region.AnnotationSetId, region.ImageId, region.ZOrder, region.Type, region.X, region.Y, region.Width, region.Height, COALESCE(region.StrokeWidth, 0), MIN(point.X), MIN(point.Y), MAX(point.X), MAX(point.Y) FROM SegRegion region LEFT JOIN SegRegionPoint point ON point.RegionId = region.Id WHERE region.Id = $id GROUP BY region.Id;";
+                command.Parameters.AddWithValue("$id", regionId);
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    if (!reader.Read()) throw new ArgumentException("The SEG region does not exist.", nameof(regionId));
+                    SegRegionType type = (SegRegionType)reader.GetInt32(3);
+                    int x = reader.GetInt32(4), y = reader.GetInt32(5), width = reader.GetInt32(6), height = reader.GetInt32(7);
+                    RectangleF bounds;
+                    if (type == SegRegionType.Rect) bounds = new RectangleF(x, y, width, height);
+                    else if (type == SegRegionType.Ellipse) bounds = new RectangleF(x - width, y - height, width * 2, height * 2);
+                    else
+                    {
+                        if (reader.IsDBNull(9)) throw new InvalidDataException("A point-based SEG region has no points.");
+                        int inset = type == SegRegionType.PolyLine ? (reader.GetInt32(8) + 1) / 2 : 0;
+                        bounds = RectangleF.FromLTRB(reader.GetInt32(9) - inset, reader.GetInt32(10) - inset, reader.GetInt32(11) + inset, reader.GetInt32(12) + inset);
+                    }
+                    return new SegTranslationState { Id = regionId, AnnotationSetId = reader.GetString(0), ImageId = reader.GetString(1), ZOrder = reader.GetInt32(2), Bounds = bounds };
+                }
+            }
+        }
+
+        private static void TranslateSegRegionsRaw(SqliteConnection db, SqliteTransaction transaction, IReadOnlyList<string> regionIds, int offsetX, int offsetY, IReadOnlyList<int> zOrders)
+        {
+            for (int index = 0; index < regionIds.Count; index++)
+            {
+                Execute(db, transaction,
+                    "UPDATE SegRegion SET X = CASE WHEN Type IN ($rect, $ellipse) THEN X + $x ELSE X END, Y = CASE WHEN Type IN ($rect, $ellipse) THEN Y + $y ELSE Y END, ZOrder = $order WHERE Id = $id;",
+                    new SqliteParameter("$rect", (object)(int)SegRegionType.Rect), new SqliteParameter("$ellipse", (object)(int)SegRegionType.Ellipse),
+                    new SqliteParameter("$x", (object)offsetX), new SqliteParameter("$y", (object)offsetY),
+                    new SqliteParameter("$order", (object)zOrders[index]), new SqliteParameter("$id", regionIds[index]));
+                Execute(db, transaction,
+                    "UPDATE SegRegionPoint SET X = X + $x, Y = Y + $y WHERE RegionId = $id;",
+                    new SqliteParameter("$x", (object)offsetX), new SqliteParameter("$y", (object)offsetY), new SqliteParameter("$id", regionIds[index]));
+            }
         }
 
         /// <summary>
@@ -1816,6 +1912,14 @@ namespace Neurocle.Infrastructure.Persistence
             return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, value.ZOrder, points, value.StrokeWidth);
         }
 
+        private static SegRegion RebridgeTransformedPolygon(SegRegion previous, SegRegion value)
+        {
+            if (value.Type != SegRegionType.PolyGon) return value;
+            Path64 polygon = SegGeometryPrototype.RebridgeTransformed(ToPath(previous.Points), ToPath(value.Points));
+            SegPoint[] points = polygon.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray();
+            return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, value.ZOrder, points, value.StrokeWidth);
+        }
+
         private static bool TryGetCommonPureTranslation(IReadOnlyList<SegRegion> previous, IReadOnlyList<SegRegion> requested, out int offsetX, out int offsetY)
         {
             offsetX = 0;
@@ -1825,11 +1929,22 @@ namespace Neurocle.Infrastructure.Persistence
             {
                 SegRegion before = previous[index];
                 SegRegion after = requested.First(value => value.Id == before.Id);
-                if (before.Type != SegRegionType.PolyGon || before.Points.Count != after.Points.Count || before.Points.Count == 0) return false;
-                int currentX = after.Points[0].X - before.Points[0].X;
-                int currentY = after.Points[0].Y - before.Points[0].Y;
-                for (int pointIndex = 1; pointIndex < before.Points.Count; pointIndex++)
-                    if (after.Points[pointIndex].X - before.Points[pointIndex].X != currentX || after.Points[pointIndex].Y - before.Points[pointIndex].Y != currentY) return false;
+                if (before.Type != after.Type || before.ClassId != after.ClassId || before.Width != after.Width || before.Height != after.Height || before.ZOrder != after.ZOrder || before.StrokeWidth != after.StrokeWidth || before.Points.Count != after.Points.Count) return false;
+                if (before.Points.Count > 0 && (before.X != after.X || before.Y != after.Y)) return false;
+                int currentX;
+                int currentY;
+                if (before.Points.Count > 0)
+                {
+                    currentX = after.Points[0].X - before.Points[0].X;
+                    currentY = after.Points[0].Y - before.Points[0].Y;
+                    for (int pointIndex = 1; pointIndex < before.Points.Count; pointIndex++)
+                        if (after.Points[pointIndex].X - before.Points[pointIndex].X != currentX || after.Points[pointIndex].Y - before.Points[pointIndex].Y != currentY) return false;
+                }
+                else
+                {
+                    currentX = after.X - before.X;
+                    currentY = after.Y - before.Y;
+                }
                 if (!found)
                 {
                     offsetX = currentX;
