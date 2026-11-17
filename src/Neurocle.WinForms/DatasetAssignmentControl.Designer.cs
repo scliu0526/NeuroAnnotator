@@ -5,7 +5,7 @@ namespace Neurocle.WinForms
     partial class DatasetAssignmentControl
     {
         private System.ComponentModel.IContainer components = null;
-        private System.Windows.Forms.ListView list;
+        private SelectionPreservingListView list;
         private System.Windows.Forms.ComboBox setFilter;
         private System.Windows.Forms.ComboBox classFilter;
         private System.Windows.Forms.ComboBox annotationFilter;
@@ -61,7 +61,7 @@ namespace Neurocle.WinForms
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
-            this.list = new System.Windows.Forms.ListView();
+            this.list = new SelectionPreservingListView();
             this.setFilter = new System.Windows.Forms.ComboBox();
             this.classFilter = new System.Windows.Forms.ComboBox();
             this.annotationFilter = new System.Windows.Forms.ComboBox();

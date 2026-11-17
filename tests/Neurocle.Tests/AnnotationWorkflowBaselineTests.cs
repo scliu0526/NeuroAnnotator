@@ -6,6 +6,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using Clipper2Lib;
@@ -73,8 +74,8 @@ namespace Neurocle.Tests
                     {
                         int offsetX = (index % 5) * 1000;
                         int offsetY = (index / 5) * 1100;
-                        store.AddSegPath(set.Id, projectImage.Id, annotationClass.Id, SegRegionType.PolyLine,
-                            basePoints.Select(point => new SegPoint(point.X + offsetX, point.Y + offsetY)).ToArray(), 12);
+                        store.AddSegPath(set.Id, projectImage.Id, annotationClass.Id, SegRegionType.PolyGon,
+                            basePoints.Select(point => new SegPoint(point.X + offsetX, point.Y + offsetY)).ToArray(), 0);
                     }
                     host.Controls.Add(canvas);
                     host.Show();
@@ -110,8 +111,7 @@ namespace Neurocle.Tests
                     var frameTimes = new List<double>();
                     var moveTimes = new List<double>();
                     var paintTimes = new List<double>();
-                    SegPoint dragPoint = basePoints[1000];
-                    Point dragStart = ImagePointToScreen(canvas, dragPoint.X + 1000, dragPoint.Y);
+                    Point dragStart = ImagePointToScreen(canvas, 1500, 500);
                     mouseDown.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 1, dragStart.X, dragStart.Y, 0) });
                     mouseMove.Invoke(canvas, new object[] { new MouseEventArgs(MouseButtons.Left, 0, dragStart.X, dragStart.Y, 0) });
                     for (int index = 0; index < 30; index++)
@@ -234,9 +234,62 @@ namespace Neurocle.Tests
                         browse.Elapsed.TotalMilliseconds, sameSizeBefore.Zoom, sameSizeBefore.Origin.X, sameSizeBefore.Origin.Y,
                         differentSizeState.Zoom, differentSizeState.Origin.X, differentSizeState.Origin.Y,
                         sameSizeAfter.Zoom, sameSizeAfter.Origin.X, sameSizeAfter.Origin.Y);
+                    Assert.IsTrue(cold <= 1000d, "The fixed cold image load must complete within one second.");
+                    Assert.IsTrue(warm.All(value => value <= 500d), "Each of the three cached images must warm-load within 500 ms.");
                 }
             }
             finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
+        [STATestMethod]
+        [TestCategory("ManualPerformance")]
+        public void Browsing_one_hundred_distinct_images_keeps_decode_cache_memory_and_gdi_bounded()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string[] paths = Enumerable.Range(0, 100).Select(index => Path.Combine(directory, "image" + index.ToString("D3") + ".png")).ToArray();
+            try
+            {
+                foreach (string path in paths) CreateBitmap(path, ImageFormat.Png, 640, 360);
+                ImageDecodeCache.Clear();
+                var workingSets = new List<long>();
+                var gdiCounts = new List<int>();
+                using (var host = new Form { ClientSize = new Size(800, 600) })
+                using (var canvas = new ImageCanvasControl { Dock = DockStyle.Fill })
+                {
+                    host.Controls.Add(canvas);
+                    host.Show();
+                    System.Windows.Forms.Application.DoEvents();
+                    for (int index = 0; index < paths.Length; index++)
+                    {
+                        canvas.LoadImage(paths[index]);
+                        WaitForImage(canvas, paths[index]);
+                        Assert.IsTrue(ImageDecodeCache.Count <= 3, "The decode cache exceeded its three-image bound.");
+                        if ((index + 1) % 20 != 0) continue;
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
+                        GC.Collect();
+                        using (Process process = Process.GetCurrentProcess())
+                        {
+                            process.Refresh();
+                            workingSets.Add(process.WorkingSet64);
+                            gdiCounts.Add(GetGuiResources(process.Handle, 0));
+                        }
+                    }
+                }
+                ImageDecodeCache.Clear();
+                Console.WriteLine("100-image resources: workingSetMiB={0}; gdi={1}",
+                    string.Join(",", workingSets.Select(value => (value / 1024d / 1024d).ToString("F1"))),
+                    string.Join(",", gdiCounts));
+                Assert.AreEqual(5, workingSets.Count);
+                Assert.IsTrue(gdiCounts.All(value => value > 0), "GDI resource measurement failed.");
+                Assert.IsTrue(workingSets.Last() <= workingSets.First() + 16L * 1024L * 1024L, "Working set kept growing after the bounded cache reached steady state.");
+                Assert.IsTrue(workingSets.Skip(2).Max() - workingSets.Skip(2).Min() <= 4L * 1024L * 1024L, "Working set did not flatten during the final sixty images.");
+                Assert.IsTrue(LinearSlope(workingSets.Select(value => (double)value)) <= 1d * 1024d * 1024d, "Working set continued growing beyond the one MiB-per-sample measurement tolerance.");
+                Assert.IsTrue(gdiCounts.Max() - gdiCounts.Min() <= 16, "GDI object usage kept growing while browsing distinct images.");
+                Assert.IsTrue(gdiCounts.Skip(2).Max() - gdiCounts.Skip(2).Min() <= 2, "GDI object usage did not flatten during the final sixty images.");
+                Assert.IsTrue(LinearSlope(gdiCounts.Select(value => (double)value)) <= 0.25d, "GDI object usage continued growing beyond measurement tolerance.");
+            }
+            finally { ImageDecodeCache.Clear(); if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
 
         [STATestMethod]
@@ -466,6 +519,17 @@ namespace Neurocle.Tests
                 }
             }
             return count;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern int GetGuiResources(IntPtr processHandle, int flags);
+
+        private static double LinearSlope(IEnumerable<double> samples)
+        {
+            double[] values = samples.ToArray();
+            double center = (values.Length - 1) / 2d;
+            double denominator = Enumerable.Range(0, values.Length).Sum(index => Math.Pow(index - center, 2d));
+            return Enumerable.Range(0, values.Length).Sum(index => (index - center) * values[index]) / denominator;
         }
 
         private static InteractionSample MeasureGesture(ImageCanvasControl canvas, Point start, IReadOnlyList<Point> moves)

@@ -1828,7 +1828,7 @@ namespace Neurocle.Infrastructure.Persistence
             string[] ids = regionIds.ToArray();
             if (ids.Length == 0 || (offsetX == 0 && offsetY == 0)) return;
             if (ids.Any(string.IsNullOrWhiteSpace) || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length) throw new ArgumentException("A SEG region can only be translated once.", nameof(regionIds));
-            SegTranslationState[] previous = ids.Select(GetSegTranslationState).OrderBy(value => value.ZOrder).ToArray();
+            SegTranslationState[] previous = GetSegTranslationStates(ids).OrderBy(value => value.ZOrder).ToArray();
             string setId = previous[0].AnnotationSetId;
             string imageId = previous[0].ImageId;
             if (previous.Any(value => value.AnnotationSetId != setId || value.ImageId != imageId)) throw new ArgumentException("SEG regions must belong to the same image and annotation set.", nameof(regionIds));
@@ -1859,33 +1859,54 @@ namespace Neurocle.Infrastructure.Persistence
             internal RectangleF Bounds;
         }
 
-        private SegTranslationState GetSegTranslationState(string regionId)
+        private IReadOnlyList<SegTranslationState> GetSegTranslationStates(IReadOnlyList<string> regionIds)
         {
-            using (var command = connection.CreateCommand())
+            var result = new List<SegTranslationState>();
+            const int batchSize = 400;
+            for (int batchStart = 0; batchStart < regionIds.Count; batchStart += batchSize)
             {
-                command.CommandText = "SELECT region.AnnotationSetId, region.ImageId, region.ZOrder, region.Type, region.X, region.Y, region.Width, region.Height, COALESCE(region.StrokeWidth, 0), MIN(point.X), MIN(point.Y), MAX(point.X), MAX(point.Y) FROM SegRegion region LEFT JOIN SegRegionPoint point ON point.RegionId = region.Id WHERE region.Id = $id GROUP BY region.Id;";
-                command.Parameters.AddWithValue("$id", regionId);
-                using (SqliteDataReader reader = command.ExecuteReader())
+                string[] batch = regionIds.Skip(batchStart).Take(batchSize).ToArray();
+                using (var command = connection.CreateCommand())
                 {
-                    if (!reader.Read()) throw new ArgumentException("The SEG region does not exist.", nameof(regionId));
-                    SegRegionType type = (SegRegionType)reader.GetInt32(3);
-                    int x = reader.GetInt32(4), y = reader.GetInt32(5), width = reader.GetInt32(6), height = reader.GetInt32(7);
-                    RectangleF bounds;
-                    if (type == SegRegionType.Rect) bounds = new RectangleF(x, y, width, height);
-                    else if (type == SegRegionType.Ellipse) bounds = new RectangleF(x - width, y - height, width * 2, height * 2);
-                    else
+                    string[] parameterNames = Enumerable.Range(0, batch.Length).Select(index => "$id" + index).ToArray();
+                    command.CommandText = "SELECT region.Id, region.AnnotationSetId, region.ImageId, region.ZOrder, region.Type, region.X, region.Y, region.Width, region.Height, COALESCE(region.StrokeWidth, 0), MIN(point.X), MIN(point.Y), MAX(point.X), MAX(point.Y) FROM SegRegion region LEFT JOIN SegRegionPoint point ON point.RegionId = region.Id WHERE region.Id IN (" + string.Join(",", parameterNames) + ") GROUP BY region.Id;";
+                    for (int index = 0; index < batch.Length; index++) command.Parameters.AddWithValue(parameterNames[index], batch[index]);
+                    using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read())
                     {
-                        if (reader.IsDBNull(9)) throw new InvalidDataException("A point-based SEG region has no points.");
-                        int inset = type == SegRegionType.PolyLine ? (reader.GetInt32(8) + 1) / 2 : 0;
-                        bounds = RectangleF.FromLTRB(reader.GetInt32(9) - inset, reader.GetInt32(10) - inset, reader.GetInt32(11) + inset, reader.GetInt32(12) + inset);
+                        SegRegionType type = (SegRegionType)reader.GetInt32(4);
+                        int x = reader.GetInt32(5), y = reader.GetInt32(6), width = reader.GetInt32(7), height = reader.GetInt32(8);
+                        RectangleF bounds;
+                        if (type == SegRegionType.Rect) bounds = new RectangleF(x, y, width, height);
+                        else if (type == SegRegionType.Ellipse) bounds = new RectangleF(x - width, y - height, width * 2, height * 2);
+                        else
+                        {
+                            if (reader.IsDBNull(10)) throw new InvalidDataException("A point-based SEG region has no points.");
+                            int inset = type == SegRegionType.PolyLine ? (reader.GetInt32(9) + 1) / 2 : 0;
+                            bounds = RectangleF.FromLTRB(reader.GetInt32(10) - inset, reader.GetInt32(11) - inset, reader.GetInt32(12) + inset, reader.GetInt32(13) + inset);
+                        }
+                        result.Add(new SegTranslationState { Id = reader.GetString(0), AnnotationSetId = reader.GetString(1), ImageId = reader.GetString(2), ZOrder = reader.GetInt32(3), Bounds = bounds });
                     }
-                    return new SegTranslationState { Id = regionId, AnnotationSetId = reader.GetString(0), ImageId = reader.GetString(1), ZOrder = reader.GetInt32(2), Bounds = bounds };
                 }
             }
+            if (result.Count != regionIds.Count) throw new ArgumentException("A SEG region does not exist.", nameof(regionIds));
+            return result;
         }
 
         private static void TranslateSegRegionsRaw(SqliteConnection db, SqliteTransaction transaction, IReadOnlyList<string> regionIds, int offsetX, int offsetY, IReadOnlyList<int> zOrders)
         {
+            const int batchSize = 400;
+            for (int batchStart = 0; batchStart < regionIds.Count; batchStart += batchSize)
+            {
+                string[] batch = regionIds.Skip(batchStart).Take(batchSize).ToArray();
+                string[] parameterNames = Enumerable.Range(0, batch.Length).Select(index => "$id" + index).ToArray();
+                var parameters = new List<SqliteParameter>
+                {
+                    new SqliteParameter("$x", (object)offsetX),
+                    new SqliteParameter("$y", (object)offsetY)
+                };
+                for (int index = 0; index < batch.Length; index++) parameters.Add(new SqliteParameter(parameterNames[index], batch[index]));
+                Execute(db, transaction, "UPDATE SegRegionPoint SET X = X + $x, Y = Y + $y WHERE RegionId IN (" + string.Join(",", parameterNames) + ");", parameters.ToArray());
+            }
             for (int index = 0; index < regionIds.Count; index++)
             {
                 Execute(db, transaction,
@@ -1893,9 +1914,6 @@ namespace Neurocle.Infrastructure.Persistence
                     new SqliteParameter("$rect", (object)(int)SegRegionType.Rect), new SqliteParameter("$ellipse", (object)(int)SegRegionType.Ellipse),
                     new SqliteParameter("$x", (object)offsetX), new SqliteParameter("$y", (object)offsetY),
                     new SqliteParameter("$order", (object)zOrders[index]), new SqliteParameter("$id", regionIds[index]));
-                Execute(db, transaction,
-                    "UPDATE SegRegionPoint SET X = X + $x, Y = Y + $y WHERE RegionId = $id;",
-                    new SqliteParameter("$x", (object)offsetX), new SqliteParameter("$y", (object)offsetY), new SqliteParameter("$id", regionIds[index]));
             }
         }
 

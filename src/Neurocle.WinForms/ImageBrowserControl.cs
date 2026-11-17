@@ -261,7 +261,28 @@ namespace Neurocle.WinForms
         public string Path { get; private set; }
     }
 
-    internal sealed class HorizontalWheelListView : ListView
+    internal class SelectionPreservingListView : ListView
+    {
+        private const int RightButtonDownMessage = 0x0204;
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == RightButtonDownMessage)
+            {
+                long coordinates = message.LParam.ToInt64();
+                var location = new Point((short)(coordinates & 0xffff), (short)((coordinates >> 16) & 0xffff));
+                ListViewItem item = HitTest(location).Item;
+                if (item == null || !item.Selected)
+                {
+                    message.Result = IntPtr.Zero;
+                    return;
+                }
+            }
+            base.WndProc(ref message);
+        }
+    }
+
+    internal sealed class HorizontalWheelListView : SelectionPreservingListView
     {
         private const int MouseWheelMessage = 0x020A;
         private const int ShiftKey = 0x0004;

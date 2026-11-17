@@ -140,6 +140,8 @@ namespace Neurocle.WinForms
             }
             contextImageIds = SelectedImageIds.ToArray();
             clearRetestItem.Text = string.Format("{0} ({1})", Strings.DatasetClearRetest, contextImageIds.Count);
+            clearClassItem.Text = string.Format("{0} ({1})", Strings.DatasetClearClass, contextImageIds.Count);
+            clearSetItem.Text = string.Format("{0} ({1})", Strings.DatasetClearSet, contextImageIds.Count);
         }
 
         /// <summary>
@@ -147,7 +149,7 @@ namespace Neurocle.WinForms
         /// </summary>
         /// <param name="sender">引發事件的右鍵選單項目。</param>
         /// <param name="args">選單點擊事件資料。</param>
-        private void ClearClassItem_Click(object sender, EventArgs args) { ClearClassRequested?.Invoke(SelectedImageIds); }
+        private void ClearClassItem_Click(object sender, EventArgs args) { if (contextImageIds.Count > 0) ClearClassRequested?.Invoke(contextImageIds); }
 
         /// <summary>
         /// 要求將所選圖片的資料集狀態設為未分配。

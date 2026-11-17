@@ -901,6 +901,161 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Image_browser_right_click_on_unselected_row_or_blank_preserves_existing_selection()
+        {
+            using (var form = new Form { ClientSize = new Size(420, 300), ShowInTaskbar = false })
+            using (var browser = new ImageBrowserControl { Dock = DockStyle.Fill })
+            {
+                form.Controls.Add(browser);
+                var images = Enumerable.Range(1, 3)
+                    .Select(index => new ProjectImage("image-" + index, "image-" + index + ".png", "image-" + index + ".png", "sha-" + index, 10, 10, index))
+                    .ToArray();
+                browser.LoadImages(images, Path.GetTempPath());
+                browser.RetestContextMenuEnabled = true;
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+
+                ListView list = Field<ListView>(browser, "list");
+                list.SelectedIndices.Add(0);
+                list.SelectedIndices.Add(1);
+                System.Windows.Forms.Application.DoEvents();
+
+                SendRightButtonDown(list, Center(list.GetItemRect(2)));
+                System.Windows.Forms.Application.DoEvents();
+                CollectionAssert.AreEquivalent(new[] { images[0].Id, images[1].Id }, browser.SelectedImageIds.ToArray(), "Right-clicking an unselected row must not replace the batch selection.");
+
+                Point blank = new Point(10, Math.Min(list.ClientSize.Height - 1, list.GetItemRect(2).Bottom + 20));
+                SendRightButtonDown(list, blank);
+                System.Windows.Forms.Application.DoEvents();
+                CollectionAssert.AreEquivalent(new[] { images[0].Id, images[1].Id }, browser.SelectedImageIds.ToArray(), "Right-clicking blank list space must not clear the batch selection.");
+
+                Point originalCursor = Cursor.Position;
+                IReadOnlyList<string> clearedRetestImageIds = null;
+                IReadOnlyList<string> clearedClassImageIds = null;
+                IReadOnlyList<string> clearedDatasetImageIds = null;
+                try
+                {
+                    Cursor.Position = list.PointToScreen(Center(list.GetItemRect(2)));
+                    var unselectedOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(browser, "ImageMenu_Opening", null, unselectedOpening);
+                    Assert.IsTrue(unselectedOpening.Cancel, "An unselected row must not open the image menu.");
+
+                    Cursor.Position = list.PointToScreen(blank);
+                    var blankOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(browser, "ImageMenu_Opening", null, blankOpening);
+                    Assert.IsTrue(blankOpening.Cancel, "Blank list space must not open the image menu.");
+
+                    Cursor.Position = list.PointToScreen(Center(list.GetItemRect(0)));
+                    var selectedOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(browser, "ImageMenu_Opening", null, selectedOpening);
+                    Assert.IsFalse(selectedOpening.Cancel);
+                    ToolStripMenuItem clearRetest = Field<ToolStripMenuItem>(browser, "clearRetestItem");
+                    ToolStripMenuItem clearClass = Field<ToolStripMenuItem>(browser, "clearClassItem");
+                    ToolStripMenuItem clearDataset = Field<ToolStripMenuItem>(browser, "clearSetItem");
+                    Assert.IsTrue(clearRetest.Text.EndsWith("(2)", StringComparison.Ordinal));
+                    Assert.IsTrue(clearClass.Text.EndsWith("(2)", StringComparison.Ordinal));
+                    Assert.IsTrue(clearDataset.Text.EndsWith("(2)", StringComparison.Ordinal));
+
+                    browser.ClearRetestRequested += imageIds => clearedRetestImageIds = imageIds;
+                    browser.ClearClassRequested += imageIds => clearedClassImageIds = imageIds;
+                    browser.ClearDatasetRequested += imageIds => clearedDatasetImageIds = imageIds;
+                    list.SelectedIndices.Clear();
+                    list.SelectedIndices.Add(2);
+                    clearRetest.PerformClick();
+                    clearClass.PerformClick();
+                    clearDataset.PerformClick();
+                    string[] expected = { images[0].Id, images[1].Id };
+                    CollectionAssert.AreEquivalent(expected, clearedRetestImageIds.ToArray(), "Clear Retest must use the selection captured when the menu opened.");
+                    CollectionAssert.AreEquivalent(expected, clearedClassImageIds.ToArray(), "Clear class must use the selection captured when the menu opened.");
+                    CollectionAssert.AreEquivalent(expected, clearedDatasetImageIds.ToArray(), "Clear dataset must use the selection captured when the menu opened.");
+                }
+                finally
+                {
+                    Cursor.Position = originalCursor;
+                }
+            }
+        }
+
+        [STATestMethod]
+        public void Dataset_list_right_click_on_unselected_row_or_blank_preserves_existing_selection()
+        {
+            using (var form = new Form { ClientSize = new Size(900, 500), ShowInTaskbar = false })
+            using (var assignments = new DatasetAssignmentControl { Dock = DockStyle.Fill })
+            {
+                form.Controls.Add(assignments);
+                DatasetRow[] rows = Enumerable.Range(1, 3)
+                    .Select(index =>
+                    {
+                        var image = new ProjectImage("image-" + index, "image-" + index + ".png", "image-" + index + ".png", "sha-" + index, 10, 10, index);
+                        return new DatasetRow(image, new DatasetAssignment("set", image.Id, DatasetAssignmentStatus.Unassigned, false), new string[0], 0);
+                    })
+                    .ToArray();
+                assignments.LoadRows(rows);
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+
+                ListView list = Field<ListView>(assignments, "list");
+                list.SelectedIndices.Add(0);
+                list.SelectedIndices.Add(1);
+                System.Windows.Forms.Application.DoEvents();
+
+                SendRightButtonDown(list, Center(list.GetItemRect(2)));
+                System.Windows.Forms.Application.DoEvents();
+                CollectionAssert.AreEquivalent(new[] { rows[0].Image.Id, rows[1].Image.Id }, assignments.SelectedImageIds.ToArray(), "Right-clicking an unselected dataset row must not replace the batch selection.");
+
+                Point blank = new Point(10, Math.Min(list.ClientSize.Height - 1, list.GetItemRect(2).Bottom + 20));
+                SendRightButtonDown(list, blank);
+                System.Windows.Forms.Application.DoEvents();
+                CollectionAssert.AreEquivalent(new[] { rows[0].Image.Id, rows[1].Image.Id }, assignments.SelectedImageIds.ToArray(), "Right-clicking blank dataset space must not clear the batch selection.");
+
+                Point originalCursor = Cursor.Position;
+                IReadOnlyList<string> clearedRetestImageIds = null;
+                IReadOnlyList<string> clearedClassImageIds = null;
+                IReadOnlyList<string> clearedDatasetImageIds = null;
+                try
+                {
+                    Cursor.Position = list.PointToScreen(Center(list.GetItemRect(2)));
+                    var unselectedOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(assignments, "DatasetMenu_Opening", null, unselectedOpening);
+                    Assert.IsTrue(unselectedOpening.Cancel, "An unselected row must not open the dataset menu.");
+
+                    Cursor.Position = list.PointToScreen(blank);
+                    var blankOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(assignments, "DatasetMenu_Opening", null, blankOpening);
+                    Assert.IsTrue(blankOpening.Cancel, "Blank list space must not open the dataset menu.");
+
+                    Cursor.Position = list.PointToScreen(Center(list.GetItemRect(0)));
+                    var opening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(assignments, "DatasetMenu_Opening", null, opening);
+                    Assert.IsFalse(opening.Cancel);
+                    ToolStripMenuItem clearRetest = Field<ToolStripMenuItem>(assignments, "clearRetestItem");
+                    ToolStripMenuItem clearClass = Field<ToolStripMenuItem>(assignments, "clearClassItem");
+                    ToolStripMenuItem clearDataset = Field<ToolStripMenuItem>(assignments, "clearSetItem");
+                    Assert.IsTrue(clearRetest.Text.EndsWith("(2)", StringComparison.Ordinal));
+                    Assert.IsTrue(clearClass.Text.EndsWith("(2)", StringComparison.Ordinal));
+                    Assert.IsTrue(clearDataset.Text.EndsWith("(2)", StringComparison.Ordinal));
+
+                    assignments.ClearRetestRequested += imageIds => clearedRetestImageIds = imageIds;
+                    assignments.ClearClassRequested += imageIds => clearedClassImageIds = imageIds;
+                    assignments.ClearDatasetRequested += imageIds => clearedDatasetImageIds = imageIds;
+                    list.SelectedIndices.Clear();
+                    list.SelectedIndices.Add(2);
+                    clearRetest.PerformClick();
+                    clearClass.PerformClick();
+                    clearDataset.PerformClick();
+                    string[] expected = { rows[0].Image.Id, rows[1].Image.Id };
+                    CollectionAssert.AreEquivalent(expected, clearedRetestImageIds.ToArray(), "Clear Retest must use the selection captured when the menu opened.");
+                    CollectionAssert.AreEquivalent(expected, clearedClassImageIds.ToArray(), "Clear class must use the selection captured when the menu opened.");
+                    CollectionAssert.AreEquivalent(expected, clearedDatasetImageIds.ToArray(), "Clear dataset must use the selection captured when the menu opened.");
+                }
+                finally
+                {
+                    Cursor.Position = originalCursor;
+                }
+            }
+        }
+
+        [STATestMethod]
         public void Image_browser_shift_wheel_scrolls_horizontally_without_changing_selection_or_filter()
         {
             using (var form = new Form { ClientSize = new Size(260, 230), ShowInTaskbar = false })
@@ -5973,7 +6128,7 @@ namespace Neurocle.Tests
         private static extern bool GetScrollInfo(IntPtr handle, int bar, ref ScrollInfo info);
 
         [DllImport("user32.dll", EntryPoint = "SendMessage", CharSet = CharSet.Auto)]
-        private static extern IntPtr SendWheelMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
+        private static extern IntPtr SendWindowMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
 
         private static ScrollInfo ReadScrollInfo(Control control, int bar)
         {
@@ -5994,7 +6149,19 @@ namespace Neurocle.Tests
             const int shiftKey = 0x0004;
             long keyState = shift ? shiftKey : 0;
             long wheelParameter = keyState | ((long)unchecked((ushort)(short)delta) << 16);
-            SendWheelMessage(control.Handle, mouseWheelMessage, new IntPtr(wheelParameter), IntPtr.Zero);
+            SendWindowMessage(control.Handle, mouseWheelMessage, new IntPtr(wheelParameter), IntPtr.Zero);
+        }
+
+        private static Point Center(Rectangle bounds)
+        {
+            return new Point(bounds.Left + (bounds.Width / 2), bounds.Top + (bounds.Height / 2));
+        }
+
+        private static void SendRightButtonDown(Control control, Point location)
+        {
+            const int rightButtonDownMessage = 0x0204;
+            long position = unchecked((ushort)(short)location.X) | ((long)unchecked((ushort)(short)location.Y) << 16);
+            SendWindowMessage(control.Handle, rightButtonDownMessage, new IntPtr(0x0002), new IntPtr(position));
         }
 
         private static T Field<T>(object target, string fieldName)
