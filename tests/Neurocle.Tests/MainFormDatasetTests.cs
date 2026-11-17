@@ -35,12 +35,14 @@ namespace Neurocle.Tests
                 using (var form = new MainForm(new ProjectLifecycle()))
                 {
                     Invoke(form, "ReplaceProject", store);
+                    Field<TabControl>(form, "pages").SelectedTab = Field<TabPage>(form, "annotationPage");
                     Invoke(form, "RefreshDatasetAssignments");
+                    Invoke(form, "RefreshImageBrowser");
                     Assert.AreEqual(1, form.DatasetAssignments.Rows.Single().AnnotationCount);
                     ImageListRow beforeUndo = form.ImageBrowser.Rows.Single();
                     Assert.AreEqual(1, beforeUndo.AnnotationCount);
                     Assert.IsTrue(beforeUndo.ShowAnnotationCount);
-                    CollectionAssert.AreEqual(new[] { "class1" }, beforeUndo.ClassNames.ToArray());
+                    Assert.AreEqual("class1", string.Join(",", beforeUndo.ClassNames));
                     Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
                     Assert.AreEqual(0, form.DatasetAssignments.Rows.Single().AnnotationCount);
                     Assert.AreEqual(0, form.ImageBrowser.Rows.Single().AnnotationCount);

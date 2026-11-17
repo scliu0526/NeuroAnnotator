@@ -432,6 +432,7 @@ namespace Neurocle.WinForms
             this.list.VirtualMode = true;
             this.list.RetrieveVirtualItem += new System.Windows.Forms.RetrieveVirtualItemEventHandler(this.List_RetrieveVirtualItem);
             this.list.SelectedIndexChanged += new System.EventHandler(this.List_SelectedIndexChanged);
+            this.list.MouseUp += new System.Windows.Forms.MouseEventHandler(this.List_MouseUp);
             this.trainButton.Click += new System.EventHandler(this.TrainButton_Click);
             this.testButton.Click += new System.EventHandler(this.TestButton_Click);
             this.unassignedButton.Click += new System.EventHandler(this.UnassignedButton_Click);

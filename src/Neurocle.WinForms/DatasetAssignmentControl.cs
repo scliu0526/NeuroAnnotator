@@ -63,6 +63,11 @@ namespace Neurocle.WinForms
         private void List_SelectedIndexChanged(object sender, EventArgs args) { UpdateSplitButtons(); }
 
         /// <summary>
+        /// Shift 點選完成後，以最終選取集合更新切分所選按鈕。
+        /// </summary>
+        private void List_MouseUp(object sender, MouseEventArgs args) { UpdateSplitButtons(); }
+
+        /// <summary>
         /// 要求將所選圖片分配至訓練集。
         /// </summary>
         /// <param name="sender">引發事件的訓練集按鈕。</param>
@@ -256,7 +261,7 @@ namespace Neurocle.WinForms
             item.SubItems.Add(DatasetText(row.Assignment.Status));
             item.SubItems.Add(string.Join(", ", row.ClassNames));
             item.SubItems.Add(row.HasAnnotation ? Strings.DatasetFilterAnnotated : Strings.DatasetFilterEmpty);
-            if (list.Columns.Contains(annotationCountColumn)) item.SubItems.Add(row.AnnotationCount.ToString());
+            if (list.Columns.Contains(annotationCountColumn)) item.SubItems.Add(row.AnnotationCount == 0 ? string.Empty : row.AnnotationCount.ToString());
             item.SubItems.Add(row.Assignment.Retest ? Strings.DatasetFilterRetest : Strings.DatasetFilterNoRetest);
             return item;
         }

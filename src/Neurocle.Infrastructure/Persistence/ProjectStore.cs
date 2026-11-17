@@ -86,6 +86,7 @@ namespace Neurocle.Infrastructure.Persistence
                     Execute(connection, transaction, "INSERT INTO ProjectInfo (ProjectId, CreatedUtc) VALUES ($id, $created);", new SqliteParameter("$id", Guid.NewGuid().ToString("D")), new SqliteParameter("$created", UtcNow().ToString("O")));
                     transaction.Commit();
                 }
+                EnableWriteAheadLogging(connection);
 
                 var store = new ProjectStore(fullPath, lockHandle, connection);
                 Directory.CreateDirectory(store.ImagesDirectory);
@@ -119,6 +120,7 @@ namespace Neurocle.Infrastructure.Persistence
                 {
                     connection = OpenConnection(fullPath);
                     EnsureCurrentSchema(connection, fullPath);
+                    EnableWriteAheadLogging(connection);
                 }
                 catch (SqliteException exception)
                 {
@@ -176,6 +178,7 @@ namespace Neurocle.Infrastructure.Persistence
                 }
                 connection = OpenConnection(fullProjectPath);
                 EnsureCurrentSchema(connection, fullProjectPath);
+                EnableWriteAheadLogging(connection);
                 var store = new ProjectStore(fullProjectPath, lockHandle, connection);
                 Directory.CreateDirectory(store.ImagesDirectory);
                 store.RecoverStagedImages();
@@ -1391,6 +1394,12 @@ namespace Neurocle.Infrastructure.Persistence
             InsertSegPointsRaw(db, transaction, value.Id, value.Points);
         }
 
+        private static void UpdateSegMetadataRaw(SqliteConnection db, SqliteTransaction transaction, SegRegion value)
+        {
+            Execute(db, transaction, "UPDATE SegRegion SET ClassId = $class, ZOrder = $order WHERE Id = $id;",
+                new SqliteParameter("$class", value.ClassId), new SqliteParameter("$order", value.ZOrder), new SqliteParameter("$id", value.Id));
+        }
+
         /// <inheritdoc />
         public string GetClaClassId(string annotationSetId, string imageId)
         {
@@ -1779,16 +1788,24 @@ namespace Neurocle.Infrastructure.Persistence
         /// <inheritdoc />
         public void UpdateSegRegions(IEnumerable<SegRegion> regions)
         {
-            UpdateSegRegions(regions, false);
+            UpdateSegRegions(regions, false, false);
         }
 
         /// <inheritdoc />
         public IReadOnlyList<SegRegion> TransformSegRegions(IEnumerable<SegRegion> regions)
         {
-            return UpdateSegRegions(regions, true);
+            return UpdateSegRegions(regions, true, false);
         }
 
-        private IReadOnlyList<SegRegion> UpdateSegRegions(IEnumerable<SegRegion> regions, bool wholeTransform)
+        /// <summary>
+        /// 保存由畫布建立且保持逐點對應的整體 SEG 變形，並允許舊版匯入拓撲相容退路。
+        /// </summary>
+        internal IReadOnlyList<SegRegion> TransformSegRegionsAfterCanvasWholeTransformValidation(IEnumerable<SegRegion> regions)
+        {
+            return UpdateSegRegions(regions, true, true);
+        }
+
+        private IReadOnlyList<SegRegion> UpdateSegRegions(IEnumerable<SegRegion> regions, bool wholeTransform, bool preserveLegacyTopology)
         {
             if (regions == null) throw new ArgumentNullException(nameof(regions));
             SegRegion[] requested = regions.ToArray();
@@ -1815,7 +1832,17 @@ namespace Neurocle.Infrastructure.Persistence
             }
             var byId = requested.ToDictionary(value => value.Id, StringComparer.Ordinal);
             int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", setId), new SqliteParameter("$image", imageId)));
-            SegRegion[] next = previous.Select((value, index) => WithZOrder(wholeTransform ? RebridgeTransformedPolygon(value, byId[value.Id]) : RebridgePolygon(byId[value.Id]), firstZOrder + index)).ToArray();
+            if (previous.All(value => SameSegGeometry(value, byId[value.Id])))
+            {
+                SegRegion[] metadataOnly = previous.Select((value, index) => WithZOrder(byId[value.Id], firstZOrder + index)).ToArray();
+                CompleteOperation((db, transaction) => { foreach (SegRegion value in metadataOnly) UpdateSegMetadataRaw(db, transaction, value); });
+                Record(setId,
+                    () => { foreach (SegRegion value in previous) UpdateSegMetadataRaw(connection, historyTransaction, value); },
+                    () => { foreach (SegRegion value in metadataOnly) UpdateSegMetadataRaw(connection, historyTransaction, value); },
+                    EstimateHistoryBytes(metadataOnly.SelectMany(value => new[] { value.Id, value.ClassId }).ToArray()) + sizeof(int) * metadataOnly.Length * 2L);
+                return metadataOnly;
+            }
+            SegRegion[] next = previous.Select((value, index) => WithZOrder(wholeTransform ? RebridgeTransformedPolygon(value, byId[value.Id], preserveLegacyTopology) : RebridgePolygon(byId[value.Id]), firstZOrder + index)).ToArray();
             CompleteOperation((db, transaction) => { foreach (SegRegion value in next) UpdateSegRegionRaw(db, transaction, value); });
             Record(setId, () => { foreach (SegRegion value in previous) UpdateSegRegionRaw(value); }, () => { foreach (SegRegion value in next) UpdateSegRegionRaw(value); }, EstimateHistoryBytes(previous) + EstimateHistoryBytes(next));
             return next;
@@ -1823,6 +1850,19 @@ namespace Neurocle.Infrastructure.Persistence
 
         /// <inheritdoc />
         public void TranslateSegRegions(IEnumerable<string> regionIds, int offsetX, int offsetY)
+        {
+            TranslateSegRegions(regionIds, offsetX, offsetY, true);
+        }
+
+        /// <summary>
+        /// 保存已由標註畫布確認不超出圖片邊界的共同整數位移。
+        /// </summary>
+        internal void TranslateSegRegionsAfterCanvasBoundsValidation(IEnumerable<string> regionIds, int offsetX, int offsetY)
+        {
+            TranslateSegRegions(regionIds, offsetX, offsetY, false);
+        }
+
+        private void TranslateSegRegions(IEnumerable<string> regionIds, int offsetX, int offsetY, bool validatePointBounds)
         {
             if (regionIds == null) throw new ArgumentNullException(nameof(regionIds));
             string[] ids = regionIds.ToArray();
@@ -1835,9 +1875,11 @@ namespace Neurocle.Infrastructure.Persistence
             Size imageSize = GetImageSize(imageId);
             if (previous.Any(value =>
             {
+                if (value.Type != SegRegionType.Rect && value.Type != SegRegionType.Ellipse) return false;
                 RectangleF bounds = value.Bounds;
                 return bounds.Left + offsetX < 0 || bounds.Top + offsetY < 0 || bounds.Right + offsetX > imageSize.Width || bounds.Bottom + offsetY > imageSize.Height;
-            })) throw new ArgumentException("Translated SEG regions must remain within the image bounds.", nameof(regionIds));
+            }) || (validatePointBounds && HasOutOfBoundsTranslatedPoints(ids, offsetX, offsetY, imageSize)))
+                throw new ArgumentException("Translated SEG regions must remain within the image bounds.", nameof(regionIds));
 
             int firstZOrder = Convert.ToInt32(ExecuteScalar(connection, "SELECT COALESCE(MAX(ZOrder), -1) + 1 FROM SegRegion WHERE AnnotationSetId = $set AND ImageId = $image;", new SqliteParameter("$set", setId), new SqliteParameter("$image", imageId)));
             int[] previousZOrders = previous.Select(value => value.ZOrder).ToArray();
@@ -1856,6 +1898,7 @@ namespace Neurocle.Infrastructure.Persistence
             internal string AnnotationSetId;
             internal string ImageId;
             internal int ZOrder;
+            internal SegRegionType Type;
             internal RectangleF Bounds;
         }
 
@@ -1869,7 +1912,7 @@ namespace Neurocle.Infrastructure.Persistence
                 using (var command = connection.CreateCommand())
                 {
                     string[] parameterNames = Enumerable.Range(0, batch.Length).Select(index => "$id" + index).ToArray();
-                    command.CommandText = "SELECT region.Id, region.AnnotationSetId, region.ImageId, region.ZOrder, region.Type, region.X, region.Y, region.Width, region.Height, COALESCE(region.StrokeWidth, 0), MIN(point.X), MIN(point.Y), MAX(point.X), MAX(point.Y) FROM SegRegion region LEFT JOIN SegRegionPoint point ON point.RegionId = region.Id WHERE region.Id IN (" + string.Join(",", parameterNames) + ") GROUP BY region.Id;";
+                    command.CommandText = "SELECT Id, AnnotationSetId, ImageId, ZOrder, Type, X, Y, Width, Height FROM SegRegion WHERE Id IN (" + string.Join(",", parameterNames) + ");";
                     for (int index = 0; index < batch.Length; index++) command.Parameters.AddWithValue(parameterNames[index], batch[index]);
                     using (SqliteDataReader reader = command.ExecuteReader()) while (reader.Read())
                     {
@@ -1878,18 +1921,35 @@ namespace Neurocle.Infrastructure.Persistence
                         RectangleF bounds;
                         if (type == SegRegionType.Rect) bounds = new RectangleF(x, y, width, height);
                         else if (type == SegRegionType.Ellipse) bounds = new RectangleF(x - width, y - height, width * 2, height * 2);
-                        else
-                        {
-                            if (reader.IsDBNull(10)) throw new InvalidDataException("A point-based SEG region has no points.");
-                            int inset = type == SegRegionType.PolyLine ? (reader.GetInt32(9) + 1) / 2 : 0;
-                            bounds = RectangleF.FromLTRB(reader.GetInt32(10) - inset, reader.GetInt32(11) - inset, reader.GetInt32(12) + inset, reader.GetInt32(13) + inset);
-                        }
-                        result.Add(new SegTranslationState { Id = reader.GetString(0), AnnotationSetId = reader.GetString(1), ImageId = reader.GetString(2), ZOrder = reader.GetInt32(3), Bounds = bounds });
+                        else bounds = RectangleF.Empty;
+                        result.Add(new SegTranslationState { Id = reader.GetString(0), AnnotationSetId = reader.GetString(1), ImageId = reader.GetString(2), ZOrder = reader.GetInt32(3), Type = type, Bounds = bounds });
                     }
                 }
             }
             if (result.Count != regionIds.Count) throw new ArgumentException("A SEG region does not exist.", nameof(regionIds));
             return result;
+        }
+
+        private bool HasOutOfBoundsTranslatedPoints(IReadOnlyList<string> regionIds, int offsetX, int offsetY, Size imageSize)
+        {
+            const int batchSize = 400;
+            for (int batchStart = 0; batchStart < regionIds.Count; batchStart += batchSize)
+            {
+                string[] batch = regionIds.Skip(batchStart).Take(batchSize).ToArray();
+                using (var command = connection.CreateCommand())
+                {
+                    string[] parameterNames = Enumerable.Range(0, batch.Length).Select(index => "$id" + index).ToArray();
+                    command.CommandText = "SELECT EXISTS(SELECT 1 FROM SegRegionPoint point INNER JOIN SegRegion region ON region.Id = point.RegionId WHERE region.Id IN (" + string.Join(",", parameterNames) + ") AND (point.X + $x - CASE WHEN region.Type = $line THEN (COALESCE(region.StrokeWidth, 0) + 1) / 2 ELSE 0 END < 0 OR point.Y + $y - CASE WHEN region.Type = $line THEN (COALESCE(region.StrokeWidth, 0) + 1) / 2 ELSE 0 END < 0 OR point.X + $x + CASE WHEN region.Type = $line THEN (COALESCE(region.StrokeWidth, 0) + 1) / 2 ELSE 0 END > $width OR point.Y + $y + CASE WHEN region.Type = $line THEN (COALESCE(region.StrokeWidth, 0) + 1) / 2 ELSE 0 END > $height) LIMIT 1);";
+                    for (int index = 0; index < batch.Length; index++) command.Parameters.AddWithValue(parameterNames[index], batch[index]);
+                    command.Parameters.AddWithValue("$x", offsetX);
+                    command.Parameters.AddWithValue("$y", offsetY);
+                    command.Parameters.AddWithValue("$line", (int)SegRegionType.PolyLine);
+                    command.Parameters.AddWithValue("$width", imageSize.Width);
+                    command.Parameters.AddWithValue("$height", imageSize.Height);
+                    if (Convert.ToInt32(command.ExecuteScalar()) != 0) return true;
+                }
+            }
+            return false;
         }
 
         private static void TranslateSegRegionsRaw(SqliteConnection db, SqliteTransaction transaction, IReadOnlyList<string> regionIds, int offsetX, int offsetY, IReadOnlyList<int> zOrders)
@@ -1930,12 +1990,68 @@ namespace Neurocle.Infrastructure.Persistence
             return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, value.ZOrder, points, value.StrokeWidth);
         }
 
-        private static SegRegion RebridgeTransformedPolygon(SegRegion previous, SegRegion value)
+        private static SegRegion RebridgeTransformedPolygon(SegRegion previous, SegRegion value, bool preserveLegacyTopology)
         {
             if (value.Type != SegRegionType.PolyGon) return value;
-            Path64 polygon = SegGeometryPrototype.RebridgeTransformed(ToPath(previous.Points), ToPath(value.Points));
+            Path64 polygon;
+            try { polygon = SegGeometryPrototype.RebridgeTransformed(ToPath(previous.Points), ToPath(value.Points)); }
+            catch (SegGeometryPrototype.BridgeNetworkException) when (preserveLegacyTopology && IsSupportedLegacyWholeTransform(previous, value))
+            {
+                // 舊版匯入資料可能含無法重新解析的橋接；整體變形仍保留其點序與拓撲。
+                polygon = ToPath(value.Points);
+            }
             SegPoint[] points = polygon.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray();
             return new SegRegion(value.Id, value.AnnotationSetId, value.ImageId, value.ClassId, value.Type, value.X, value.Y, value.Width, value.Height, value.ZOrder, points, value.StrokeWidth);
+        }
+
+        internal static bool IsSupportedLegacyWholeTransform(SegRegion previous, SegRegion value)
+        {
+            if (previous.Type != SegRegionType.PolyGon || value.Type != SegRegionType.PolyGon
+                || previous.ClassId != value.ClassId || previous.Points.Count != value.Points.Count || previous.Points.Count < 3) return false;
+
+            SegPoint origin = previous.Points[0];
+            int firstIndex = 1;
+            double longest = -1d;
+            for (int index = 1; index < previous.Points.Count; index++)
+            {
+                double x = (double)previous.Points[index].X - origin.X, y = (double)previous.Points[index].Y - origin.Y;
+                double distance = x * x + y * y;
+                if (distance > longest) { longest = distance; firstIndex = index; }
+            }
+            if (longest <= 0d) return false;
+
+            SegPoint first = previous.Points[firstIndex];
+            int secondIndex = -1;
+            double largestArea = 0d;
+            for (int index = 1; index < previous.Points.Count; index++)
+            {
+                double area = Math.Abs(((double)first.X - origin.X) * ((double)previous.Points[index].Y - origin.Y)
+                    - ((double)first.Y - origin.Y) * ((double)previous.Points[index].X - origin.X));
+                if (area > largestArea) { largestArea = area; secondIndex = index; }
+            }
+            if (secondIndex < 0 || largestArea < 0.000001d) return false;
+
+            SegPoint second = previous.Points[secondIndex];
+            SegPoint transformedOrigin = value.Points[0], transformedFirst = value.Points[firstIndex], transformedSecond = value.Points[secondIndex];
+            double firstX = first.X - origin.X, firstY = first.Y - origin.Y;
+            double secondX = second.X - origin.X, secondY = second.Y - origin.Y;
+            double determinant = firstX * secondY - firstY * secondX;
+            double transformedFirstX = transformedFirst.X - transformedOrigin.X, transformedFirstY = transformedFirst.Y - transformedOrigin.Y;
+            double transformedSecondX = transformedSecond.X - transformedOrigin.X, transformedSecondY = transformedSecond.Y - transformedOrigin.Y;
+            double xx = (transformedFirstX * secondY - transformedSecondX * firstY) / determinant;
+            double xy = (firstX * transformedSecondX - secondX * transformedFirstX) / determinant;
+            double yx = (transformedFirstY * secondY - transformedSecondY * firstY) / determinant;
+            double yy = (firstX * transformedSecondY - secondX * transformedFirstY) / determinant;
+            if (Math.Abs(xx * yy - xy * yx) < 0.000001d) return false;
+            double offsetX = transformedOrigin.X - xx * origin.X - xy * origin.Y;
+            double offsetY = transformedOrigin.Y - yx * origin.X - yy * origin.Y;
+            for (int index = 0; index < previous.Points.Count; index++)
+            {
+                SegPoint point = previous.Points[index], transformed = value.Points[index];
+                if (Math.Abs(xx * point.X + xy * point.Y + offsetX - transformed.X) > 2d
+                    || Math.Abs(yx * point.X + yy * point.Y + offsetY - transformed.Y) > 2d) return false;
+            }
+            return true;
         }
 
         private static bool TryGetCommonPureTranslation(IReadOnlyList<SegRegion> previous, IReadOnlyList<SegRegion> requested, out int offsetX, out int offsetY)
@@ -1979,7 +2095,14 @@ namespace Neurocle.Infrastructure.Persistence
             return first.AnnotationSetId == second.AnnotationSetId && first.ImageId == second.ImageId && first.ClassId == second.ClassId
                 && first.Type == second.Type && first.X == second.X && first.Y == second.Y && first.Width == second.Width && first.Height == second.Height
                 && first.ZOrder == second.ZOrder && first.StrokeWidth == second.StrokeWidth
-                && first.Points.SequenceEqual(second.Points);
+                && first.Points.SequenceEqual(second.Points, new SegPointComparer());
+        }
+
+        private static bool SameSegGeometry(SegRegion first, SegRegion second)
+        {
+            return first.AnnotationSetId == second.AnnotationSetId && first.ImageId == second.ImageId
+                && first.Type == second.Type && first.X == second.X && first.Y == second.Y && first.Width == second.Width && first.Height == second.Height
+                && first.StrokeWidth == second.StrokeWidth && first.Points.SequenceEqual(second.Points, new SegPointComparer());
         }
 
         /// <inheritdoc />
@@ -2406,6 +2529,11 @@ namespace Neurocle.Infrastructure.Persistence
             Execute(connection, null, "PRAGMA foreign_keys = ON;");
             Execute(connection, null, "PRAGMA busy_timeout = 5000;");
             return connection;
+        }
+
+        private static void EnableWriteAheadLogging(SqliteConnection connection)
+        {
+            Execute(connection, null, "PRAGMA journal_mode = WAL;");
         }
 
         /// <summary>

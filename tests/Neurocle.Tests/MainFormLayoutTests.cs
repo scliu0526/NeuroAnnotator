@@ -1305,6 +1305,111 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Workflow_pages_show_dataset_retest_columns_and_clear_menus_in_the_approved_matrix()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "image.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                store.SetDatasetAssignments(set.Id, new[] { image.Id }, DatasetAssignmentStatus.Train);
+                store.SetRetest(set.Id, new[] { image.Id }, true);
+                store.AddSegRegion(set.Id, image.Id, store.GetClasses(set.Id).Single().Id, SegRegionType.Rect, 1, 1, 3, 3);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    ComboBox annotationSets = Field<ComboBox>(form, "annotationSets");
+                    annotationSets.SelectedItem = AnnotationSet(annotationSets, set.Id);
+                    TabControl pages = Field<TabControl>(form, "pages");
+                    ListView imageList = Field<ListView>(form.ImageBrowser, "list");
+
+                    pages.SelectedTab = Field<TabPage>(form, "annotationPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    pages.SelectedTab = Field<TabPage>(form, "imagesPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    string[] imageColumns = imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray();
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "資料集", "Retest" }, imageColumns, "Actual: " + string.Join(", ", imageColumns));
+                    Assert.IsFalse(form.ImageBrowser.RetestContextMenuEnabled);
+
+                    pages.SelectedTab = Field<TabPage>(form, "annotationPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    Assert.IsTrue(form.ImageBrowser.RetestContextMenuEnabled);
+
+                    pages.SelectedTab = Field<TabPage>(form, "datasetPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    ListView datasetList = Field<ListView>(form.DatasetAssignments, "list");
+                    Assert.IsTrue(datasetList.Columns.Cast<ColumnHeader>().Any(column => column.Text == "資料集"));
+                    Assert.IsTrue(datasetList.Columns.Cast<ColumnHeader>().Any(column => column.Text == "Retest"));
+                    Assert.IsNotNull(datasetList.ContextMenuStrip);
+
+                    pages.SelectedTab = Field<TabPage>(form, "exportPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    Assert.IsTrue(form.ImageBrowser.RetestContextMenuEnabled);
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Zero_annotation_counts_are_blank_in_image_and_dataset_lists()
+        {
+            ProjectImage image = new ProjectImage("image", "image.png", "image.png", "hash", 1, 1, 1);
+            using (var browser = new ImageBrowserControl())
+            {
+                browser.LoadRows(new[] { new ImageListRow(image, new string[0], 0, true, true) }, Path.GetTempPath());
+                var args = new RetrieveVirtualItemEventArgs(0);
+                Invoke(browser, "RetrieveVirtualItem", browser, args);
+                Assert.AreEqual(string.Empty, args.Item.SubItems[3].Text);
+            }
+            using (var assignments = new DatasetAssignmentControl())
+            {
+                assignments.LoadRows(new[] { new DatasetRow(image, new DatasetAssignment("set", image.Id, DatasetAssignmentStatus.Unassigned, false), new string[0], 0) }, true);
+                var args = new RetrieveVirtualItemEventArgs(0);
+                Invoke(assignments, "List_RetrieveVirtualItem", assignments, args);
+                int countIndex = Field<ListView>(assignments, "list").Columns.Cast<ColumnHeader>().Select((column, index) => new { column, index }).Single(value => value.column.Text == "標註數量").index;
+                Assert.AreEqual(string.Empty, args.Item.SubItems[countIndex].Text);
+            }
+        }
+
+        [STATestMethod]
+        public void Dataset_shift_multiselect_mouse_up_enables_split_selected()
+        {
+            using (var assignments = new DatasetAssignmentControl())
+            {
+                ProjectImage first = new ProjectImage("first", "first.png", "first.png", "first", 1, 1, 1);
+                ProjectImage second = new ProjectImage("second", "second.png", "second.png", "second", 2, 1, 1);
+                assignments.LoadRows(new[]
+                {
+                    new DatasetRow(first, new DatasetAssignment("set", first.Id, DatasetAssignmentStatus.Unassigned, false), new string[0], 0),
+                    new DatasetRow(second, new DatasetAssignment("set", second.Id, DatasetAssignmentStatus.Unassigned, false), new string[0], 0)
+                });
+                assignments.CreateControl();
+                ListView list = Field<ListView>(assignments, "list");
+                Button splitSelected = Field<Button>(assignments, "splitSelectedButton");
+                list.SelectedIndices.Add(0);
+                list.SelectedIndices.Add(1);
+                splitSelected.Enabled = false;
+
+                typeof(Control).GetMethod("OnMouseUp", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(list, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 1, 1, 0) });
+
+                Assert.IsTrue(splitSelected.Enabled, "The final Shift-click mouse-up must resample the stable multi-selection.");
+            }
+        }
+
+        [STATestMethod]
         public void Visible_user_controls_initialize_static_designer_layout_without_runtime_data()
         {
             using (var imageBrowser = new ImageBrowserControl())
@@ -2008,9 +2113,9 @@ namespace Neurocle.Tests
                     canvas.SelectAllObd();
                     ObdAnnotation[] originalObd = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
 
-                    RaiseKey(form, new KeyEventArgs(Keys.Right));
-                    RaiseKey(form, new KeyEventArgs(Keys.Right));
-                    RaiseKey(form, new KeyEventArgs(Keys.Right));
+                    ProcessCommandKey(form, Keys.Right);
+                    ProcessCommandKey(form, Keys.Right);
+                    ProcessCommandKey(form, Keys.Right);
                     CollectionAssert.AreEqual(originalObd.Select(value => value.X).ToArray(), store.GetObdAnnotations(obdSet.Id, images[0].Id).Select(value => value.X).ToArray(), "Repeated keydown should preview movement without writing history yet.");
                     RaiseKeyUp(form, new KeyEventArgs(Keys.Right));
                     ObdAnnotation[] movedObd = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
@@ -2021,7 +2126,7 @@ namespace Neurocle.Tests
 
                     foreach (Keys key in new[] { Keys.Up, Keys.Down, Keys.Left, Keys.Right })
                     {
-                        RaiseKey(form, new KeyEventArgs(key));
+                        ProcessCommandKey(form, key);
                         RaiseKeyUp(form, new KeyEventArgs(key));
                         ObdAnnotation[] moved = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
                         int expectedX = key == Keys.Left ? -1 : key == Keys.Right ? 1 : 0;
@@ -6052,6 +6157,13 @@ namespace Neurocle.Tests
         private static void RaiseKeyUp(Control control, KeyEventArgs args)
         {
             typeof(Control).GetMethod("OnKeyUp", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
+        }
+
+        private static bool ProcessCommandKey(MainForm form, Keys key)
+        {
+            Message message = Message.Create(form.Handle, 0x100, (IntPtr)key, IntPtr.Zero);
+            object[] arguments = { message, key };
+            return (bool)typeof(MainForm).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, arguments);
         }
 
         private static Point ImagePointToScreen(ImageCanvasControl canvas, int x, int y)

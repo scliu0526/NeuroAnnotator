@@ -740,7 +740,7 @@ namespace Neurocle.WinForms
             }
             canvas.DiscardUnfinishedShape();
             if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
-            imageBrowser.RetestContextMenuEnabled = pages.SelectedTab == annotationPage;
+            imageBrowser.RetestContextMenuEnabled = pages.SelectedTab == annotationPage || pages.SelectedTab == exportPage;
             if (project != null) RefreshImageBrowser();
         }
 
@@ -773,7 +773,7 @@ namespace Neurocle.WinForms
         /// <returns>若符合摘要所述條件則為 true，否則為 false。</returns>
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (keyData == Keys.Up || keyData == Keys.Down)
+            if (keyData == Keys.Up || keyData == Keys.Down || keyData == Keys.Left || keyData == Keys.Right)
             {
                 var args = new KeyEventArgs(keyData);
                 OnKeyDown(args);
@@ -1506,14 +1506,18 @@ namespace Neurocle.WinForms
             }
             var classes = project.GetClasses(selected.Id).ToDictionary(value => value.Id, value => value.Name, StringComparer.Ordinal);
             var summaries = project.GetImageAnnotationSummaries(selected.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
+            var assignments = project.GetDatasetAssignments(selected.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
             var rows = project.GetImages().Select(image =>
             {
                 ImageAnnotationSummary summary;
                 summaries.TryGetValue(image.Id, out summary);
                 string[] classNames = (summary == null ? new string[0] : summary.ClassIds).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
-                bool showClass = pages.SelectedTab != imagesPage;
+                bool showClass = pages.SelectedTab == annotationPage || pages.SelectedTab == exportPage;
                 bool showCount = showClass && selected.Type != AnnotationSetType.Cla;
-                return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, showClass, showCount);
+                bool showDataset = pages.SelectedTab == imagesPage || pages.SelectedTab == exportPage;
+                DatasetAssignment assignment = assignments[image.Id];
+                return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, showClass, showCount,
+                    assignment.Status, assignment.Retest, showDataset, showDataset);
             });
             imageBrowser.LoadRows(rows, GetImagesDirectory(project.ProjectPath));
         }
@@ -1878,16 +1882,11 @@ namespace Neurocle.WinForms
             var ids = new HashSet<string>(regions.Select(region => region.Id), StringComparer.Ordinal);
             if (ids.Count != regions.Count || targetCanvas.SegRegions.Count(region => ids.Contains(region.Id)) != ids.Count) throw new ArgumentException("Every transformed SEG region must exist once on the canvas.", nameof(regions));
             SegRegion context = regions.FirstOrDefault();
-            try { targetCanvas.ApplySegTransforms(regions); }
-            catch
-            {
-                if (context != null) targetCanvas.SegRegions = session.GetSegRegions(context.AnnotationSetId, context.ImageId);
-                throw;
-            }
             IReadOnlyList<SegRegion> persisted;
             try
             {
-                persisted = session.TransformSegRegions(regions);
+                ProjectStore store = session as ProjectStore;
+                persisted = store == null ? session.TransformSegRegions(regions) : store.TransformSegRegionsAfterCanvasWholeTransformValidation(regions);
             }
             catch
             {
@@ -1913,7 +1912,9 @@ namespace Neurocle.WinForms
             try
             {
                 targetCanvas.ApplySegTranslation(regionIds, offsetX, offsetY);
-                session.TranslateSegRegions(regionIds, offsetX, offsetY);
+                ProjectStore store = session as ProjectStore;
+                if (store == null) session.TranslateSegRegions(regionIds, offsetX, offsetY);
+                else store.TranslateSegRegionsAfterCanvasBoundsValidation(regionIds, offsetX, offsetY);
             }
             catch
             {

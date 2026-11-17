@@ -8,6 +8,8 @@ namespace Neurocle.Domain.Segmentation
     // 以 Clipper2 整數路徑執行 SEG 幾何運算與空洞橋接網路建立。
     public static class SegGeometryPrototype
     {
+        private const long ExactContourDistancePairLimit = 65536;
+
         /// <summary>
         /// 聯集兩組路徑；只有重疊面積大於零時才合併互相接觸的區域。
         /// </summary>
@@ -209,21 +211,30 @@ namespace Neurocle.Domain.Segmentation
             {
                 throw new ArgumentException("Existing bridge endpoints must refer to two distinct contours.", nameof(existingConnections));
             }
-            var candidates = new List<BridgeSelection>();
-            for (int first = 0; first < contours.Length; first++)
-            for (int second = first + 1; second < contours.Length; second++)
+            var existingCandidates = new List<BridgeSelection>();
+            foreach (BridgeConnection connection in existing)
             {
+                int first = connection.FirstContourIndex, second = connection.SecondContourIndex;
                 Path64[] blockers = holePaths.Where((_, index) => index + 1 != first && index + 1 != second).ToArray();
+                if (IsLegalBridge(connection.FirstPoint, connection.SecondPoint, contours[first], contours[second], outerPath, holePaths, blockers))
+                    existingCandidates.Add(new BridgeSelection(connection.FirstPoint, connection.SecondPoint, first, second, true));
+            }
+            var candidates = new List<BridgeSelection>(existingCandidates);
+            ContourBounds[] bounds = contours.Select(path => new ContourBounds(path)).ToArray();
+            ContourCandidate[] pending = Enumerable.Range(0, contours.Length)
+                .SelectMany(first => Enumerable.Range(first + 1, contours.Length - first - 1).Select(second =>
+                    new ContourCandidate(first, second, ContourDistanceLowerBound(contours[first], contours[second], bounds[first], bounds[second]))))
+                .Where(pair => !existingCandidates.Any(edge => edge.FirstContourIndex == pair.FirstIndex && edge.SecondContourIndex == pair.SecondIndex
+                    && SquaredDistance(edge.FirstPoint, edge.SecondPoint) == pair.LowerBound))
+                .OrderBy(value => value.LowerBound).ThenBy(value => value.FirstIndex).ThenBy(value => value.SecondIndex).ToArray();
+            for (int index = 0; index < pending.Length; index++)
+            {
+                int first = pending[index].FirstIndex, second = pending[index].SecondIndex;
+                Path64[] blockers = holePaths.Where((_, holeIndex) => holeIndex + 1 != first && holeIndex + 1 != second).ToArray();
                 BridgeSelection candidate = FindShortestLegalBridge(contours[first], contours[second], outerPath, holePaths, blockers, first, second);
                 if (candidate != null) candidates.Add(candidate);
-                foreach (BridgeConnection connection in existing.Where(link => link.FirstContourIndex == first && link.SecondContourIndex == second))
-                {
-                    // 只把仍符合目前幾何限制的舊端點納入候選，供等距排序優先保留。
-                    if (IsLegalBridge(connection.FirstPoint, connection.SecondPoint, contours[first], contours[second], outerPath, holePaths, blockers))
-                    {
-                        candidates.Add(new BridgeSelection(connection.FirstPoint, connection.SecondPoint, first, second, true));
-                    }
-                }
+                long maximum;
+                if (index + 1 < pending.Length && TryGetSpanningTreeMaximum(candidates, contours.Length, out maximum) && pending[index + 1].LowerBound > maximum) break;
             }
             candidates.Sort();
             // 依最短合法候選逐一合併不相連集合，形成不含循環的最小生成樹。
@@ -250,6 +261,53 @@ namespace Neurocle.Domain.Segmentation
                 contours[index] = InsertBridgePoints(contours[index], endpoints);
             }
             return BuildBridgeNetwork(contours, selected);
+        }
+
+        private static long ContourDistanceLowerBound(Path64 first, Path64 second, ContourBounds firstBounds, ContourBounds secondBounds)
+        {
+            if ((long)first.Count * second.Count <= ExactContourDistancePairLimit)
+            {
+                double minimum = double.MaxValue;
+                for (int firstIndex = 0; firstIndex < first.Count; firstIndex++)
+                for (int secondIndex = 0; secondIndex < second.Count; secondIndex++)
+                {
+                    Point64 firstStart = first[firstIndex], firstEnd = first[(firstIndex + 1) % first.Count];
+                    Point64 secondStart = second[secondIndex], secondEnd = second[(secondIndex + 1) % second.Count];
+                    double firstParameter, secondParameter;
+                    ClosestSegmentParameters(firstStart, firstEnd, secondStart, secondEnd, out firstParameter, out secondParameter);
+                    double firstX = firstStart.X + (firstEnd.X - firstStart.X) * firstParameter;
+                    double firstY = firstStart.Y + (firstEnd.Y - firstStart.Y) * firstParameter;
+                    double secondX = secondStart.X + (secondEnd.X - secondStart.X) * secondParameter;
+                    double secondY = secondStart.Y + (secondEnd.Y - secondStart.Y) * secondParameter;
+                    double candidateX = firstX - secondX, candidateY = firstY - secondY;
+                    minimum = Math.Min(minimum, candidateX * candidateX + candidateY * candidateY);
+                }
+                return minimum >= long.MaxValue ? long.MaxValue : (long)Math.Floor(minimum);
+            }
+
+            double x = firstBounds.MaximumX < secondBounds.MinimumX ? (double)secondBounds.MinimumX - firstBounds.MaximumX
+                : secondBounds.MaximumX < firstBounds.MinimumX ? (double)firstBounds.MinimumX - secondBounds.MaximumX : 0;
+            double y = firstBounds.MaximumY < secondBounds.MinimumY ? (double)secondBounds.MinimumY - firstBounds.MaximumY
+                : secondBounds.MaximumY < firstBounds.MinimumY ? (double)firstBounds.MinimumY - secondBounds.MaximumY : 0;
+            double distance = x * x + y * y;
+            return distance >= long.MaxValue ? long.MaxValue : (long)Math.Floor(distance);
+        }
+
+        private static bool TryGetSpanningTreeMaximum(IEnumerable<BridgeSelection> candidates, int contourCount, out long maximum)
+        {
+            var parent = Enumerable.Range(0, contourCount).ToArray();
+            int selected = 0;
+            maximum = 0;
+            foreach (BridgeSelection candidate in candidates.OrderBy(value => value))
+            {
+                int firstRoot = FindRoot(parent, candidate.FirstContourIndex), secondRoot = FindRoot(parent, candidate.SecondContourIndex);
+                if (firstRoot == secondRoot) continue;
+                parent[firstRoot] = secondRoot;
+                selected++;
+                maximum = Math.Max(maximum, SquaredDistance(candidate.FirstPoint, candidate.SecondPoint));
+                if (selected == contourCount - 1) return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -1207,6 +1265,30 @@ namespace Neurocle.Domain.Segmentation
             public double First { get; private set; }
             // 取得第二條線段的比例。
             public double Second { get; private set; }
+        }
+
+        private sealed class ContourCandidate
+        {
+            public ContourCandidate(int firstIndex, int secondIndex, long lowerBound) { FirstIndex = firstIndex; SecondIndex = secondIndex; LowerBound = lowerBound; }
+            public int FirstIndex { get; private set; }
+            public int SecondIndex { get; private set; }
+            public long LowerBound { get; private set; }
+        }
+
+        // 保存輪廓外框，以常數時間取得任意兩輪廓距離的安全下界。
+        private sealed class ContourBounds
+        {
+            public ContourBounds(Path64 path)
+            {
+                MinimumX = path.Min(point => point.X);
+                MaximumX = path.Max(point => point.X);
+                MinimumY = path.Min(point => point.Y);
+                MaximumY = path.Max(point => point.Y);
+            }
+            public long MinimumX { get; private set; }
+            public long MaximumX { get; private set; }
+            public long MinimumY { get; private set; }
+            public long MaximumY { get; private set; }
         }
 
         // 表示候選橋接及其端點所屬輪廓，並保留既有連線標記。

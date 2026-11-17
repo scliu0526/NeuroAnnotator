@@ -191,6 +191,86 @@ namespace Neurocle.Tests
 
         [STATestMethod]
         [TestCategory("ManualPerformance")]
+        public void Adding_a_hole_and_changing_class_remain_responsive_with_many_existing_holes()
+        {
+            string path = TemporaryProjectPath();
+            string source = Path.Combine(Path.GetDirectoryName(path), "source.png");
+            string imageId = null;
+            HoleEditMeasurement dense = null;
+            HoleEditMeasurement holes = null;
+            try
+            {
+                CreateBitmap(source, ImageFormat.Png, 1000, 1000);
+                using (var store = ProjectStore.Create(path))
+                {
+                    ProjectImage image = store.ImportFiles(new[] { source })[0];
+                    imageId = image.Id;
+                    Path64 manyHoles = CreateManyHolePath(64);
+                    Path64 denseBlock = CreateDenseBlock(manyHoles.Count);
+                    dense = MeasureHoleCreation(store, image, denseBlock, "dense");
+                    holes = MeasureHoleCreation(store, image, manyHoles, "holes");
+                    Console.WriteLine("Hole edit comparison ({0} points): dense={1:F3} ms; 64 holes={2:F3} ms", manyHoles.Count, dense.ElapsedMilliseconds, holes.ElapsedMilliseconds);
+                    Assert.IsTrue(dense.ElapsedMilliseconds <= 500d, "Adding a hole to the similar-point dense block exceeded 500 ms.");
+                    Assert.IsTrue(holes.ElapsedMilliseconds <= 500d, "Adding a hole to 64 existing holes exceeded 500 ms.");
+                    store.Save();
+                }
+                using (var reopened = ProjectStore.Open(path))
+                {
+                    foreach (HoleEditMeasurement result in new[] { dense, holes })
+                        CollectionAssert.AreEqual(result.FinalRegionSignatures, reopened.GetSegRegions(result.AnnotationSetId, imageId).Select(HoleEditRegionSignature).ToArray(), result.Name + " class and topology must survive project reopen.");
+                }
+            }
+            finally { DeleteTemporaryProject(path); if (File.Exists(source)) File.Delete(source); }
+        }
+
+        private static HoleEditMeasurement MeasureHoleCreation(ProjectStore store, ProjectImage image, Path64 path, string name)
+        {
+            AnnotationSet set = store.CreateAnnotationSet(name, AnnotationSetType.Seg);
+            AnnotationClass sourceClass = store.GetClasses(set.Id).Single();
+            AnnotationClass targetClass = store.AddClass(set.Id, "target", "#123456");
+            SegRegion region = store.AddSegPath(set.Id, image.Id, sourceClass.Id, SegRegionType.PolyGon, path.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray(), 0);
+            string[] originalPoints = region.Points.Select(point => point.X + "," + point.Y).ToArray();
+            var classChange = Stopwatch.StartNew();
+            store.UpdateSegRegions(new[] { new SegRegion(region.Id, region.AnnotationSetId, region.ImageId, targetClass.Id, region.Type, region.X, region.Y, region.Width, region.Height, region.ZOrder, region.Points, region.StrokeWidth) });
+            classChange.Stop();
+            Assert.IsTrue(classChange.Elapsed.TotalMilliseconds <= 100d, name + " class-only update exceeded 100 ms.");
+            SegRegion reclassified = store.GetSegRegions(set.Id, image.Id).Single();
+            Assert.AreEqual(targetClass.Id, reclassified.ClassId);
+            CollectionAssert.AreEqual(originalPoints, reclassified.Points.Select(point => point.X + "," + point.Y).ToArray());
+            Assert.IsTrue(store.Undo(set.Id));
+            Assert.AreEqual(sourceClass.Id, store.GetSegRegions(set.Id, image.Id).Single().ClassId);
+            CollectionAssert.AreEqual(originalPoints, store.GetSegRegions(set.Id, image.Id).Single().Points.Select(point => point.X + "," + point.Y).ToArray());
+            Assert.IsTrue(store.Redo(set.Id));
+            Assert.AreEqual(targetClass.Id, store.GetSegRegions(set.Id, image.Id).Single().ClassId);
+            var hole = Stopwatch.StartNew();
+            store.EraseSegGeometry(set.Id, image.Id, targetClass.Id, SegRegionType.Rect, 120, 120, 20, 20, new SegPoint[0], 0);
+            hole.Stop();
+            return new HoleEditMeasurement(name, set.Id, hole.Elapsed.TotalMilliseconds, store.GetSegRegions(set.Id, image.Id).Select(HoleEditRegionSignature).ToArray());
+        }
+
+        private static string HoleEditRegionSignature(SegRegion region)
+        {
+            return region.ClassId + "|" + string.Join(";", region.Points.Select(point => point.X + "," + point.Y));
+        }
+
+        private sealed class HoleEditMeasurement
+        {
+            internal HoleEditMeasurement(string name, string annotationSetId, double elapsedMilliseconds, string[] finalRegionSignatures)
+            {
+                Name = name;
+                AnnotationSetId = annotationSetId;
+                ElapsedMilliseconds = elapsedMilliseconds;
+                FinalRegionSignatures = finalRegionSignatures;
+            }
+
+            internal string Name { get; private set; }
+            internal string AnnotationSetId { get; private set; }
+            internal double ElapsedMilliseconds { get; private set; }
+            internal string[] FinalRegionSignatures { get; private set; }
+        }
+
+        [STATestMethod]
+        [TestCategory("ManualPerformance")]
         public void Image_switch_baseline_records_cold_warm_rapid_and_viewport_cases()
         {
             string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));

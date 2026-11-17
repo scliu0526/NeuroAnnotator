@@ -150,7 +150,13 @@ namespace Neurocle.WinForms
         /// <param name="args">指出被點擊欄位索引的事件資料。</param>
         private void List_ColumnClick(object sender, ColumnClickEventArgs args)
         {
-            ChangeSort(args.Column == 0 ? ImageListSortColumn.Sequence : args.Column == 1 ? ImageListSortColumn.FileName : args.Column == 2 ? ImageListSortColumn.Classes : ImageListSortColumn.AnnotationCount);
+            ColumnHeader selected = list.Columns[args.Column];
+            ChangeSort(selected == sequenceColumn ? ImageListSortColumn.Sequence
+                : selected == fileNameColumn ? ImageListSortColumn.FileName
+                : selected == classColumn ? ImageListSortColumn.Classes
+                : selected == annotationCountColumn ? ImageListSortColumn.AnnotationCount
+                : selected == datasetColumn ? ImageListSortColumn.Dataset
+                : ImageListSortColumn.Retest);
         }
 
         /// <summary>
@@ -175,15 +181,21 @@ namespace Neurocle.WinForms
             imagesDirectory = managedImagesDirectory;
             bool showClass = source.Any(row => row.ShowClass);
             bool showAnnotationCount = source.Any(row => row.ShowAnnotationCount);
-            if ((!showClass && column == ImageListSortColumn.Classes) || (!showAnnotationCount && column == ImageListSortColumn.AnnotationCount))
+            bool showDataset = source.Any(row => row.ShowDataset);
+            bool showRetest = source.Any(row => row.ShowRetest);
+            if ((!showClass && column == ImageListSortColumn.Classes) || (!showAnnotationCount && column == ImageListSortColumn.AnnotationCount)
+                || (!showDataset && column == ImageListSortColumn.Dataset) || (!showRetest && column == ImageListSortColumn.Retest))
             {
                 column = ImageListSortColumn.Sequence;
                 direction = ImageListSortDirection.Ascending;
             }
-            if (showClass && !list.Columns.Contains(classColumn)) list.Columns.Insert(2, classColumn);
-            if (!showClass && list.Columns.Contains(classColumn)) list.Columns.Remove(classColumn);
-            if (showAnnotationCount && !list.Columns.Contains(annotationCountColumn)) list.Columns.Add(annotationCountColumn);
-            if (!showAnnotationCount && list.Columns.Contains(annotationCountColumn)) list.Columns.Remove(annotationCountColumn);
+            list.Columns.Clear();
+            list.Columns.Add(sequenceColumn);
+            list.Columns.Add(fileNameColumn);
+            if (showClass) list.Columns.Add(classColumn);
+            if (showAnnotationCount) list.Columns.Add(annotationCountColumn);
+            if (showDataset) list.Columns.Add(datasetColumn);
+            if (showRetest) list.Columns.Add(retestColumn);
             refreshing = true;
             try { RefreshList(); }
             finally { refreshing = false; }
@@ -229,7 +241,18 @@ namespace Neurocle.WinForms
             args.Item = new ListViewItem(row.Image.Sequence.ToString());
             args.Item.SubItems.Add(row.Image.OriginalFileName);
             if (list.Columns.Contains(classColumn)) args.Item.SubItems.Add(row.ClassDisplay);
-            if (list.Columns.Contains(annotationCountColumn)) args.Item.SubItems.Add(row.AnnotationCount.ToString());
+            if (list.Columns.Contains(annotationCountColumn)) args.Item.SubItems.Add(row.AnnotationCount == 0 ? string.Empty : row.AnnotationCount.ToString());
+            if (list.Columns.Contains(datasetColumn)) args.Item.SubItems.Add(DatasetText(row.DatasetStatus));
+            if (list.Columns.Contains(retestColumn)) args.Item.SubItems.Add(row.Retest == true ? Strings.DatasetFilterRetest : row.Retest == false ? Strings.DatasetFilterNoRetest : string.Empty);
+        }
+
+        private static string DatasetText(DatasetAssignmentStatus? status)
+        {
+            if (!status.HasValue) return string.Empty;
+            if (status == DatasetAssignmentStatus.Train) return Strings.DatasetTrain;
+            if (status == DatasetAssignmentStatus.Test) return Strings.DatasetTest;
+            if (status == DatasetAssignmentStatus.NotUsed) return Strings.DatasetNotUsed;
+            return Strings.DatasetUnassigned;
         }
 
         /// <summary>

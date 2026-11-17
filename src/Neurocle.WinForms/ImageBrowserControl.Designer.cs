@@ -10,6 +10,8 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.ColumnHeader fileNameColumn;
         private System.Windows.Forms.ColumnHeader classColumn;
         private System.Windows.Forms.ColumnHeader annotationCountColumn;
+        private System.Windows.Forms.ColumnHeader datasetColumn;
+        private System.Windows.Forms.ColumnHeader retestColumn;
 
         private void InitializeComponent()
         {
@@ -19,6 +21,8 @@ namespace Neurocle.WinForms
             this.fileNameColumn = new System.Windows.Forms.ColumnHeader();
             this.classColumn = new System.Windows.Forms.ColumnHeader();
             this.annotationCountColumn = new System.Windows.Forms.ColumnHeader();
+            this.datasetColumn = new System.Windows.Forms.ColumnHeader();
+            this.retestColumn = new System.Windows.Forms.ColumnHeader();
             this.SuspendLayout();
             //
             // search
@@ -55,6 +59,10 @@ namespace Neurocle.WinForms
             //
             this.annotationCountColumn.Text = Strings.ImageAnnotationCountColumn;
             this.annotationCountColumn.Width = 90;
+            this.datasetColumn.Text = Strings.DatasetColumn;
+            this.datasetColumn.Width = 100;
+            this.retestColumn.Text = Strings.DatasetRetestColumn;
+            this.retestColumn.Width = 80;
             //
             // ImageBrowserControl
             //
