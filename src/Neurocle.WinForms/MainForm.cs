@@ -1525,7 +1525,7 @@ namespace Neurocle.WinForms
                     || pages.SelectedTab == exportPage;
                 bool showClass = showWorkflowSummary;
                 bool showCount = showClass && selected.Type != AnnotationSetType.Cla;
-                bool showDataset = true;
+                bool showDataset = showWorkflowSummary;
                 DatasetAssignment assignment = assignments[image.Id];
                 return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, showClass, showCount,
                     assignment.Status, assignment.Retest, showDataset, showDataset);

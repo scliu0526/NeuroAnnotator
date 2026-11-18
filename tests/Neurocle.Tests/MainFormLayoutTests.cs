@@ -1304,6 +1304,22 @@ namespace Neurocle.Tests
             }
         }
 
+        [TestMethod]
+        public void Image_browser_virtual_items_cover_stale_native_column_requests()
+        {
+            using (var browser = new ImageBrowserControl())
+            {
+                ProjectImage image = new ProjectImage("image", "image.png", "image.png", "hash", 1, 1, 1);
+                browser.LoadImages(new[] { image }, Path.GetTempPath());
+                var args = new RetrieveVirtualItemEventArgs(0);
+                Invoke(browser, "RetrieveVirtualItem", browser, args);
+
+                Assert.AreEqual(6, args.Item.SubItems.Count,
+                    "A virtual item must cover the maximum native column shape while queued column notifications are being drained.");
+                Assert.AreEqual("image.png", args.Item.SubItems[1].Text);
+            }
+        }
+
         [STATestMethod]
         public void Workflow_pages_show_dataset_retest_columns_and_clear_menus_in_the_approved_matrix()
         {
@@ -1336,7 +1352,7 @@ namespace Neurocle.Tests
                     pages.SelectedTab = Field<TabPage>(form, "imagesPage");
                     System.Windows.Forms.Application.DoEvents();
                     string[] imageColumns = imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray();
-                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "資料集", "Retest" }, imageColumns, "Actual: " + string.Join(", ", imageColumns));
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名" }, imageColumns, "Actual: " + string.Join(", ", imageColumns));
                     Assert.IsFalse(form.ImageBrowser.RetestContextMenuEnabled);
 
                     pages.SelectedTab = Field<TabPage>(form, "annotationPage");

@@ -13,6 +13,7 @@ namespace Neurocle.WinForms
     // 以虛擬清單顯示圖片，並提供篩選、排序與選取通知。
     internal sealed partial class ImageBrowserControl : UserControl
     {
+        private const int MaximumColumnCount = 6;
         // 保存完整圖片列，作為篩選與排序的來源資料。
         private readonly List<ImageListRow> source = new List<ImageListRow>();
         // 保存目前篩選及排序後的圖片列。
@@ -244,6 +245,7 @@ namespace Neurocle.WinForms
             if (list.Columns.Contains(annotationCountColumn)) args.Item.SubItems.Add(row.AnnotationCount == 0 ? string.Empty : row.AnnotationCount.ToString());
             if (list.Columns.Contains(datasetColumn)) args.Item.SubItems.Add(DatasetText(row.DatasetStatus));
             if (list.Columns.Contains(retestColumn)) args.Item.SubItems.Add(row.Retest == true ? Strings.DatasetFilterRetest : row.Retest == false ? Strings.DatasetFilterNoRetest : string.Empty);
+            while (args.Item.SubItems.Count < MaximumColumnCount) args.Item.SubItems.Add(string.Empty);
         }
 
         private static string DatasetText(DatasetAssignmentStatus? status)
