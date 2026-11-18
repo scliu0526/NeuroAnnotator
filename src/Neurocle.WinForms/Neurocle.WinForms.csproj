@@ -51,6 +51,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="SingleInstanceGuard.cs" />
     <Compile Include="WinFormsAssembly.cs" />
     <Compile Include="DiagnosticLog.cs" />
     <Compile Include="DiagnosticLogMessages.cs" />

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -12,6 +13,7 @@ namespace Neurocle.WinForms
     // 以虛擬清單顯示圖片，並提供篩選、排序與選取通知。
     internal sealed partial class ImageBrowserControl : UserControl
     {
+        private const int MaximumColumnCount = 6;
         // 保存完整圖片列，作為篩選與排序的來源資料。
         private readonly List<ImageListRow> source = new List<ImageListRow>();
         // 保存目前篩選及排序後的圖片列。
@@ -24,9 +26,24 @@ namespace Neurocle.WinForms
         private ImageListSortDirection direction = ImageListSortDirection.Ascending;
         // 避免重新整理清單時觸發使用者選取通知。
         private bool refreshing;
+        private IReadOnlyList<string> contextImageIds = new string[0];
+        private readonly ContextMenuStrip imageMenu = new ContextMenuStrip();
+        private readonly ToolStripMenuItem clearRetestItem = new ToolStripMenuItem(Strings.DatasetClearRetest);
+        private readonly ToolStripMenuItem clearClassItem = new ToolStripMenuItem(Strings.DatasetClearClass);
+        private readonly ToolStripMenuItem clearSetItem = new ToolStripMenuItem(Strings.DatasetClearSet);
 
         // 通知主視窗目前清單所選圖片及其受管理檔案路徑。
         public event EventHandler<ImageSelectedEventArgs> ImageSelected;
+        public event Action<IReadOnlyList<string>> ClearRetestRequested;
+        public event Action<IReadOnlyList<string>> ClearClassRequested;
+        // 通知主視窗要求清除所選圖片的資料集狀態。
+        public event Action<IReadOnlyList<string>> ClearDatasetRequested;
+
+        internal bool RetestContextMenuEnabled
+        {
+            get { return list.ContextMenuStrip != null; }
+            set { list.ContextMenuStrip = value ? imageMenu : null; }
+        }
 
         // 取得目前選取圖片的識別碼。
         public IReadOnlyList<string> SelectedImageIds { get { return list.SelectedIndices.Cast<int>().Select(index => visible[index].Image.Id).ToArray(); } }
@@ -83,6 +100,34 @@ namespace Neurocle.WinForms
         public ImageBrowserControl()
         {
             InitializeComponent();
+            imageMenu.Items.Add(clearRetestItem);
+            imageMenu.Items.Add(clearClassItem);
+            imageMenu.Items.Add(clearSetItem);
+            imageMenu.Opening += ImageMenu_Opening;
+            clearRetestItem.Click += ClearRetestItem_Click;
+            clearClassItem.Click += (sender, args) => { if (contextImageIds.Count > 0) ClearClassRequested?.Invoke(contextImageIds); };
+            clearSetItem.Click += (sender, args) => { if (contextImageIds.Count > 0) ClearDatasetRequested?.Invoke(contextImageIds); };
+        }
+
+        private void ImageMenu_Opening(object sender, System.ComponentModel.CancelEventArgs args)
+        {
+            Point location = list.PointToClient(Cursor.Position);
+            ListViewItem item = list.HitTest(location).Item;
+            if (item == null || !item.Selected)
+            {
+                args.Cancel = true;
+                contextImageIds = new string[0];
+                return;
+            }
+            contextImageIds = SelectedImageIds.ToArray();
+            clearRetestItem.Text = string.Format("{0} ({1})", Strings.DatasetClearRetest, contextImageIds.Count);
+            clearClassItem.Text = string.Format("{0} ({1})", Strings.DatasetClearClass, contextImageIds.Count);
+            clearSetItem.Text = string.Format("{0} ({1})", Strings.DatasetClearSet, contextImageIds.Count);
+        }
+
+        private void ClearRetestItem_Click(object sender, EventArgs args)
+        {
+            if (contextImageIds.Count > 0) ClearRetestRequested?.Invoke(contextImageIds);
         }
 
         /// <summary>
@@ -106,7 +151,13 @@ namespace Neurocle.WinForms
         /// <param name="args">指出被點擊欄位索引的事件資料。</param>
         private void List_ColumnClick(object sender, ColumnClickEventArgs args)
         {
-            ChangeSort(args.Column == 0 ? ImageListSortColumn.Sequence : args.Column == 1 ? ImageListSortColumn.FileName : args.Column == 2 ? ImageListSortColumn.Classes : ImageListSortColumn.AnnotationCount);
+            ColumnHeader selected = list.Columns[args.Column];
+            ChangeSort(selected == sequenceColumn ? ImageListSortColumn.Sequence
+                : selected == fileNameColumn ? ImageListSortColumn.FileName
+                : selected == classColumn ? ImageListSortColumn.Classes
+                : selected == annotationCountColumn ? ImageListSortColumn.AnnotationCount
+                : selected == datasetColumn ? ImageListSortColumn.Dataset
+                : ImageListSortColumn.Retest);
         }
 
         /// <summary>
@@ -116,7 +167,7 @@ namespace Neurocle.WinForms
         /// <param name="managedImagesDirectory">圖片實際檔案所在的受管理目錄。</param>
         public void LoadImages(IReadOnlyList<ProjectImage> images, string managedImagesDirectory)
         {
-            LoadRows((images ?? new ProjectImage[0]).Select(image => new ImageListRow(image, new string[0], 0, false)), managedImagesDirectory);
+            LoadRows((images ?? new ProjectImage[0]).Select(image => new ImageListRow(image, new string[0], 0, false, false)), managedImagesDirectory);
         }
 
         /// <summary>
@@ -129,9 +180,23 @@ namespace Neurocle.WinForms
             source.Clear();
             if (rows != null) source.AddRange(rows);
             imagesDirectory = managedImagesDirectory;
+            bool showClass = source.Any(row => row.ShowClass);
             bool showAnnotationCount = source.Any(row => row.ShowAnnotationCount);
-            if (showAnnotationCount && !list.Columns.Contains(annotationCountColumn)) list.Columns.Add(annotationCountColumn);
-            if (!showAnnotationCount && list.Columns.Contains(annotationCountColumn)) list.Columns.Remove(annotationCountColumn);
+            bool showDataset = source.Any(row => row.ShowDataset);
+            bool showRetest = source.Any(row => row.ShowRetest);
+            if ((!showClass && column == ImageListSortColumn.Classes) || (!showAnnotationCount && column == ImageListSortColumn.AnnotationCount)
+                || (!showDataset && column == ImageListSortColumn.Dataset) || (!showRetest && column == ImageListSortColumn.Retest))
+            {
+                column = ImageListSortColumn.Sequence;
+                direction = ImageListSortDirection.Ascending;
+            }
+            list.Columns.Clear();
+            list.Columns.Add(sequenceColumn);
+            list.Columns.Add(fileNameColumn);
+            if (showClass) list.Columns.Add(classColumn);
+            if (showAnnotationCount) list.Columns.Add(annotationCountColumn);
+            if (showDataset) list.Columns.Add(datasetColumn);
+            if (showRetest) list.Columns.Add(retestColumn);
             refreshing = true;
             try { RefreshList(); }
             finally { refreshing = false; }
@@ -176,8 +241,20 @@ namespace Neurocle.WinForms
             ImageListRow row = visible[args.ItemIndex];
             args.Item = new ListViewItem(row.Image.Sequence.ToString());
             args.Item.SubItems.Add(row.Image.OriginalFileName);
-            args.Item.SubItems.Add(row.ClassDisplay);
-            if (list.Columns.Contains(annotationCountColumn)) args.Item.SubItems.Add(row.AnnotationCount.ToString());
+            if (list.Columns.Contains(classColumn)) args.Item.SubItems.Add(row.ClassDisplay);
+            if (list.Columns.Contains(annotationCountColumn)) args.Item.SubItems.Add(row.AnnotationCount == 0 ? string.Empty : row.AnnotationCount.ToString());
+            if (list.Columns.Contains(datasetColumn)) args.Item.SubItems.Add(DatasetText(row.DatasetStatus));
+            if (list.Columns.Contains(retestColumn)) args.Item.SubItems.Add(row.Retest == true ? Strings.DatasetFilterRetest : row.Retest == false ? Strings.DatasetFilterNoRetest : string.Empty);
+            while (args.Item.SubItems.Count < MaximumColumnCount) args.Item.SubItems.Add(string.Empty);
+        }
+
+        private static string DatasetText(DatasetAssignmentStatus? status)
+        {
+            if (!status.HasValue) return string.Empty;
+            if (status == DatasetAssignmentStatus.Train) return Strings.DatasetTrain;
+            if (status == DatasetAssignmentStatus.Test) return Strings.DatasetTest;
+            if (status == DatasetAssignmentStatus.NotUsed) return Strings.DatasetNotUsed;
+            return Strings.DatasetUnassigned;
         }
 
         /// <summary>
@@ -209,7 +286,28 @@ namespace Neurocle.WinForms
         public string Path { get; private set; }
     }
 
-    internal sealed class HorizontalWheelListView : ListView
+    internal class SelectionPreservingListView : ListView
+    {
+        private const int RightButtonDownMessage = 0x0204;
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == RightButtonDownMessage)
+            {
+                long coordinates = message.LParam.ToInt64();
+                var location = new Point((short)(coordinates & 0xffff), (short)((coordinates >> 16) & 0xffff));
+                ListViewItem item = HitTest(location).Item;
+                if (item == null || !item.Selected)
+                {
+                    message.Result = IntPtr.Zero;
+                    return;
+                }
+            }
+            base.WndProc(ref message);
+        }
+    }
+
+    internal sealed class HorizontalWheelListView : SelectionPreservingListView
     {
         private const int MouseWheelMessage = 0x020A;
         private const int ShiftKey = 0x0004;

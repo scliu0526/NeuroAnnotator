@@ -14,7 +14,11 @@ namespace Neurocle.Application.Projects
         // 依標註類別名稱排序。
         Classes,
         // 依標註數量排序。
-        AnnotationCount
+        AnnotationCount,
+        // 依資料集狀態排序。
+        Dataset,
+        // 依 Retest 狀態排序。
+        Retest
     }
 
     // 圖片清單的排序方向。
@@ -75,6 +79,18 @@ namespace Neurocle.Application.Projects
                 return (direction == ImageListSortDirection.Ascending
                     ? result.OrderBy(row => row.AnnotationCount)
                     : result.OrderByDescending(row => row.AnnotationCount)).ToList();
+            }
+            if (column == ImageListSortColumn.Dataset)
+            {
+                return (direction == ImageListSortDirection.Ascending
+                    ? result.OrderBy(row => row.DatasetStatus)
+                    : result.OrderByDescending(row => row.DatasetStatus)).ToList();
+            }
+            if (column == ImageListSortColumn.Retest)
+            {
+                return (direction == ImageListSortDirection.Ascending
+                    ? result.OrderBy(row => row.Retest)
+                    : result.OrderByDescending(row => row.Retest)).ToList();
             }
             IOrderedEnumerable<ImageListRow> imageOrdered = column == ImageListSortColumn.Sequence
                 ? result.OrderBy(row => row.Image.Sequence).ThenBy(row => row.Image.OriginalFileName, NaturalFileNameComparer.Instance)
@@ -142,11 +158,29 @@ namespace Neurocle.Application.Projects
         /// <param name="showAnnotationCount">介面是否顯示標註數量。</param>
         /// <exception cref="ArgumentNullException"><paramref name="image"/> 或 <paramref name="classNames"/> 為 null。</exception>
         public ImageListRow(ProjectImage image, IReadOnlyList<string> classNames, int annotationCount, bool showAnnotationCount)
+            : this(image, classNames, annotationCount, true, showAnnotationCount) { }
+
+        /// <summary>
+        /// 建立指定欄位可見性的圖片清單顯示列。
+        /// </summary>
+        public ImageListRow(ProjectImage image, IReadOnlyList<string> classNames, int annotationCount, bool showClass, bool showAnnotationCount)
+            : this(image, classNames, annotationCount, showClass, showAnnotationCount, null, null, false, false) { }
+
+        /// <summary>
+        /// 建立包含資料集與 Retest 摘要的圖片清單顯示列。
+        /// </summary>
+        public ImageListRow(ProjectImage image, IReadOnlyList<string> classNames, int annotationCount, bool showClass, bool showAnnotationCount,
+            DatasetAssignmentStatus? datasetStatus, bool? retest, bool showDataset, bool showRetest)
         {
             Image = image ?? throw new ArgumentNullException(nameof(image));
             ClassNames = (classNames ?? throw new ArgumentNullException(nameof(classNames))).Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToArray();
             AnnotationCount = annotationCount;
+            ShowClass = showClass;
             ShowAnnotationCount = showAnnotationCount;
+            DatasetStatus = datasetStatus;
+            Retest = retest;
+            ShowDataset = showDataset;
+            ShowRetest = showRetest;
         }
 
         // 取得此顯示列所代表的圖片。
@@ -155,8 +189,18 @@ namespace Neurocle.Application.Projects
         public IReadOnlyList<string> ClassNames { get; private set; }
         // 取得此圖片目前的標註數量。
         public int AnnotationCount { get; private set; }
+        // 取得清單是否應顯示類別欄位。
+        public bool ShowClass { get; private set; }
         // 取得清單是否應顯示標註數量。
         public bool ShowAnnotationCount { get; private set; }
+        // 取得目前資料集狀態；沒有標註集時為 null。
+        public DatasetAssignmentStatus? DatasetStatus { get; private set; }
+        // 取得目前 Retest 狀態；沒有標註集時為 null。
+        public bool? Retest { get; private set; }
+        // 取得清單是否應顯示資料集欄位。
+        public bool ShowDataset { get; private set; }
+        // 取得清單是否應顯示 Retest 欄位。
+        public bool ShowRetest { get; private set; }
         // 取得以逗號分隔的類別名稱顯示文字。
         public string ClassDisplay { get { return string.Join(", ", ClassNames); } }
     }

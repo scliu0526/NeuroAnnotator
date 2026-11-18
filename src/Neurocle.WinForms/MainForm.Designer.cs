@@ -135,7 +135,7 @@ namespace Neurocle.WinForms
 
             this.imageBrowser.Dock = DockStyle.Left;
             this.imageBrowser.Name = "imageBrowser";
-            this.imageBrowser.Width = 300;
+            this.imageBrowser.Width = ImageBrowserWidth;
             this.imageBrowser.TabIndex = 2;
             this.imageCanvas.Dock = DockStyle.Fill;
             this.imageCanvas.Name = "imageCanvas";
@@ -388,6 +388,7 @@ namespace Neurocle.WinForms
             this.exportSelected.Click += new System.EventHandler(this.ExportSelected_Click);
             this.exportAll.Click += new System.EventHandler(this.ExportAll_Click);
             this.pages.SelectedIndexChanged += new System.EventHandler(this.Pages_SelectedIndexChanged);
+            this.imageBrowser.Resize += new System.EventHandler(this.ImageBrowser_Resize);
             this.annotationPage.Resize += new System.EventHandler(this.AnnotationPage_Resize);
             this.annotationHeader.SizeChanged += new System.EventHandler(this.AnnotationHeader_SizeChanged);
             this.FormClosing += new FormClosingEventHandler(this.MainForm_FormClosing);

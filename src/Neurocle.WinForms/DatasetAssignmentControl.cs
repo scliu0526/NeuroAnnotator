@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 using Neurocle.Application.Projects;
@@ -16,6 +17,7 @@ namespace Neurocle.WinForms
         private readonly List<DatasetRow> rows = new List<DatasetRow>();
         // 保存套用篩選條件後的可見資料集列。
         private readonly List<DatasetRow> visibleRows = new List<DatasetRow>();
+        private IReadOnlyList<string> contextImageIds = new string[0];
 
         /// <summary>
         /// 初始化資料集控制項並接線執行期操作事件。
@@ -59,6 +61,11 @@ namespace Neurocle.WinForms
         /// <param name="sender">選取項目變更的清單。</param>
         /// <param name="args">選取項目變更事件資料。</param>
         private void List_SelectedIndexChanged(object sender, EventArgs args) { UpdateSplitButtons(); }
+
+        /// <summary>
+        /// Shift 點選完成後，以最終選取集合更新切分所選按鈕。
+        /// </summary>
+        private void List_MouseUp(object sender, MouseEventArgs args) { UpdateSplitButtons(); }
 
         /// <summary>
         /// 要求將所選圖片分配至訓練集。
@@ -124,28 +131,47 @@ namespace Neurocle.WinForms
         /// </summary>
         /// <param name="sender">引發事件的右鍵選單項目。</param>
         /// <param name="args">選單點擊事件資料。</param>
-        private void ClearRetestItem_Click(object sender, EventArgs args) { RetestRequested?.Invoke(SelectedImageIds, false); }
+        private void ClearRetestItem_Click(object sender, EventArgs args) { if (contextImageIds.Count > 0) ClearRetestRequested?.Invoke(contextImageIds); }
+
+        private void DatasetMenu_Opening(object sender, System.ComponentModel.CancelEventArgs args)
+        {
+            Point location = list.PointToClient(Cursor.Position);
+            ListViewItem item = list.HitTest(location).Item;
+            if (item == null || !item.Selected)
+            {
+                args.Cancel = true;
+                contextImageIds = new string[0];
+                return;
+            }
+            contextImageIds = SelectedImageIds.ToArray();
+            clearRetestItem.Text = string.Format("{0} ({1})", Strings.DatasetClearRetest, contextImageIds.Count);
+            clearClassItem.Text = string.Format("{0} ({1})", Strings.DatasetClearClass, contextImageIds.Count);
+            clearSetItem.Text = string.Format("{0} ({1})", Strings.DatasetClearSet, contextImageIds.Count);
+        }
 
         /// <summary>
         /// 要求清除所選圖片的 CLA 類別。
         /// </summary>
         /// <param name="sender">引發事件的右鍵選單項目。</param>
         /// <param name="args">選單點擊事件資料。</param>
-        private void ClearClassItem_Click(object sender, EventArgs args) { ClearClassRequested?.Invoke(SelectedImageIds); }
+        private void ClearClassItem_Click(object sender, EventArgs args) { if (contextImageIds.Count > 0) ClearClassRequested?.Invoke(contextImageIds); }
 
         /// <summary>
         /// 要求將所選圖片的資料集狀態設為未分配。
         /// </summary>
         /// <param name="sender">引發事件的右鍵選單項目。</param>
         /// <param name="args">選單點擊事件資料。</param>
-        private void ClearSetItem_Click(object sender, EventArgs args) { DatasetRequested?.Invoke(SelectedImageIds, DatasetAssignmentStatus.Unassigned); }
+        private void ClearSetItem_Click(object sender, EventArgs args) { if (contextImageIds.Count > 0) ClearDatasetRequested?.Invoke(contextImageIds); }
 
         // 通知主視窗更新所選圖片的資料集狀態。
         public event Action<IReadOnlyList<string>, DatasetAssignmentStatus> DatasetRequested;
         // 通知主視窗更新所選圖片的 Retest 旗標。
         public event Action<IReadOnlyList<string>, bool> RetestRequested;
+        public event Action<IReadOnlyList<string>> ClearRetestRequested;
         // 通知主視窗清除所選圖片的 CLA 類別。
         public event Action<IReadOnlyList<string>> ClearClassRequested;
+        // 通知主視窗要求清除所選圖片的資料集狀態。
+        public event Action<IReadOnlyList<string>> ClearDatasetRequested;
         // 通知主視窗以目前比例自動切分資料集。
         public event Action<IReadOnlyList<string>, int> AutoSplitSelectedRequested;
         // 通知主視窗依目前比例切分所有可用圖片。
@@ -235,7 +261,7 @@ namespace Neurocle.WinForms
             item.SubItems.Add(DatasetText(row.Assignment.Status));
             item.SubItems.Add(string.Join(", ", row.ClassNames));
             item.SubItems.Add(row.HasAnnotation ? Strings.DatasetFilterAnnotated : Strings.DatasetFilterEmpty);
-            if (list.Columns.Contains(annotationCountColumn)) item.SubItems.Add(row.AnnotationCount.ToString());
+            if (list.Columns.Contains(annotationCountColumn)) item.SubItems.Add(row.AnnotationCount == 0 ? string.Empty : row.AnnotationCount.ToString());
             item.SubItems.Add(row.Assignment.Retest ? Strings.DatasetFilterRetest : Strings.DatasetFilterNoRetest);
             return item;
         }

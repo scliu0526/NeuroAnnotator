@@ -18,6 +18,7 @@ namespace Neurocle.WinForms
     // 管理專案操作、標註工作流程及主視窗頁面。
     public sealed partial class MainForm : Form
     {
+        private const int ImageBrowserWidth = 500;
         // 提供建立、開啟、儲存與替換專案的生命週期操作。
         private readonly IProjectLifecycle projectLifecycle;
         // 保存主視窗共用的診斷事件記錄器。
@@ -134,6 +135,12 @@ namespace Neurocle.WinForms
         private bool annotationOperationInProgress;
         // 保存標註操作期間等待套用的圖片選取事件。
         private ImageSelectedEventArgs pendingImageSelection;
+        private string pendingImageLoadPath;
+        private int pendingImageLoadCount;
+        private long pendingImageLoadVersion;
+        private string displayedImageId;
+        private string displayedImagePath;
+        private bool pendingImageLoadFailed;
         // 避免同步兩畫布視角時產生遞迴事件。
         private bool synchronizingCanvasView;
         // 避免重新載入標註集清單時觸發選取副作用。
@@ -253,6 +260,7 @@ namespace Neurocle.WinForms
             importJobQueue?.Dispose();
             importQueueForm?.Dispose();
             project?.Dispose();
+            ImageDecodeCache.Clear();
         }
 
         /// <summary>
@@ -383,9 +391,13 @@ namespace Neurocle.WinForms
             annotationTools.Controls.Clear();
             imageCanvas.ViewChanged += (sender, args) => SynchronizeCanvasView(imageCanvas, canvas);
             canvas.ViewChanged += (sender, args) => SynchronizeCanvasView(canvas, imageCanvas);
+            imageCanvas.ImageLoaded += (path, version, success) => ImageCanvasLoaded(path, version, success);
+            canvas.ImageLoaded += (path, version, success) => AnnotationCanvasLoaded(path, version, success);
             datasetAssignments.DatasetRequested += (ids, value) => RunAnnotationCommand(() => SetDatasetAssignments(ids, value));
             datasetAssignments.RetestRequested += (ids, value) => RunAnnotationCommand(() => SetRetest(ids, value));
-            datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ClearDatasetClasses(ids));
+            datasetAssignments.ClearRetestRequested += ids => RunAnnotationCommand(() => ConfirmAndClearRetest(ids));
+            datasetAssignments.ClearClassRequested += ids => RunAnnotationCommand(() => ConfirmAndClearAnnotations(ids));
+            datasetAssignments.ClearDatasetRequested += ids => RunAnnotationCommand(() => ConfirmAndClearDataset(ids));
             datasetAssignments.AutoSplitSelectedRequested += (ids, value) => RunAnnotationCommand(() => AutoSplitDataset(ids, value));
             datasetAssignments.AutoSplitAllRequested += value => RunAnnotationCommand(() => AutoSplitDataset(null, value));
             canvas.ObdRectangleCreated += rectangle => RunAnnotationCommand(() => CreateObdRectangle(rectangle));
@@ -395,13 +407,17 @@ namespace Neurocle.WinForms
             canvas.SegPathCreated += async (type, points, width) => await CreateSegPathAsync(type, points, width);
             canvas.SegGeometryEraseRequested += async (type, rectangle, points, width) => await EraseSegGeometryAsync(type, rectangle, points, width);
             canvas.SegEraseRequested += async (points, width) => await EraseSegPathAsync(points, width);
-            canvas.SegRegionsChanged += regions => RunAnnotationCommand(() => UpdateSegRegions(regions));
+            canvas.SegRegionsTransformed += regions => RunAnnotationCommand(() => TransformSegRegions(regions));
+            canvas.SegRegionsTranslated += (ids, offsetX, offsetY) => RunAnnotationCommand(() => TranslateSegRegions(ids, offsetX, offsetY));
             canvas.SegRegionsDeleteRequested += ids => RunAnnotationCommand(() => DeleteSegRegions(ids));
             imageBrowser.ImageSelected += (sender, args) =>
             {
                 if (annotationOperationInProgress) pendingImageSelection = args;
                 else ApplyImageSelection(args);
             };
+            imageBrowser.ClearRetestRequested += ids => RunAnnotationCommand(() => ConfirmAndClearRetest(ids));
+            imageBrowser.ClearClassRequested += ids => RunAnnotationCommand(() => ConfirmAndClearAnnotations(ids));
+            imageBrowser.ClearDatasetRequested += ids => RunAnnotationCommand(() => ConfirmAndClearDataset(ids));
 
             imageCanvas.ZoomChanged += (sender, args) => UpdateZoomText();
             canvas.ZoomChanged += (sender, args) => UpdateZoomText();
@@ -725,6 +741,15 @@ namespace Neurocle.WinForms
             }
             canvas.DiscardUnfinishedShape();
             if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
+            imageBrowser.RetestContextMenuEnabled = pages.SelectedTab == annotationPage
+                || pages.SelectedTab == datasetPage
+                || pages.SelectedTab == exportPage;
+            if (project != null) RefreshImageBrowser();
+        }
+
+        private void ImageBrowser_Resize(object sender, EventArgs args)
+        {
+            if (imageBrowser.Width != ImageBrowserWidth) imageBrowser.Width = ImageBrowserWidth;
         }
 
         /// <summary>
@@ -756,7 +781,7 @@ namespace Neurocle.WinForms
         /// <returns>若符合摘要所述條件則為 true，否則為 false。</returns>
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (keyData == Keys.Up || keyData == Keys.Down)
+            if (keyData == Keys.Up || keyData == Keys.Down || keyData == Keys.Left || keyData == Keys.Right)
             {
                 var args = new KeyEventArgs(keyData);
                 OnKeyDown(args);
@@ -1489,12 +1514,21 @@ namespace Neurocle.WinForms
             }
             var classes = project.GetClasses(selected.Id).ToDictionary(value => value.Id, value => value.Name, StringComparer.Ordinal);
             var summaries = project.GetImageAnnotationSummaries(selected.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
+            var assignments = project.GetDatasetAssignments(selected.Id).ToDictionary(value => value.ImageId, StringComparer.Ordinal);
             var rows = project.GetImages().Select(image =>
             {
                 ImageAnnotationSummary summary;
                 summaries.TryGetValue(image.Id, out summary);
                 string[] classNames = (summary == null ? new string[0] : summary.ClassIds).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
-                return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, selected.Type != AnnotationSetType.Cla);
+                bool showWorkflowSummary = pages.SelectedTab == annotationPage
+                    || pages.SelectedTab == datasetPage
+                    || pages.SelectedTab == exportPage;
+                bool showClass = showWorkflowSummary;
+                bool showCount = showClass && selected.Type != AnnotationSetType.Cla;
+                bool showDataset = showWorkflowSummary;
+                DatasetAssignment assignment = assignments[image.Id];
+                return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, showClass, showCount,
+                    assignment.Status, assignment.Retest, showDataset, showDataset);
             });
             imageBrowser.LoadRows(rows, GetImagesDirectory(project.ProjectPath));
         }
@@ -1523,6 +1557,36 @@ namespace Neurocle.WinForms
             if (project == null || selected == null || imageIds.Count == 0) return;
             project.SetRetest(selected.Id, imageIds, retest);
             RefreshDatasetAssignments();
+        }
+
+        private void ConfirmAndClearRetest(IReadOnlyList<string> imageIds)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            string[] ids = (imageIds ?? new string[0]).Distinct(StringComparer.Ordinal).ToArray();
+            if (project == null || selected == null || ids.Length == 0) return;
+            string message = string.Format("清除 Retest\n標註集：{0}\n圖片數量：{1}", selected.Name, ids.Length);
+            if (MessageBox.Show(message, Strings.DatasetClearRetest, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                SetRetest(ids, false);
+        }
+
+        private void ConfirmAndClearAnnotations(IReadOnlyList<string> imageIds)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            string[] ids = (imageIds ?? new string[0]).Distinct(StringComparer.Ordinal).ToArray();
+            if (project == null || selected == null || ids.Length == 0) return;
+            string message = string.Format("清除類別\n標註集：{0}\n圖片數量：{1}", selected.Name, ids.Length);
+            if (MessageBox.Show(message, Strings.DatasetClearClass, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                ClearDatasetClasses(ids);
+        }
+
+        private void ConfirmAndClearDataset(IReadOnlyList<string> imageIds)
+        {
+            AnnotationSet selected = SelectedAnnotationSet;
+            string[] ids = (imageIds ?? new string[0]).Distinct(StringComparer.Ordinal).ToArray();
+            if (project == null || selected == null || ids.Length == 0) return;
+            string message = string.Format("清除資料集\n標註集：{0}\n圖片數量：{1}", selected.Name, ids.Length);
+            if (MessageBox.Show(message, Strings.DatasetClearSet, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+                SetDatasetAssignments(ids, DatasetAssignmentStatus.Unassigned);
         }
 
         /// <summary>
@@ -1777,20 +1841,99 @@ namespace Neurocle.WinForms
         {
             selectedImagePath = args.Image.IsMissing ? null : args.Path;
             selectedImageId = args.Image.Id;
-            imageCanvas.LoadImage(selectedImagePath);
-            canvas.LoadImage(selectedImagePath);
+            pendingImageLoadVersion++;
+            pendingImageLoadPath = selectedImagePath;
+            pendingImageLoadCount = selectedImagePath == null ? 0 : 2;
+            pendingImageLoadFailed = false;
+            imageCanvas.LoadImage(selectedImagePath, pendingImageLoadVersion);
+            canvas.LoadImage(selectedImagePath, pendingImageLoadVersion);
+            if (selectedImagePath == null) RefreshAnnotationClasses();
+        }
+
+        private void ImageCanvasLoaded(string path, long version, bool success) { CompleteImageLoad(path, version, success); }
+
+        private void AnnotationCanvasLoaded(string path, long version, bool success) { CompleteImageLoad(path, version, success); }
+
+        private void CompleteImageLoad(string path, long version, bool success)
+        {
+            if (pendingImageLoadCount == 0 || version != pendingImageLoadVersion || !string.Equals(path, pendingImageLoadPath, StringComparison.OrdinalIgnoreCase)) return;
+            pendingImageLoadFailed |= !success;
+            pendingImageLoadCount--;
+            if (pendingImageLoadCount != 0) return;
+            if (pendingImageLoadFailed)
+            {
+                selectedImageId = displayedImageId;
+                selectedImagePath = displayedImagePath;
+                if (displayedImageId == null) RefreshAnnotationClasses();
+                else imageBrowser.SelectImage(displayedImageId);
+                return;
+            }
+            displayedImageId = selectedImageId;
+            displayedImagePath = selectedImagePath;
             RefreshAnnotationClasses();
         }
 
-        /// <summary>
-        /// 提交 SEG 區域幾何變更命令。
-        /// </summary>
-        /// <param name="regions">要處理的 SEG 區域集合。</param>
-        private void UpdateSegRegions(IReadOnlyList<SegRegion> regions)
+        private void TranslateSegRegions(IReadOnlyCollection<string> regionIds, int offsetX, int offsetY)
         {
-            if (project == null || SelectedAnnotationSet == null || SelectedAnnotationSet.Type != AnnotationSetType.Seg || regions.Count == 0) return;
-            project.UpdateSegRegions(regions);
-            RefreshAnnotationClasses();
+            if (project == null || regionIds == null || regionIds.Count == 0 || (offsetX == 0 && offsetY == 0)) return;
+            TranslateSegRegions(project, canvas, regionIds, offsetX, offsetY);
+        }
+
+        private void TransformSegRegions(IReadOnlyList<SegRegion> regions)
+        {
+            if (project == null || regions == null || regions.Count == 0) return;
+            TransformSegRegions(project, canvas, regions);
+        }
+
+        internal static void TransformSegRegions(IProjectSession session, ImageCanvasControl targetCanvas, IReadOnlyList<SegRegion> regions)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+            if (targetCanvas == null) throw new ArgumentNullException(nameof(targetCanvas));
+            if (regions == null) throw new ArgumentNullException(nameof(regions));
+            var ids = new HashSet<string>(regions.Select(region => region.Id), StringComparer.Ordinal);
+            if (ids.Count != regions.Count || targetCanvas.SegRegions.Count(region => ids.Contains(region.Id)) != ids.Count) throw new ArgumentException("Every transformed SEG region must exist once on the canvas.", nameof(regions));
+            SegRegion context = regions.FirstOrDefault();
+            IReadOnlyList<SegRegion> persisted;
+            try
+            {
+                ProjectStore store = session as ProjectStore;
+                persisted = store == null ? session.TransformSegRegions(regions) : store.TransformSegRegionsAfterCanvasWholeTransformValidation(regions);
+            }
+            catch
+            {
+                if (context != null) targetCanvas.SegRegions = session.GetSegRegions(context.AnnotationSetId, context.ImageId);
+                throw;
+            }
+            try { targetCanvas.ApplySegTransforms(persisted); }
+            catch
+            {
+                // 持久化與歷史已成功；以 canonical store state 修復顯示，不把已完成操作回報為失敗。
+                if (context != null) targetCanvas.SegRegions = session.GetSegRegions(context.AnnotationSetId, context.ImageId);
+            }
+        }
+
+        internal static void TranslateSegRegions(IProjectSession session, ImageCanvasControl targetCanvas, IReadOnlyCollection<string> regionIds, int offsetX, int offsetY)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+            if (targetCanvas == null) throw new ArgumentNullException(nameof(targetCanvas));
+            if (regionIds == null) throw new ArgumentNullException(nameof(regionIds));
+            var ids = new HashSet<string>(regionIds, StringComparer.Ordinal);
+            SegRegion[] displayed = targetCanvas.SegRegions.Where(region => ids.Contains(region.Id)).ToArray();
+            if (displayed.Length != ids.Count) throw new ArgumentException("Every translated SEG region must exist on the canvas.", nameof(regionIds));
+            try
+            {
+                targetCanvas.ApplySegTranslation(regionIds, offsetX, offsetY);
+                ProjectStore store = session as ProjectStore;
+                if (store == null) session.TranslateSegRegions(regionIds, offsetX, offsetY);
+                else store.TranslateSegRegionsAfterCanvasBoundsValidation(regionIds, offsetX, offsetY);
+            }
+            catch
+            {
+                SegRegion context = displayed[0];
+                targetCanvas.RejectCommittedSegTranslation();
+                targetCanvas.SegRegions = session.GetSegRegions(context.AnnotationSetId, context.ImageId);
+                throw;
+            }
         }
 
         /// <summary>
@@ -2407,6 +2550,7 @@ namespace Neurocle.WinForms
             IProjectSession previous = project;
             project = replacement;
             previous?.Dispose();
+            ImageDecodeCache.Clear();
             InitializeImageImportQueue(replacement);
             ResetAnnotationOpacity();
             showAnnotations.Checked = true;

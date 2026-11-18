@@ -717,6 +717,18 @@ namespace Neurocle.Application.Projects
         /// <param name="regions">包含更新值的區域集合。</param>
         void UpdateSegRegions(IEnumerable<SegRegion> regions);
         /// <summary>
+        /// 保存由整體旋轉或縮放產生的 SEG 幾何；保留仍合法的橋接，必要時依既有規則重建。
+        /// </summary>
+        /// <param name="regions">包含整體變換結果的區域集合。</param>
+        IReadOnlyList<SegRegion> TransformSegRegions(IEnumerable<SegRegion> regions);
+        /// <summary>
+        /// 以共同整數位移移動指定 SEG 區域，並保留既有點序與橋接。
+        /// </summary>
+        /// <param name="regionIds">要共同移動的 SEG 區域識別碼。</param>
+        /// <param name="offsetX">水平整數位移。</param>
+        /// <param name="offsetY">垂直整數位移。</param>
+        void TranslateSegRegions(IEnumerable<string> regionIds, int offsetX, int offsetY);
+        /// <summary>
         /// 批次刪除 SEG 區域。
         /// </summary>
         /// <param name="regionIds">欲刪除的區域識別碼。</param>

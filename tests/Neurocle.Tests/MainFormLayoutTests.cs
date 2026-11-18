@@ -338,7 +338,7 @@ namespace Neurocle.Tests
                 Assert.AreEqual(9, tools.Controls.Count);
                 Assert.AreEqual("選取 V", tools.Controls[0].Text);
                 Assert.AreEqual("橡皮擦 E", tools.Controls[8].Text);
-                Assert.AreEqual(300, Field<ImageBrowserControl>(form, "imageBrowser").Width);
+                Assert.AreEqual(500, Field<ImageBrowserControl>(form, "imageBrowser").Width);
                 Assert.IsTrue(GetDescendants(form).OfType<CanvasScrollHost>().Count() == 2);
                 Button importImages = Field<Button>(form, "importImagesButton");
                 Button importFolder = Field<Button>(form, "importFolderButton");
@@ -901,9 +901,164 @@ namespace Neurocle.Tests
         }
 
         [STATestMethod]
+        public void Image_browser_right_click_on_unselected_row_or_blank_preserves_existing_selection()
+        {
+            using (var form = new Form { ClientSize = new Size(420, 300), ShowInTaskbar = false })
+            using (var browser = new ImageBrowserControl { Dock = DockStyle.Fill })
+            {
+                form.Controls.Add(browser);
+                var images = Enumerable.Range(1, 3)
+                    .Select(index => new ProjectImage("image-" + index, "image-" + index + ".png", "image-" + index + ".png", "sha-" + index, 10, 10, index))
+                    .ToArray();
+                browser.LoadImages(images, Path.GetTempPath());
+                browser.RetestContextMenuEnabled = true;
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+
+                ListView list = Field<ListView>(browser, "list");
+                list.SelectedIndices.Add(0);
+                list.SelectedIndices.Add(1);
+                System.Windows.Forms.Application.DoEvents();
+
+                SendRightButtonDown(list, Center(list.GetItemRect(2)));
+                System.Windows.Forms.Application.DoEvents();
+                CollectionAssert.AreEquivalent(new[] { images[0].Id, images[1].Id }, browser.SelectedImageIds.ToArray(), "Right-clicking an unselected row must not replace the batch selection.");
+
+                Point blank = new Point(10, Math.Min(list.ClientSize.Height - 1, list.GetItemRect(2).Bottom + 20));
+                SendRightButtonDown(list, blank);
+                System.Windows.Forms.Application.DoEvents();
+                CollectionAssert.AreEquivalent(new[] { images[0].Id, images[1].Id }, browser.SelectedImageIds.ToArray(), "Right-clicking blank list space must not clear the batch selection.");
+
+                Point originalCursor = Cursor.Position;
+                IReadOnlyList<string> clearedRetestImageIds = null;
+                IReadOnlyList<string> clearedClassImageIds = null;
+                IReadOnlyList<string> clearedDatasetImageIds = null;
+                try
+                {
+                    Cursor.Position = list.PointToScreen(Center(list.GetItemRect(2)));
+                    var unselectedOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(browser, "ImageMenu_Opening", null, unselectedOpening);
+                    Assert.IsTrue(unselectedOpening.Cancel, "An unselected row must not open the image menu.");
+
+                    Cursor.Position = list.PointToScreen(blank);
+                    var blankOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(browser, "ImageMenu_Opening", null, blankOpening);
+                    Assert.IsTrue(blankOpening.Cancel, "Blank list space must not open the image menu.");
+
+                    Cursor.Position = list.PointToScreen(Center(list.GetItemRect(0)));
+                    var selectedOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(browser, "ImageMenu_Opening", null, selectedOpening);
+                    Assert.IsFalse(selectedOpening.Cancel);
+                    ToolStripMenuItem clearRetest = Field<ToolStripMenuItem>(browser, "clearRetestItem");
+                    ToolStripMenuItem clearClass = Field<ToolStripMenuItem>(browser, "clearClassItem");
+                    ToolStripMenuItem clearDataset = Field<ToolStripMenuItem>(browser, "clearSetItem");
+                    Assert.IsTrue(clearRetest.Text.EndsWith("(2)", StringComparison.Ordinal));
+                    Assert.IsTrue(clearClass.Text.EndsWith("(2)", StringComparison.Ordinal));
+                    Assert.IsTrue(clearDataset.Text.EndsWith("(2)", StringComparison.Ordinal));
+
+                    browser.ClearRetestRequested += imageIds => clearedRetestImageIds = imageIds;
+                    browser.ClearClassRequested += imageIds => clearedClassImageIds = imageIds;
+                    browser.ClearDatasetRequested += imageIds => clearedDatasetImageIds = imageIds;
+                    list.SelectedIndices.Clear();
+                    list.SelectedIndices.Add(2);
+                    clearRetest.PerformClick();
+                    clearClass.PerformClick();
+                    clearDataset.PerformClick();
+                    string[] expected = { images[0].Id, images[1].Id };
+                    CollectionAssert.AreEquivalent(expected, clearedRetestImageIds.ToArray(), "Clear Retest must use the selection captured when the menu opened.");
+                    CollectionAssert.AreEquivalent(expected, clearedClassImageIds.ToArray(), "Clear class must use the selection captured when the menu opened.");
+                    CollectionAssert.AreEquivalent(expected, clearedDatasetImageIds.ToArray(), "Clear dataset must use the selection captured when the menu opened.");
+                }
+                finally
+                {
+                    Cursor.Position = originalCursor;
+                }
+            }
+        }
+
+        [STATestMethod]
+        public void Dataset_list_right_click_on_unselected_row_or_blank_preserves_existing_selection()
+        {
+            using (var form = new Form { ClientSize = new Size(900, 500), ShowInTaskbar = false })
+            using (var assignments = new DatasetAssignmentControl { Dock = DockStyle.Fill })
+            {
+                form.Controls.Add(assignments);
+                DatasetRow[] rows = Enumerable.Range(1, 3)
+                    .Select(index =>
+                    {
+                        var image = new ProjectImage("image-" + index, "image-" + index + ".png", "image-" + index + ".png", "sha-" + index, 10, 10, index);
+                        return new DatasetRow(image, new DatasetAssignment("set", image.Id, DatasetAssignmentStatus.Unassigned, false), new string[0], 0);
+                    })
+                    .ToArray();
+                assignments.LoadRows(rows);
+                form.Show();
+                System.Windows.Forms.Application.DoEvents();
+
+                ListView list = Field<ListView>(assignments, "list");
+                list.SelectedIndices.Add(0);
+                list.SelectedIndices.Add(1);
+                System.Windows.Forms.Application.DoEvents();
+
+                SendRightButtonDown(list, Center(list.GetItemRect(2)));
+                System.Windows.Forms.Application.DoEvents();
+                CollectionAssert.AreEquivalent(new[] { rows[0].Image.Id, rows[1].Image.Id }, assignments.SelectedImageIds.ToArray(), "Right-clicking an unselected dataset row must not replace the batch selection.");
+
+                Point blank = new Point(10, Math.Min(list.ClientSize.Height - 1, list.GetItemRect(2).Bottom + 20));
+                SendRightButtonDown(list, blank);
+                System.Windows.Forms.Application.DoEvents();
+                CollectionAssert.AreEquivalent(new[] { rows[0].Image.Id, rows[1].Image.Id }, assignments.SelectedImageIds.ToArray(), "Right-clicking blank dataset space must not clear the batch selection.");
+
+                Point originalCursor = Cursor.Position;
+                IReadOnlyList<string> clearedRetestImageIds = null;
+                IReadOnlyList<string> clearedClassImageIds = null;
+                IReadOnlyList<string> clearedDatasetImageIds = null;
+                try
+                {
+                    Cursor.Position = list.PointToScreen(Center(list.GetItemRect(2)));
+                    var unselectedOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(assignments, "DatasetMenu_Opening", null, unselectedOpening);
+                    Assert.IsTrue(unselectedOpening.Cancel, "An unselected row must not open the dataset menu.");
+
+                    Cursor.Position = list.PointToScreen(blank);
+                    var blankOpening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(assignments, "DatasetMenu_Opening", null, blankOpening);
+                    Assert.IsTrue(blankOpening.Cancel, "Blank list space must not open the dataset menu.");
+
+                    Cursor.Position = list.PointToScreen(Center(list.GetItemRect(0)));
+                    var opening = new System.ComponentModel.CancelEventArgs();
+                    Invoke(assignments, "DatasetMenu_Opening", null, opening);
+                    Assert.IsFalse(opening.Cancel);
+                    ToolStripMenuItem clearRetest = Field<ToolStripMenuItem>(assignments, "clearRetestItem");
+                    ToolStripMenuItem clearClass = Field<ToolStripMenuItem>(assignments, "clearClassItem");
+                    ToolStripMenuItem clearDataset = Field<ToolStripMenuItem>(assignments, "clearSetItem");
+                    Assert.IsTrue(clearRetest.Text.EndsWith("(2)", StringComparison.Ordinal));
+                    Assert.IsTrue(clearClass.Text.EndsWith("(2)", StringComparison.Ordinal));
+                    Assert.IsTrue(clearDataset.Text.EndsWith("(2)", StringComparison.Ordinal));
+
+                    assignments.ClearRetestRequested += imageIds => clearedRetestImageIds = imageIds;
+                    assignments.ClearClassRequested += imageIds => clearedClassImageIds = imageIds;
+                    assignments.ClearDatasetRequested += imageIds => clearedDatasetImageIds = imageIds;
+                    list.SelectedIndices.Clear();
+                    list.SelectedIndices.Add(2);
+                    clearRetest.PerformClick();
+                    clearClass.PerformClick();
+                    clearDataset.PerformClick();
+                    string[] expected = { rows[0].Image.Id, rows[1].Image.Id };
+                    CollectionAssert.AreEquivalent(expected, clearedRetestImageIds.ToArray(), "Clear Retest must use the selection captured when the menu opened.");
+                    CollectionAssert.AreEquivalent(expected, clearedClassImageIds.ToArray(), "Clear class must use the selection captured when the menu opened.");
+                    CollectionAssert.AreEquivalent(expected, clearedDatasetImageIds.ToArray(), "Clear dataset must use the selection captured when the menu opened.");
+                }
+                finally
+                {
+                    Cursor.Position = originalCursor;
+                }
+            }
+        }
+
+        [STATestMethod]
         public void Image_browser_shift_wheel_scrolls_horizontally_without_changing_selection_or_filter()
         {
-            using (var form = new Form { ClientSize = new Size(260, 230), ShowInTaskbar = false })
+            using (var form = new Form { ClientSize = new Size(150, 230), ShowInTaskbar = false })
             using (var browser = new ImageBrowserControl { Dock = DockStyle.Fill })
             {
                 form.Controls.Add(browser);
@@ -1139,8 +1294,152 @@ namespace Neurocle.Tests
                 ProjectImage image = new ProjectImage("image", "image.png", "image.png", "hash", 1, 1, 1);
                 control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, false) }, Path.GetTempPath());
                 Assert.IsFalse(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+                Assert.IsTrue(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "類別"));
                 control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, true) }, Path.GetTempPath());
                 Assert.IsTrue(list.Columns.Cast<ColumnHeader>().Any(column => column.Text == "標註數量"));
+                control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, false, false) }, Path.GetTempPath());
+                Assert.AreEqual(2, list.Columns.Count, "The image page must only show sequence and file name columns.");
+                control.LoadRows(new[] { new ImageListRow(image, new[] { "class1" }, 1, true, true) }, Path.GetTempPath());
+                Assert.AreEqual(4, list.Columns.Count, "Annotation pages must show class and annotation count columns when applicable.");
+            }
+        }
+
+        [TestMethod]
+        public void Image_browser_virtual_items_cover_stale_native_column_requests()
+        {
+            using (var browser = new ImageBrowserControl())
+            {
+                ProjectImage image = new ProjectImage("image", "image.png", "image.png", "hash", 1, 1, 1);
+                browser.LoadImages(new[] { image }, Path.GetTempPath());
+                var args = new RetrieveVirtualItemEventArgs(0);
+                Invoke(browser, "RetrieveVirtualItem", browser, args);
+
+                Assert.AreEqual(6, args.Item.SubItems.Count,
+                    "A virtual item must cover the maximum native column shape while queued column notifications are being drained.");
+                Assert.AreEqual("image.png", args.Item.SubItems[1].Text);
+            }
+        }
+
+        [STATestMethod]
+        public void Workflow_pages_show_dataset_retest_columns_and_clear_menus_in_the_approved_matrix()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "image.png");
+            ProjectStore store = null;
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black);
+                store = ProjectStore.Create(projectPath);
+                ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
+                AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationSet claSet = store.CreateAnnotationSet("classification", AnnotationSetType.Cla);
+                store.SetDatasetAssignments(set.Id, new[] { image.Id }, DatasetAssignmentStatus.Train);
+                store.SetRetest(set.Id, new[] { image.Id }, true);
+                store.AddSegRegion(set.Id, image.Id, store.GetClasses(set.Id).Single().Id, SegRegionType.Rect, 1, 1, 3, 3);
+                using (var form = new MainForm(new ProjectLifecycle()))
+                {
+                    Invoke(form, "ReplaceProject", store);
+                    form.Show();
+                    ComboBox annotationSets = Field<ComboBox>(form, "annotationSets");
+                    annotationSets.SelectedItem = AnnotationSet(annotationSets, set.Id);
+                    TabControl pages = Field<TabControl>(form, "pages");
+                    ListView imageList = Field<ListView>(form.ImageBrowser, "list");
+
+                    pages.SelectedTab = Field<TabPage>(form, "annotationPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    pages.SelectedTab = Field<TabPage>(form, "imagesPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    string[] imageColumns = imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray();
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名" }, imageColumns, "Actual: " + string.Join(", ", imageColumns));
+                    Assert.IsFalse(form.ImageBrowser.RetestContextMenuEnabled);
+
+                    pages.SelectedTab = Field<TabPage>(form, "annotationPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    Assert.IsTrue(form.ImageBrowser.RetestContextMenuEnabled);
+                    Assert.IsTrue(imageList.Columns.Cast<ColumnHeader>().Sum(column => column.Width) + SystemInformation.VerticalScrollBarWidth <= imageList.ClientSize.Width,
+                        "All approved left-list columns must remain visible without horizontal scrolling when the vertical scrollbar is present.");
+
+                    pages.SelectedTab = Field<TabPage>(form, "datasetPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    Assert.IsTrue(form.ImageBrowser.RetestContextMenuEnabled);
+                    ListView datasetList = Field<ListView>(form.DatasetAssignments, "list");
+                    Assert.IsTrue(datasetList.Columns.Cast<ColumnHeader>().Any(column => column.Text == "資料集"));
+                    Assert.IsTrue(datasetList.Columns.Cast<ColumnHeader>().Any(column => column.Text == "Retest"));
+                    Assert.IsNotNull(datasetList.ContextMenuStrip);
+
+                    pages.SelectedTab = Field<TabPage>(form, "exportPage");
+                    System.Windows.Forms.Application.DoEvents();
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    Assert.IsTrue(form.ImageBrowser.RetestContextMenuEnabled);
+
+                    annotationSets.SelectedItem = AnnotationSet(annotationSets, claSet.Id);
+                    foreach (TabPage page in new[]
+                    {
+                        Field<TabPage>(form, "annotationPage"),
+                        Field<TabPage>(form, "datasetPage"),
+                        Field<TabPage>(form, "exportPage")
+                    })
+                    {
+                        pages.SelectedTab = page;
+                        System.Windows.Forms.Application.DoEvents();
+                        CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    }
+                }
+            }
+            finally
+            {
+                store?.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [TestMethod]
+        public void Zero_annotation_counts_are_blank_in_image_and_dataset_lists()
+        {
+            ProjectImage image = new ProjectImage("image", "image.png", "image.png", "hash", 1, 1, 1);
+            using (var browser = new ImageBrowserControl())
+            {
+                browser.LoadRows(new[] { new ImageListRow(image, new string[0], 0, true, true) }, Path.GetTempPath());
+                var args = new RetrieveVirtualItemEventArgs(0);
+                Invoke(browser, "RetrieveVirtualItem", browser, args);
+                Assert.AreEqual(string.Empty, args.Item.SubItems[3].Text);
+            }
+            using (var assignments = new DatasetAssignmentControl())
+            {
+                assignments.LoadRows(new[] { new DatasetRow(image, new DatasetAssignment("set", image.Id, DatasetAssignmentStatus.Unassigned, false), new string[0], 0) }, true);
+                var args = new RetrieveVirtualItemEventArgs(0);
+                Invoke(assignments, "List_RetrieveVirtualItem", assignments, args);
+                int countIndex = Field<ListView>(assignments, "list").Columns.Cast<ColumnHeader>().Select((column, index) => new { column, index }).Single(value => value.column.Text == "標註數量").index;
+                Assert.AreEqual(string.Empty, args.Item.SubItems[countIndex].Text);
+            }
+        }
+
+        [STATestMethod]
+        public void Dataset_shift_multiselect_mouse_up_enables_split_selected()
+        {
+            using (var assignments = new DatasetAssignmentControl())
+            {
+                ProjectImage first = new ProjectImage("first", "first.png", "first.png", "first", 1, 1, 1);
+                ProjectImage second = new ProjectImage("second", "second.png", "second.png", "second", 2, 1, 1);
+                assignments.LoadRows(new[]
+                {
+                    new DatasetRow(first, new DatasetAssignment("set", first.Id, DatasetAssignmentStatus.Unassigned, false), new string[0], 0),
+                    new DatasetRow(second, new DatasetAssignment("set", second.Id, DatasetAssignmentStatus.Unassigned, false), new string[0], 0)
+                });
+                assignments.CreateControl();
+                ListView list = Field<ListView>(assignments, "list");
+                Button splitSelected = Field<Button>(assignments, "splitSelectedButton");
+                list.SelectedIndices.Add(0);
+                list.SelectedIndices.Add(1);
+                splitSelected.Enabled = false;
+
+                typeof(Control).GetMethod("OnMouseUp", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(list, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 1, 1, 0) });
+
+                Assert.IsTrue(splitSelected.Enabled, "The final Shift-click mouse-up must resample the stable multi-selection.");
             }
         }
 
@@ -1152,7 +1451,7 @@ namespace Neurocle.Tests
             using (var canvasHost = new CanvasScrollHost())
             {
                 ListView imageList = Field<ListView>(imageBrowser, "list");
-                Assert.AreEqual(3, imageList.Columns.Count);
+                Assert.AreEqual(2, imageList.Columns.Count);
                 Assert.AreEqual(0, imageList.VirtualListSize);
                 Assert.AreEqual("search", Field<TextBox>(imageBrowser, "search").Name);
                 Assert.AreEqual(0, imageList.TabIndex);
@@ -1432,12 +1731,16 @@ namespace Neurocle.Tests
                     form.PerformLayout();
                     TabPage annotations = form.Controls.OfType<TabControl>().Single().TabPages[1];
                     Control sidebar = Field<Control>(form, "annotationSidebar");
+                    ImageBrowserControl imageBrowser = Field<ImageBrowserControl>(form, "imageBrowser");
                     FlowLayoutPanel header = annotations.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.Dock == DockStyle.Top);
 
+                    Assert.AreEqual(500, imageBrowser.Width, "Image browser width must stay in device pixels at {0:P0} DPI.", scale);
                     Assert.IsTrue(header.Bottom <= annotations.ClientSize.Height, "Header exceeds page height at {0:P0} DPI.", scale);
                     Assert.IsTrue(sidebar.Right <= annotations.ClientSize.Width, "Sidebar exceeds page width at {0:P0} DPI.", scale);
                     Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Top >= header.Bottom, "Canvas overlaps header at {0:P0} DPI.", scale);
-                    Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Right <= sidebar.Left, "Canvas overlaps sidebar at {0:P0} DPI.", scale);
+                    Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Right <= sidebar.Left,
+                        "Canvas overlaps sidebar at {0:P0} DPI (image browser width {1}, canvas right {2}, sidebar left {3}, page width {4}).",
+                        scale, imageBrowser.Width, CanvasHost(form.AnnotationCanvas).Right, sidebar.Left, annotations.ClientSize.Width);
                 }
             }
         }
@@ -1578,7 +1881,7 @@ namespace Neurocle.Tests
                     canvas.SegRegions = new[] { original };
                     canvas.SelectAllSeg();
                     int changed = 0;
-                    canvas.SegRegionsChanged += regions => changed++;
+                    canvas.SegRegionsTranslated += (ids, x, y) => changed++;
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Select;
                     start = ImagePointToScreen(canvas, 10, 10);
                     end = ImagePointToScreen(canvas, 18, 18);
@@ -1848,9 +2151,9 @@ namespace Neurocle.Tests
                     canvas.SelectAllObd();
                     ObdAnnotation[] originalObd = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
 
-                    RaiseKey(form, new KeyEventArgs(Keys.Right));
-                    RaiseKey(form, new KeyEventArgs(Keys.Right));
-                    RaiseKey(form, new KeyEventArgs(Keys.Right));
+                    ProcessCommandKey(form, Keys.Right);
+                    ProcessCommandKey(form, Keys.Right);
+                    ProcessCommandKey(form, Keys.Right);
                     CollectionAssert.AreEqual(originalObd.Select(value => value.X).ToArray(), store.GetObdAnnotations(obdSet.Id, images[0].Id).Select(value => value.X).ToArray(), "Repeated keydown should preview movement without writing history yet.");
                     RaiseKeyUp(form, new KeyEventArgs(Keys.Right));
                     ObdAnnotation[] movedObd = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
@@ -1861,7 +2164,7 @@ namespace Neurocle.Tests
 
                     foreach (Keys key in new[] { Keys.Up, Keys.Down, Keys.Left, Keys.Right })
                     {
-                        RaiseKey(form, new KeyEventArgs(key));
+                        ProcessCommandKey(form, key);
                         RaiseKeyUp(form, new KeyEventArgs(key));
                         ObdAnnotation[] moved = store.GetObdAnnotations(obdSet.Id, images[0].Id).ToArray();
                         int expectedX = key == Keys.Left ? -1 : key == Keys.Right ? 1 : 0;
@@ -1900,6 +2203,16 @@ namespace Neurocle.Tests
                     CollectionAssert.AreEqual(originalSeg.Select(value => value.Y + 2).ToArray(), movedSeg.Select(value => value.Y).ToArray());
                     Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
                     CollectionAssert.AreEqual(originalSeg.Select(value => value.Y).ToArray(), store.GetSegRegions(segSet.Id, images[0].Id).Select(value => value.Y).ToArray(), "One Undo should revert the whole held-key SEG movement.");
+
+                    canvas.SelectSegRegions(new[] { originalSeg[0].Id });
+                    RaiseKey(form, new KeyEventArgs(Keys.Down));
+                    canvas.SelectAllSeg();
+                    canvas.Refresh();
+                    RaiseKeyUp(form, new KeyEventArgs(Keys.Down));
+                    SegRegion[] selectionChangedDuringNudge = store.GetSegRegions(segSet.Id, images[0].Id).ToArray();
+                    Assert.AreEqual(originalSeg[0].Y + 1, selectionChangedDuringNudge.Single(value => value.Id == originalSeg[0].Id).Y, "A held-key gesture must commit only the selection captured when it started.");
+                    Assert.AreEqual(originalSeg[1].Y, selectionChangedDuringNudge.Single(value => value.Id == originalSeg[1].Id).Y, "A region selected during an active nudge must not move without preview or boundary validation.");
+                    Invoke(form, "UndoOrRedoSelectedAnnotationSet", false);
                     form.Close();
                     store = null;
                 }
@@ -1972,6 +2285,8 @@ namespace Neurocle.Tests
                     form.Show();
                     System.Windows.Forms.Application.DoEvents();
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
                     SetField(form, "annotationOperationInProgress", true);
                     form.ImageBrowser.SelectImage(images[1].Id);
                     form.ImageBrowser.SelectImage(images[2].Id);
@@ -2551,7 +2866,7 @@ namespace Neurocle.Tests
                     canvas.SegRegions = regions;
                     canvas.SelectAllSeg();
                     IReadOnlyList<SegRegion> changed = null;
-                    canvas.SegRegionsChanged += value =>
+                    canvas.SegRegionsTransformed += value =>
                     {
                         changed = value;
                         Dictionary<string, SegRegion> updates = value.ToDictionary(region => region.Id, StringComparer.Ordinal);
@@ -2618,7 +2933,7 @@ namespace Neurocle.Tests
                     };
                     canvas.SelectAllSeg();
                     IReadOnlyList<SegRegion> changed = null;
-                    canvas.SegRegionsChanged += value => changed = value;
+                    canvas.SegRegionsTransformed += value => changed = value;
 
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 6, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 35, 6, 0));
@@ -2671,9 +2986,9 @@ namespace Neurocle.Tests
                     canvas.SegClasses = new Dictionary<string, AnnotationClass> { { annotationClass.Id, annotationClass } };
                     canvas.SegRegions = original;
                     canvas.SelectAllSeg();
-                    canvas.SegRegionsChanged += value =>
+                    canvas.SegRegionsTransformed += value =>
                     {
-                        store.UpdateSegRegions(value);
+                        store.TransformSegRegions(value);
                         canvas.SegRegions = store.GetSegRegions(setId, imageId);
                     };
 
@@ -2704,6 +3019,86 @@ namespace Neurocle.Tests
                 store?.Dispose();
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
             }
+        }
+
+        [STATestMethod]
+        public void Transform_fallback_applies_the_canonical_persisted_bridge_to_the_canvas()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var store = ProjectStore.Create(projectPath))
+                using (var canvas = new ImageCanvasControl())
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("fallback", AnnotationSetType.Seg);
+                    string classId = store.GetClasses(set.Id).Single().Id;
+                    Path64 bridge = SegGeometryPrototype.BridgeHoles(
+                        SegGeometryPrototype.Rectangle(0, 0, 100, 100),
+                        new[] { SegGeometryPrototype.Rectangle(20, 20, 40, 40) });
+                    SegRegion original = store.AddSegPath(set.Id, image.Id, classId, SegRegionType.PolyGon, bridge.Select(point => new SegPoint((int)point.X, (int)point.Y)).ToArray(), 0);
+                    canvas.SegRegions = new[] { original };
+                    SegPoint[] invalidBridge = original.Points.ToArray();
+                    invalidBridge[5] = invalidBridge[9] = new SegPoint(40, 20);
+                    invalidBridge[6] = new SegPoint(20, 20);
+                    invalidBridge[7] = new SegPoint(20, 40);
+                    invalidBridge[8] = new SegPoint(40, 40);
+                    var requested = new SegRegion(original.Id, original.AnnotationSetId, original.ImageId, original.ClassId, original.Type, 0, 0, 0, 0, original.ZOrder, invalidBridge);
+
+                    MainForm.TransformSegRegions(store, canvas, new[] { requested });
+
+                    SegRegion persisted = store.GetSegRegions(set.Id, image.Id).Single();
+                    CollectionAssert.AreEqual(persisted.Points.Select(point => point.X + "," + point.Y).ToArray(), canvas.SegRegions.Single().Points.Select(point => point.X + "," + point.Y).ToArray());
+                    CollectionAssert.AreNotEqual(requested.Points.Select(point => point.X + "," + point.Y).ToArray(), persisted.Points.Select(point => point.X + "," + point.Y).ToArray(), "Fallback must replace the invalid requested bridge.");
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
+
+        [STATestMethod]
+        public void Failed_translation_clears_the_committed_bitmap_and_restores_session_geometry()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string projectPath = Path.Combine(directory, "project.neurocle");
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                CreateSolidImage(imagePath, Color.Black, 100);
+                using (var store = ProjectStore.Create(projectPath))
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                {
+                    ProjectImage image = store.ImportFiles(new[] { imagePath })[0];
+                    AnnotationSet set = store.CreateAnnotationSet("rollback", AnnotationSetType.Seg);
+                    AnnotationClass annotationClass = store.GetClasses(set.Id).Single();
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { annotationClass.Id, annotationClass } };
+                    canvas.SegRegions = new[] { new SegRegion("missing", set.Id, image.Id, annotationClass.Id, SegRegionType.Rect, 20, 20, 30, 30, 0) };
+                    canvas.SelectAllSeg();
+                    Exception failure = null;
+                    canvas.SegRegionsTranslated += (ids, x, y) =>
+                    {
+                        try { MainForm.TranslateSegRegions(store, canvas, ids, x, y); }
+                        catch (Exception exception) { failure = exception; }
+                    };
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 30, 30, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 35, 35, 0));
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 35, 35, 0));
+
+                    Assert.IsInstanceOfType(failure, typeof(ArgumentException));
+                    Assert.AreEqual(0, canvas.SegRegions.Count);
+                    Assert.IsNull(Field<Bitmap>(canvas, "committedSegBitmap"), "A failed persistence step must not leave the moved preview bitmap visible.");
+                    Assert.IsFalse(store.CanUndo(set.Id));
+                }
+            }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
 
         [STATestMethod]
@@ -2754,7 +3149,16 @@ namespace Neurocle.Tests
                     };
                     canvas.SelectAllSeg();
                     IReadOnlyList<SegRegion> changedSeg = null;
-                    canvas.SegRegionsChanged += value => changedSeg = value;
+                    IReadOnlyCollection<string> translatedSegIds = null;
+                    int translatedSegX = 0;
+                    int translatedSegY = 0;
+                    canvas.SegRegionsTransformed += value => changedSeg = value;
+                    canvas.SegRegionsTranslated += (ids, offsetX, offsetY) =>
+                    {
+                        translatedSegIds = ids;
+                        translatedSegX = offsetX;
+                        translatedSegY = offsetY;
+                    };
 
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 5, 5, 0));
@@ -2766,11 +3170,52 @@ namespace Neurocle.Tests
                     Assert.AreEqual(new Rectangle(5, 5, 25, 25), new Rectangle(changedSeg[0].X, changedSeg[0].Y, changedSeg[0].Width, changedSeg[0].Height));
 
                     changedSeg = null;
+                    translatedSegIds = null;
                     RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
                     RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 25, 25, 0));
-                    Assert.IsNotNull(changedSeg);
-                    CollectionAssert.AreEquivalent(new[] { "first", "second" }, changedSeg.Select(region => region.Id).ToArray(), "Dragging a selected SEG body must keep group movement.");
+                    Assert.IsNull(changedSeg, "A pure SEG body move must use the incremental translation event.");
+                    Assert.IsNotNull(translatedSegIds);
+                    CollectionAssert.AreEquivalent(new[] { "first", "second" }, translatedSegIds.ToArray(), "Dragging a selected SEG body must keep group movement.");
+                    Assert.AreEqual(5, translatedSegX);
+                    Assert.AreEqual(5, translatedSegY);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [STATestMethod]
+        public void Dragging_a_partially_offscreen_SEG_into_view_keeps_the_entire_preview_visible()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "Neurocle.Tests", Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(directory, "source.png");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using (var image = new Bitmap(200, 100))
+                {
+                    using (Graphics graphics = Graphics.FromImage(image)) graphics.Clear(Color.Black);
+                    image.Save(imagePath, ImageFormat.Png);
+                }
+                using (var canvas = new ImageCanvasControl { Size = new Size(100, 100), SegEnabled = true, SegTool = ImageCanvasControl.SegToolKind.Select })
+                {
+                    canvas.CreateControl();
+                    canvas.LoadImage(imagePath);
+                    WaitForImage(canvas, imagePath);
+                    canvas.SetViewState(new ImageCanvasControl.CanvasViewState(1d, new PointF(-30f, 0f), false));
+                    canvas.SegClasses = new Dictionary<string, AnnotationClass> { { "class", new AnnotationClass("class", "set", "label", "#00FF00") } };
+                    canvas.SegRegions = new[] { new SegRegion("region", "set", "image", "class", SegRegionType.Rect, 10, 30, 40, 40, 0) };
+                    canvas.SelectAllSeg();
+
+                    RaiseMouse(canvas, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 10, 50, 0));
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, 50, 50, 0));
+
+                    Color exposedPreview = RenderPixel(canvas, 30, 50);
+                    Assert.IsTrue(exposedPreview.G > exposedPreview.R && exposedPreview.G > exposedPreview.B, "Pixels that started outside the viewport must appear when the selected SEG is dragged into view.");
+                    RaiseMouse(canvas, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 0, 50, 50, 0));
                 }
             }
             finally
@@ -3052,9 +3497,13 @@ namespace Neurocle.Tests
 
                     RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
                     Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb());
+                    ImageCanvasControl.CanvasViewState viewBeforeReload = canvas.ViewState;
                     canvas.LoadImage(imagePath);
                     WaitForImage(canvas, imagePath);
-                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb(), "Switching images under the pointer should restore the cursor at its current location.");
+                    Assert.AreEqual(viewBeforeReload.Zoom, canvas.ViewState.Zoom, 0.001d);
+                    Assert.AreEqual(viewBeforeReload.Origin, canvas.ViewState.Origin);
+                    RaiseMouse(canvas, "OnMouseMove", new MouseEventArgs(MouseButtons.None, 0, 50, 50, 0));
+                    Assert.AreEqual(Color.White.ToArgb(), RenderPixel(canvas, 35, 50).ToArgb(), "Switching same-size images should preserve the view and restore the cursor at its current location.");
 
                     canvas.SetZoomPercent(100);
                     canvas.SegTool = ImageCanvasControl.SegToolKind.Rect;
@@ -4308,6 +4757,8 @@ namespace Neurocle.Tests
                     imageList.SelectedIndices.Add(smallIndex);
                     System.Windows.Forms.Application.DoEvents();
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(sourceImage, Path.Combine(store.ImagesDirectory, sourceImage.ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, sourceImage.ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, sourceImage.ManagedFileName));
                     form.AnnotationCanvas.SelectAllObd();
 
                     RaiseKey(form, new KeyEventArgs(Keys.Control | Keys.C));
@@ -4852,8 +5303,12 @@ namespace Neurocle.Tests
                     AssertClassButtonIsActive(claOtherButton, AnnotationColorFormat.ToColor(claOther.Color));
                     AssertClassButtonIsInactive(classes.Controls.OfType<Button>().Single(button => button.Text == claDefault.Name));
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[0], Path.Combine(store.ImagesDirectory, images[0].ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, images[0].ManagedFileName));
                     Assert.IsFalse(classes.Controls.OfType<Button>().Any(button => button.FlatAppearance.BorderSize > 1));
                     Invoke(form, "ApplyImageSelection", new ImageSelectedEventArgs(images[1], Path.Combine(store.ImagesDirectory, images[1].ManagedFileName)));
+                    WaitForImage(form.ImageCanvas, Path.Combine(store.ImagesDirectory, images[1].ManagedFileName));
+                    WaitForImage(form.AnnotationCanvas, Path.Combine(store.ImagesDirectory, images[1].ManagedFileName));
                     AssertClassButtonIsActive(classes.Controls.OfType<Button>().Single(button => button.Text == claOther.Name), AnnotationColorFormat.ToColor(claOther.Color));
                 }
                 store.Dispose();
@@ -5742,6 +6197,13 @@ namespace Neurocle.Tests
             typeof(Control).GetMethod("OnKeyUp", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { args });
         }
 
+        private static bool ProcessCommandKey(MainForm form, Keys key)
+        {
+            Message message = Message.Create(form.Handle, 0x100, (IntPtr)key, IntPtr.Zero);
+            object[] arguments = { message, key };
+            return (bool)typeof(MainForm).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, arguments);
+        }
+
         private static Point ImagePointToScreen(ImageCanvasControl canvas, int x, int y)
         {
             ImageCanvasControl.CanvasViewState state = canvas.ViewState;
@@ -5816,7 +6278,7 @@ namespace Neurocle.Tests
         private static extern bool GetScrollInfo(IntPtr handle, int bar, ref ScrollInfo info);
 
         [DllImport("user32.dll", EntryPoint = "SendMessage", CharSet = CharSet.Auto)]
-        private static extern IntPtr SendWheelMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
+        private static extern IntPtr SendWindowMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
 
         private static ScrollInfo ReadScrollInfo(Control control, int bar)
         {
@@ -5837,7 +6299,19 @@ namespace Neurocle.Tests
             const int shiftKey = 0x0004;
             long keyState = shift ? shiftKey : 0;
             long wheelParameter = keyState | ((long)unchecked((ushort)(short)delta) << 16);
-            SendWheelMessage(control.Handle, mouseWheelMessage, new IntPtr(wheelParameter), IntPtr.Zero);
+            SendWindowMessage(control.Handle, mouseWheelMessage, new IntPtr(wheelParameter), IntPtr.Zero);
+        }
+
+        private static Point Center(Rectangle bounds)
+        {
+            return new Point(bounds.Left + (bounds.Width / 2), bounds.Top + (bounds.Height / 2));
+        }
+
+        private static void SendRightButtonDown(Control control, Point location)
+        {
+            const int rightButtonDownMessage = 0x0204;
+            long position = unchecked((ushort)(short)location.X) | ((long)unchecked((ushort)(short)location.Y) << 16);
+            SendWindowMessage(control.Handle, rightButtonDownMessage, new IntPtr(0x0002), new IntPtr(position));
         }
 
         private static T Field<T>(object target, string fieldName)

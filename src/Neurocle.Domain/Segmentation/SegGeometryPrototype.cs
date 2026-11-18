@@ -8,6 +8,8 @@ namespace Neurocle.Domain.Segmentation
     // 以 Clipper2 整數路徑執行 SEG 幾何運算與空洞橋接網路建立。
     public static class SegGeometryPrototype
     {
+        private const long ExactContourDistancePairLimit = 65536;
+
         /// <summary>
         /// 聯集兩組路徑；只有重疊面積大於零時才合併互相接觸的區域。
         /// </summary>
@@ -209,21 +211,30 @@ namespace Neurocle.Domain.Segmentation
             {
                 throw new ArgumentException("Existing bridge endpoints must refer to two distinct contours.", nameof(existingConnections));
             }
-            var candidates = new List<BridgeSelection>();
-            for (int first = 0; first < contours.Length; first++)
-            for (int second = first + 1; second < contours.Length; second++)
+            var existingCandidates = new List<BridgeSelection>();
+            foreach (BridgeConnection connection in existing)
             {
+                int first = connection.FirstContourIndex, second = connection.SecondContourIndex;
                 Path64[] blockers = holePaths.Where((_, index) => index + 1 != first && index + 1 != second).ToArray();
+                if (IsLegalBridge(connection.FirstPoint, connection.SecondPoint, contours[first], contours[second], outerPath, holePaths, blockers))
+                    existingCandidates.Add(new BridgeSelection(connection.FirstPoint, connection.SecondPoint, first, second, true));
+            }
+            var candidates = new List<BridgeSelection>(existingCandidates);
+            ContourBounds[] bounds = contours.Select(path => new ContourBounds(path)).ToArray();
+            ContourCandidate[] pending = Enumerable.Range(0, contours.Length)
+                .SelectMany(first => Enumerable.Range(first + 1, contours.Length - first - 1).Select(second =>
+                    new ContourCandidate(first, second, ContourDistanceLowerBound(contours[first], contours[second], bounds[first], bounds[second]))))
+                .Where(pair => !existingCandidates.Any(edge => edge.FirstContourIndex == pair.FirstIndex && edge.SecondContourIndex == pair.SecondIndex
+                    && SquaredDistance(edge.FirstPoint, edge.SecondPoint) == pair.LowerBound))
+                .OrderBy(value => value.LowerBound).ThenBy(value => value.FirstIndex).ThenBy(value => value.SecondIndex).ToArray();
+            for (int index = 0; index < pending.Length; index++)
+            {
+                int first = pending[index].FirstIndex, second = pending[index].SecondIndex;
+                Path64[] blockers = holePaths.Where((_, holeIndex) => holeIndex + 1 != first && holeIndex + 1 != second).ToArray();
                 BridgeSelection candidate = FindShortestLegalBridge(contours[first], contours[second], outerPath, holePaths, blockers, first, second);
                 if (candidate != null) candidates.Add(candidate);
-                foreach (BridgeConnection connection in existing.Where(link => link.FirstContourIndex == first && link.SecondContourIndex == second))
-                {
-                    // 只把仍符合目前幾何限制的舊端點納入候選，供等距排序優先保留。
-                    if (IsLegalBridge(connection.FirstPoint, connection.SecondPoint, contours[first], contours[second], outerPath, holePaths, blockers))
-                    {
-                        candidates.Add(new BridgeSelection(connection.FirstPoint, connection.SecondPoint, first, second, true));
-                    }
-                }
+                long maximum;
+                if (index + 1 < pending.Length && TryGetSpanningTreeMaximum(candidates, contours.Length, out maximum) && pending[index + 1].LowerBound > maximum) break;
             }
             candidates.Sort();
             // 依最短合法候選逐一合併不相連集合，形成不含循環的最小生成樹。
@@ -252,6 +263,53 @@ namespace Neurocle.Domain.Segmentation
             return BuildBridgeNetwork(contours, selected);
         }
 
+        private static long ContourDistanceLowerBound(Path64 first, Path64 second, ContourBounds firstBounds, ContourBounds secondBounds)
+        {
+            if ((long)first.Count * second.Count <= ExactContourDistancePairLimit)
+            {
+                double minimum = double.MaxValue;
+                for (int firstIndex = 0; firstIndex < first.Count; firstIndex++)
+                for (int secondIndex = 0; secondIndex < second.Count; secondIndex++)
+                {
+                    Point64 firstStart = first[firstIndex], firstEnd = first[(firstIndex + 1) % first.Count];
+                    Point64 secondStart = second[secondIndex], secondEnd = second[(secondIndex + 1) % second.Count];
+                    double firstParameter, secondParameter;
+                    ClosestSegmentParameters(firstStart, firstEnd, secondStart, secondEnd, out firstParameter, out secondParameter);
+                    double firstX = firstStart.X + (firstEnd.X - firstStart.X) * firstParameter;
+                    double firstY = firstStart.Y + (firstEnd.Y - firstStart.Y) * firstParameter;
+                    double secondX = secondStart.X + (secondEnd.X - secondStart.X) * secondParameter;
+                    double secondY = secondStart.Y + (secondEnd.Y - secondStart.Y) * secondParameter;
+                    double candidateX = firstX - secondX, candidateY = firstY - secondY;
+                    minimum = Math.Min(minimum, candidateX * candidateX + candidateY * candidateY);
+                }
+                return minimum >= long.MaxValue ? long.MaxValue : (long)Math.Floor(minimum);
+            }
+
+            double x = firstBounds.MaximumX < secondBounds.MinimumX ? (double)secondBounds.MinimumX - firstBounds.MaximumX
+                : secondBounds.MaximumX < firstBounds.MinimumX ? (double)firstBounds.MinimumX - secondBounds.MaximumX : 0;
+            double y = firstBounds.MaximumY < secondBounds.MinimumY ? (double)secondBounds.MinimumY - firstBounds.MaximumY
+                : secondBounds.MaximumY < firstBounds.MinimumY ? (double)firstBounds.MinimumY - secondBounds.MaximumY : 0;
+            double distance = x * x + y * y;
+            return distance >= long.MaxValue ? long.MaxValue : (long)Math.Floor(distance);
+        }
+
+        private static bool TryGetSpanningTreeMaximum(IEnumerable<BridgeSelection> candidates, int contourCount, out long maximum)
+        {
+            var parent = Enumerable.Range(0, contourCount).ToArray();
+            int selected = 0;
+            maximum = 0;
+            foreach (BridgeSelection candidate in candidates.OrderBy(value => value))
+            {
+                int firstRoot = FindRoot(parent, candidate.FirstContourIndex), secondRoot = FindRoot(parent, candidate.SecondContourIndex);
+                if (firstRoot == secondRoot) continue;
+                parent[firstRoot] = secondRoot;
+                selected++;
+                maximum = Math.Max(maximum, SquaredDistance(candidate.FirstPoint, candidate.SecondPoint));
+                if (selected == contourCount - 1) return true;
+            }
+            return false;
+        }
+
         /// <summary>
         /// 重新分析包含往返橋接段的路徑，並依目前最短網路規則重建橋接。
         /// </summary>
@@ -271,6 +329,120 @@ namespace Neurocle.Domain.Segmentation
             Path64[] holes = contours.Where(path => !ReferenceEquals(path, outer)).ToArray();
             if (holes.Any(path => Math.Sign(Clipper.Area(path)) == Math.Sign(Clipper.Area(outer)) || !IsPointInside(outer, path[0]))) throw new BridgeNetworkException();
             return BridgeHoles(outer, holes, MapBridgeSegments(bridges, new[] { outer }.Concat(holes).ToArray()));
+        }
+
+        /// <summary>
+        /// 驗證整體旋轉或縮放後的既有橋接網路；仍合法時保留點序，否則依目前規則重建。
+        /// </summary>
+        /// <param name="previous">轉換前的橋接多邊形。</param>
+        /// <param name="polygon">由同一整體座標轉換產生的橋接多邊形。</param>
+        /// <returns>合法且可保存的橋接路徑。</returns>
+        public static Path64 RebridgeTransformed(Path64 previous, Path64 polygon)
+        {
+            if (previous == null) throw new ArgumentNullException(nameof(previous));
+            if (polygon == null) throw new ArgumentNullException(nameof(polygon));
+            List<UndirectedEdge> previousBridges = FindBridgeSegments(previous);
+            List<UndirectedEdge> bridges = FindBridgeSegments(polygon);
+            if (previousBridges.Count == 0) return Rebridge(polygon);
+            if (bridges.Count != previousBridges.Count)
+            {
+                Paths64 transformedContours = ExtractTransformedBridgeContours(previous, polygon, previousBridges);
+                if (transformedContours == null || transformedContours.Count < 2) throw new BridgeNetworkException();
+                return RebuildBridgeContours(transformedContours);
+            }
+            Paths64 extracted = ExtractBridgeContours(polygon, bridges);
+            if (extracted == null || extracted.Count < 2) return Rebridge(polygon);
+            Path64 outer = extracted.OrderByDescending(path => Math.Abs(Clipper.Area(path))).First();
+            Path64[] holes = extracted.Where(path => !ReferenceEquals(path, outer)).ToArray();
+            if (Math.Sign(Clipper.Area(outer)) == 0 || holes.Any(path => Math.Sign(Clipper.Area(path)) == Math.Sign(Clipper.Area(outer)) || !IsPointInside(outer, path[0]))) return Rebridge(polygon);
+
+            Path64[] contours = new[] { outer }.Concat(holes).ToArray();
+            BridgeConnection[] connections = MapBridgeSegments(bridges, contours).ToArray();
+            if (connections.Length != bridges.Count || !IsLegalSpanningBridgeNetwork(connections, contours, outer, holes)) return Rebridge(polygon);
+            return new Path64(polygon);
+        }
+
+        private static Path64 RebuildBridgeContours(Paths64 contours)
+        {
+            Path64 outer = contours.OrderByDescending(path => Math.Abs(Clipper.Area(path))).First();
+            Path64[] holes = contours.Where(path => !ReferenceEquals(path, outer)).ToArray();
+            if (Math.Sign(Clipper.Area(outer)) == 0 || holes.Any(path => Math.Sign(Clipper.Area(path)) == Math.Sign(Clipper.Area(outer)) || !IsPointInside(outer, path[0]))) throw new BridgeNetworkException();
+            return BridgeHoles(outer, holes);
+        }
+
+        private static Paths64 ExtractTransformedBridgeContours(Path64 previous, Path64 transformed, IEnumerable<UndirectedEdge> previousBridges)
+        {
+            if (previous.Count != transformed.Count) return null;
+            var bridgeSet = new HashSet<UndirectedEdge>(previousBridges);
+            var boundaryEdges = new Dictionary<Point64, Point64>();
+            for (int index = 0; index < previous.Count; index++)
+            {
+                Point64 previousStart = previous[index], previousEnd = previous[(index + 1) % previous.Count];
+                if (bridgeSet.Contains(new UndirectedEdge(previousStart, previousEnd, out _))) continue;
+                Point64 start = transformed[index], end = transformed[(index + 1) % transformed.Count];
+                if (start == end) continue;
+                if (boundaryEdges.ContainsKey(start)) return null;
+                boundaryEdges.Add(start, end);
+            }
+            return ExtractContours(boundaryEdges, transformed.Count);
+        }
+
+        private static Paths64 ExtractContours(Dictionary<Point64, Point64> boundaryEdges, int maximumPointCount)
+        {
+            var contours = new Paths64();
+            while (boundaryEdges.Count > 0)
+            {
+                Point64 start = boundaryEdges.Keys.First(), current = start;
+                var contour = new Path64();
+                do
+                {
+                    Point64 next;
+                    if (!boundaryEdges.TryGetValue(current, out next)) return null;
+                    boundaryEdges.Remove(current);
+                    contour.Add(current);
+                    current = next;
+                    if (contour.Count > maximumPointCount) return null;
+                } while (current != start);
+                if (contour.Count < 3 || Math.Abs(Clipper.Area(contour)) == 0) return null;
+                contours.Add(contour);
+            }
+            return contours;
+        }
+
+        private static bool IsLegalSpanningBridgeNetwork(IReadOnlyList<BridgeConnection> connections, Path64[] contours, Path64 outer, Path64[] holes)
+        {
+            if (connections.Count != contours.Length - 1) return false;
+            var parent = Enumerable.Range(0, contours.Length).ToArray();
+            var segments = new List<Tuple<Point64, Point64>>();
+            foreach (BridgeConnection connection in connections)
+            {
+                int firstIndex = connection.FirstContourIndex, secondIndex = connection.SecondContourIndex;
+                Point64 firstPoint = connection.FirstPoint, secondPoint = connection.SecondPoint;
+                if (firstIndex < 0 || secondIndex < 0 || firstIndex >= contours.Length || secondIndex >= contours.Length || firstIndex == secondIndex) return false;
+                if (contours[secondIndex] == outer)
+                {
+                    int swapIndex = firstIndex; firstIndex = secondIndex; secondIndex = swapIndex;
+                    Point64 swapPoint = firstPoint; firstPoint = secondPoint; secondPoint = swapPoint;
+                }
+                Path64[] blockers = holes.Where(hole => hole != contours[firstIndex] && hole != contours[secondIndex]).ToArray();
+                if (!IsLegalBridge(firstPoint, secondPoint, contours[firstIndex], contours[secondIndex], outer, holes, blockers)) return false;
+                int firstRoot = FindRoot(parent, firstIndex), secondRoot = FindRoot(parent, secondIndex);
+                if (firstRoot == secondRoot) return false;
+                parent[firstRoot] = secondRoot;
+                segments.Add(Tuple.Create(firstPoint, secondPoint));
+            }
+            for (int first = 0; first < segments.Count; first++)
+            for (int second = first + 1; second < segments.Count; second++)
+            {
+                Point64 a = segments[first].Item1, b = segments[first].Item2, c = segments[second].Item1, d = segments[second].Item2;
+                if (!SegmentsIntersect(a, b, c, d)) continue;
+                Point64? shared = a == c || a == d ? a : b == c || b == d ? b : (Point64?)null;
+                if (!shared.HasValue) return false;
+                Point64 firstOther = a == shared.Value ? b : a;
+                Point64 secondOther = c == shared.Value ? d : c;
+                if (Cross(shared.Value, firstOther, secondOther) == 0) return false;
+            }
+            return connections.All(connection => FindRoot(parent, connection.FirstContourIndex) == FindRoot(parent, 0));
         }
 
         /// <summary>
@@ -365,24 +537,7 @@ namespace Neurocle.Domain.Segmentation
                 boundaryEdges.Add(start, end);
             }
 
-            var contours = new Paths64();
-            while (boundaryEdges.Count > 0)
-            {
-                Point64 start = boundaryEdges.Keys.First();
-                Point64 current = start;
-                var contour = new Path64();
-                do
-                {
-                    Point64 next;
-                    if (!boundaryEdges.TryGetValue(current, out next)) return null;
-                    boundaryEdges.Remove(current);
-                    contour.Add(current);
-                    current = next;
-                } while (current != start && contour.Count <= polygon.Count);
-                if (current != start || contour.Count < 3 || Math.Abs(Clipper.Area(contour)) == 0) return null;
-                contours.Add(contour);
-            }
-            return contours;
+            return ExtractContours(boundaryEdges, polygon.Count);
         }
 
         /// <summary>
@@ -1110,6 +1265,30 @@ namespace Neurocle.Domain.Segmentation
             public double First { get; private set; }
             // 取得第二條線段的比例。
             public double Second { get; private set; }
+        }
+
+        private sealed class ContourCandidate
+        {
+            public ContourCandidate(int firstIndex, int secondIndex, long lowerBound) { FirstIndex = firstIndex; SecondIndex = secondIndex; LowerBound = lowerBound; }
+            public int FirstIndex { get; private set; }
+            public int SecondIndex { get; private set; }
+            public long LowerBound { get; private set; }
+        }
+
+        // 保存輪廓外框，以常數時間取得任意兩輪廓距離的安全下界。
+        private sealed class ContourBounds
+        {
+            public ContourBounds(Path64 path)
+            {
+                MinimumX = path.Min(point => point.X);
+                MaximumX = path.Max(point => point.X);
+                MinimumY = path.Min(point => point.Y);
+                MaximumY = path.Max(point => point.Y);
+            }
+            public long MinimumX { get; private set; }
+            public long MaximumX { get; private set; }
+            public long MinimumY { get; private set; }
+            public long MaximumY { get; private set; }
         }
 
         // 表示候選橋接及其端點所屬輪廓，並保留既有連線標記。

@@ -10,6 +10,8 @@ namespace Neurocle.WinForms
         private System.Windows.Forms.ColumnHeader fileNameColumn;
         private System.Windows.Forms.ColumnHeader classColumn;
         private System.Windows.Forms.ColumnHeader annotationCountColumn;
+        private System.Windows.Forms.ColumnHeader datasetColumn;
+        private System.Windows.Forms.ColumnHeader retestColumn;
 
         private void InitializeComponent()
         {
@@ -19,6 +21,8 @@ namespace Neurocle.WinForms
             this.fileNameColumn = new System.Windows.Forms.ColumnHeader();
             this.classColumn = new System.Windows.Forms.ColumnHeader();
             this.annotationCountColumn = new System.Windows.Forms.ColumnHeader();
+            this.datasetColumn = new System.Windows.Forms.ColumnHeader();
+            this.retestColumn = new System.Windows.Forms.ColumnHeader();
             this.SuspendLayout();
             //
             // search
@@ -32,15 +36,14 @@ namespace Neurocle.WinForms
             // list
             //
             this.sequenceColumn.Text = Strings.ImageSequenceColumn;
-            this.sequenceColumn.Width = 80;
+            this.sequenceColumn.Width = 50;
             this.fileNameColumn.Text = Strings.ImageFileNameColumn;
-            this.fileNameColumn.Width = 260;
+            this.fileNameColumn.Width = 130;
             this.classColumn.Text = Strings.ImageClassColumn;
-            this.classColumn.Width = 180;
+            this.classColumn.Width = 85;
             this.list.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
             this.sequenceColumn,
-            this.fileNameColumn,
-            this.classColumn});
+            this.fileNameColumn});
             this.list.Dock = System.Windows.Forms.DockStyle.Fill;
             this.list.FullRowSelect = true;
             this.list.HideSelection = false;
@@ -55,7 +58,11 @@ namespace Neurocle.WinForms
             // annotationCountColumn
             //
             this.annotationCountColumn.Text = Strings.ImageAnnotationCountColumn;
-            this.annotationCountColumn.Width = 90;
+            this.annotationCountColumn.Width = 65;
+            this.datasetColumn.Text = Strings.DatasetColumn;
+            this.datasetColumn.Width = 80;
+            this.retestColumn.Text = Strings.DatasetRetestColumn;
+            this.retestColumn.Width = 60;
             //
             // ImageBrowserControl
             //

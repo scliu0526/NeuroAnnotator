@@ -5,7 +5,7 @@ namespace Neurocle.WinForms
     partial class DatasetAssignmentControl
     {
         private System.ComponentModel.IContainer components = null;
-        private System.Windows.Forms.ListView list;
+        private SelectionPreservingListView list;
         private System.Windows.Forms.ComboBox setFilter;
         private System.Windows.Forms.ComboBox classFilter;
         private System.Windows.Forms.ComboBox annotationFilter;
@@ -61,7 +61,7 @@ namespace Neurocle.WinForms
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
-            this.list = new System.Windows.Forms.ListView();
+            this.list = new SelectionPreservingListView();
             this.setFilter = new System.Windows.Forms.ComboBox();
             this.classFilter = new System.Windows.Forms.ComboBox();
             this.annotationFilter = new System.Windows.Forms.ComboBox();
@@ -395,6 +395,7 @@ namespace Neurocle.WinForms
             this.clearRetestItem,
             this.clearClassItem,
             this.clearSetItem});
+            this.datasetMenu.Opening += new System.ComponentModel.CancelEventHandler(this.DatasetMenu_Opening);
             //
             // clearRetestItem
             //
@@ -431,6 +432,7 @@ namespace Neurocle.WinForms
             this.list.VirtualMode = true;
             this.list.RetrieveVirtualItem += new System.Windows.Forms.RetrieveVirtualItemEventHandler(this.List_RetrieveVirtualItem);
             this.list.SelectedIndexChanged += new System.EventHandler(this.List_SelectedIndexChanged);
+            this.list.MouseUp += new System.Windows.Forms.MouseEventHandler(this.List_MouseUp);
             this.trainButton.Click += new System.EventHandler(this.TrainButton_Click);
             this.testButton.Click += new System.EventHandler(this.TestButton_Click);
             this.unassignedButton.Click += new System.EventHandler(this.UnassignedButton_Click);

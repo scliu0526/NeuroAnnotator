@@ -64,6 +64,8 @@
     <Compile Include="ImportJobQueueTests.cs" />
     <Compile Include="SegGeometryPrototypeTests.cs" />
     <Compile Include="SegCompletionPerformanceTests.cs" />
+    <Compile Include="AnnotationWorkflowBaselineTests.cs" />
+    <Compile Include="SingleInstanceGuardTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
