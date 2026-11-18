@@ -338,7 +338,7 @@ namespace Neurocle.Tests
                 Assert.AreEqual(9, tools.Controls.Count);
                 Assert.AreEqual("選取 V", tools.Controls[0].Text);
                 Assert.AreEqual("橡皮擦 E", tools.Controls[8].Text);
-                Assert.AreEqual(300, Field<ImageBrowserControl>(form, "imageBrowser").Width);
+                Assert.AreEqual(500, Field<ImageBrowserControl>(form, "imageBrowser").Width);
                 Assert.IsTrue(GetDescendants(form).OfType<CanvasScrollHost>().Count() == 2);
                 Button importImages = Field<Button>(form, "importImagesButton");
                 Button importFolder = Field<Button>(form, "importFolderButton");
@@ -1058,7 +1058,7 @@ namespace Neurocle.Tests
         [STATestMethod]
         public void Image_browser_shift_wheel_scrolls_horizontally_without_changing_selection_or_filter()
         {
-            using (var form = new Form { ClientSize = new Size(260, 230), ShowInTaskbar = false })
+            using (var form = new Form { ClientSize = new Size(150, 230), ShowInTaskbar = false })
             using (var browser = new ImageBrowserControl { Dock = DockStyle.Fill })
             {
                 form.Controls.Add(browser);
@@ -1318,6 +1318,7 @@ namespace Neurocle.Tests
                 store = ProjectStore.Create(projectPath);
                 ProjectImage image = store.ImportFiles(new[] { imagePath }).Single();
                 AnnotationSet set = store.CreateAnnotationSet("regions", AnnotationSetType.Seg);
+                AnnotationSet claSet = store.CreateAnnotationSet("classification", AnnotationSetType.Cla);
                 store.SetDatasetAssignments(set.Id, new[] { image.Id }, DatasetAssignmentStatus.Train);
                 store.SetRetest(set.Id, new[] { image.Id }, true);
                 store.AddSegRegion(set.Id, image.Id, store.GetClasses(set.Id).Single().Id, SegRegionType.Rect, 1, 1, 3, 3);
@@ -1340,11 +1341,15 @@ namespace Neurocle.Tests
 
                     pages.SelectedTab = Field<TabPage>(form, "annotationPage");
                     System.Windows.Forms.Application.DoEvents();
-                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
                     Assert.IsTrue(form.ImageBrowser.RetestContextMenuEnabled);
+                    Assert.IsTrue(imageList.Columns.Cast<ColumnHeader>().Sum(column => column.Width) + SystemInformation.VerticalScrollBarWidth <= imageList.ClientSize.Width,
+                        "All approved left-list columns must remain visible without horizontal scrolling when the vertical scrollbar is present.");
 
                     pages.SelectedTab = Field<TabPage>(form, "datasetPage");
                     System.Windows.Forms.Application.DoEvents();
+                    CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    Assert.IsTrue(form.ImageBrowser.RetestContextMenuEnabled);
                     ListView datasetList = Field<ListView>(form.DatasetAssignments, "list");
                     Assert.IsTrue(datasetList.Columns.Cast<ColumnHeader>().Any(column => column.Text == "資料集"));
                     Assert.IsTrue(datasetList.Columns.Cast<ColumnHeader>().Any(column => column.Text == "Retest"));
@@ -1354,6 +1359,19 @@ namespace Neurocle.Tests
                     System.Windows.Forms.Application.DoEvents();
                     CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "標註數量", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
                     Assert.IsTrue(form.ImageBrowser.RetestContextMenuEnabled);
+
+                    annotationSets.SelectedItem = AnnotationSet(annotationSets, claSet.Id);
+                    foreach (TabPage page in new[]
+                    {
+                        Field<TabPage>(form, "annotationPage"),
+                        Field<TabPage>(form, "datasetPage"),
+                        Field<TabPage>(form, "exportPage")
+                    })
+                    {
+                        pages.SelectedTab = page;
+                        System.Windows.Forms.Application.DoEvents();
+                        CollectionAssert.AreEqual(new[] { "序號", "檔名", "類別", "資料集", "Retest" }, imageList.Columns.Cast<ColumnHeader>().Select(column => column.Text).ToArray());
+                    }
                 }
             }
             finally
@@ -1697,12 +1715,16 @@ namespace Neurocle.Tests
                     form.PerformLayout();
                     TabPage annotations = form.Controls.OfType<TabControl>().Single().TabPages[1];
                     Control sidebar = Field<Control>(form, "annotationSidebar");
+                    ImageBrowserControl imageBrowser = Field<ImageBrowserControl>(form, "imageBrowser");
                     FlowLayoutPanel header = annotations.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.Dock == DockStyle.Top);
 
+                    Assert.AreEqual(500, imageBrowser.Width, "Image browser width must stay in device pixels at {0:P0} DPI.", scale);
                     Assert.IsTrue(header.Bottom <= annotations.ClientSize.Height, "Header exceeds page height at {0:P0} DPI.", scale);
                     Assert.IsTrue(sidebar.Right <= annotations.ClientSize.Width, "Sidebar exceeds page width at {0:P0} DPI.", scale);
                     Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Top >= header.Bottom, "Canvas overlaps header at {0:P0} DPI.", scale);
-                    Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Right <= sidebar.Left, "Canvas overlaps sidebar at {0:P0} DPI.", scale);
+                    Assert.IsTrue(CanvasHost(form.AnnotationCanvas).Right <= sidebar.Left,
+                        "Canvas overlaps sidebar at {0:P0} DPI (image browser width {1}, canvas right {2}, sidebar left {3}, page width {4}).",
+                        scale, imageBrowser.Width, CanvasHost(form.AnnotationCanvas).Right, sidebar.Left, annotations.ClientSize.Width);
                 }
             }
         }

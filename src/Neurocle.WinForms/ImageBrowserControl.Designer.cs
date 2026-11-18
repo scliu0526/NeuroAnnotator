@@ -36,11 +36,11 @@ namespace Neurocle.WinForms
             // list
             //
             this.sequenceColumn.Text = Strings.ImageSequenceColumn;
-            this.sequenceColumn.Width = 80;
+            this.sequenceColumn.Width = 50;
             this.fileNameColumn.Text = Strings.ImageFileNameColumn;
-            this.fileNameColumn.Width = 260;
+            this.fileNameColumn.Width = 130;
             this.classColumn.Text = Strings.ImageClassColumn;
-            this.classColumn.Width = 180;
+            this.classColumn.Width = 85;
             this.list.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
             this.sequenceColumn,
             this.fileNameColumn});
@@ -58,11 +58,11 @@ namespace Neurocle.WinForms
             // annotationCountColumn
             //
             this.annotationCountColumn.Text = Strings.ImageAnnotationCountColumn;
-            this.annotationCountColumn.Width = 90;
+            this.annotationCountColumn.Width = 65;
             this.datasetColumn.Text = Strings.DatasetColumn;
-            this.datasetColumn.Width = 100;
+            this.datasetColumn.Width = 80;
             this.retestColumn.Text = Strings.DatasetRetestColumn;
-            this.retestColumn.Width = 80;
+            this.retestColumn.Width = 60;
             //
             // ImageBrowserControl
             //

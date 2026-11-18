@@ -18,6 +18,7 @@ namespace Neurocle.WinForms
     // 管理專案操作、標註工作流程及主視窗頁面。
     public sealed partial class MainForm : Form
     {
+        private const int ImageBrowserWidth = 500;
         // 提供建立、開啟、儲存與替換專案的生命週期操作。
         private readonly IProjectLifecycle projectLifecycle;
         // 保存主視窗共用的診斷事件記錄器。
@@ -740,8 +741,15 @@ namespace Neurocle.WinForms
             }
             canvas.DiscardUnfinishedShape();
             if (pages.SelectedTab == datasetPage) RefreshDatasetAssignments();
-            imageBrowser.RetestContextMenuEnabled = pages.SelectedTab == annotationPage || pages.SelectedTab == exportPage;
+            imageBrowser.RetestContextMenuEnabled = pages.SelectedTab == annotationPage
+                || pages.SelectedTab == datasetPage
+                || pages.SelectedTab == exportPage;
             if (project != null) RefreshImageBrowser();
+        }
+
+        private void ImageBrowser_Resize(object sender, EventArgs args)
+        {
+            if (imageBrowser.Width != ImageBrowserWidth) imageBrowser.Width = ImageBrowserWidth;
         }
 
         /// <summary>
@@ -1512,9 +1520,12 @@ namespace Neurocle.WinForms
                 ImageAnnotationSummary summary;
                 summaries.TryGetValue(image.Id, out summary);
                 string[] classNames = (summary == null ? new string[0] : summary.ClassIds).Where(classes.ContainsKey).Select(classId => classes[classId]).ToArray();
-                bool showClass = pages.SelectedTab == annotationPage || pages.SelectedTab == exportPage;
+                bool showWorkflowSummary = pages.SelectedTab == annotationPage
+                    || pages.SelectedTab == datasetPage
+                    || pages.SelectedTab == exportPage;
+                bool showClass = showWorkflowSummary;
                 bool showCount = showClass && selected.Type != AnnotationSetType.Cla;
-                bool showDataset = pages.SelectedTab == imagesPage || pages.SelectedTab == exportPage;
+                bool showDataset = true;
                 DatasetAssignment assignment = assignments[image.Id];
                 return new ImageListRow(image, classNames, summary == null ? 0 : summary.AnnotationCount, showClass, showCount,
                     assignment.Status, assignment.Retest, showDataset, showDataset);
